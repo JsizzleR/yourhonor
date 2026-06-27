@@ -1,0 +1,44 @@
+Package: yourhonor
+Title: Calibrate Large Language Model Judges
+Version: 0.0.0.9000
+Authors@R:
+    person("Jay", "Clark", , "placeholder@example.com", role = c("aut", "cre"))
+Description: Treat a large language model used as an evaluator (an
+    "LLM-as-judge") as a measurement instrument and report its
+    psychometric properties. Given a judge and a set of human-labeled
+    examples, 'yourhonor' reports chance-corrected agreement between the
+    judge and humans (Cohen's kappa, Krippendorff's alpha and Gwet's
+    AC1) with bootstrap confidence intervals, the human-human agreement
+    ceiling when several raters are supplied, a confusion matrix of where
+    they diverge, length-matched paired bias probes (verbosity,
+    self-preference and bandwagon, plus position for pairwise judges) and
+    chance-corrected test-retest stability across repeated runs. It
+    is designed to complement the 'ellmer' and 'vitals' evaluation stack:
+    it does not run evaluations, it measures the judge that scores them.
+License: MIT + file LICENSE
+URL: https://github.com/JsizzleR/yourhonor
+BugReports: https://github.com/JsizzleR/yourhonor/issues
+Depends:
+    R (>= 4.1.0)
+Imports:
+    cli,
+    irrCAC,
+    rlang (>= 1.1.0),
+    stats,
+    tibble,
+    vctrs,
+    withr
+Suggests:
+    ellmer,
+    ggplot2,
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    vitals
+VignetteBuilder:
+    knitr
+Config/testthat/edition: 3
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.0.0

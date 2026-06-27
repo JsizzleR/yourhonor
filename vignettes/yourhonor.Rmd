@@ -1,0 +1,177 @@
+---
+title: "Is my judge any good?"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Is my judge any good?}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(1)
+```
+
+```{r setup}
+library(yourhonor)
+```
+
+When you score model output with an LLM-as-judge, you inherit a question most
+eval tooling quietly skips: **is the judge any good?** A judge that disagrees
+with humans, drifts run to run, or quietly rewards longer answers will hand you
+confident numbers that mean nothing. `yourhonor` treats the judge as a measurement
+instrument and reports its psychometrics, so you can say *"this judge agrees with
+humans at AC1 = 0.81, shows no significant position bias, and flips on 4% of
+re-runs"* instead of *"we used an LLM judge"*.
+
+`yourhonor` does not run evaluations — `vitals` does that. It measures the judge
+that `vitals` (or any other harness) uses to score them.
+
+## The judge contract
+
+Everything in `yourhonor` talks to a judge through one small contract: a function
+that takes a data frame of items and returns one label per row.
+
+```{r}
+# A toy judge for the vignette: it agrees with the reference answer most of the
+# time but is a little lenient. In real use this wraps an ellmer chat (see below).
+toy_judge <- function(data) {
+  ref <- data$reference
+  ifelse(runif(nrow(data)) < 0.85, ref,
+         ifelse(ref == "P", "C", ref))
+}
+```
+
+We also need a **gold set**: items a human has labeled. `yourhonor` ships a small
+synthetic one (`support_gold`); here we build an inline example so the vignette
+is self-contained.
+
+```{r}
+gold <- tibble::tibble(
+  input = paste("Question/answer pair", 1:60),
+  target = "Does the answer resolve the question?",
+  reference = sample(c("C", "P", "I"), 60, replace = TRUE, prob = c(.6, .25, .15)),
+  human_label = NA_character_
+)
+# treat the reference as the human's verdict for this demo
+gold$human_label <- gold$reference
+```
+
+## Calibrate against humans
+
+`calibrate_judge()` runs the judge over the gold set and reports chance-corrected
+agreement with humans, with bootstrap confidence intervals.
+
+```{r}
+cal <- calibrate_judge(gold, toy_judge, n_boot = 300, seed = 1)
+cal
+```
+
+The coefficients are reported together on purpose. Cohen's and Fleiss' kappa are
+the familiar baseline; Gwet's AC1 is robust when one label dominates (as
+"Correct" does here); Krippendorff's alpha generalizes across scales. When AC1
+sits noticeably above kappa, your labels are skewed and kappa is *understating*
+real agreement.
+
+```{r}
+agreement(cal)
+```
+
+## See *where* it disagrees
+
+An aggregate number hides the shape of the error. `confusion()` shows whether a
+judge fails good answers or over-credits weak ones.
+
+```{r}
+confusion(cal, normalize = "row")
+```
+
+```{r, eval = requireNamespace("ggplot2", quietly = TRUE), fig.width = 5, fig.height = 4}
+plot_confusion(cal)
+```
+
+## Against more than one human
+
+If several people labeled the gold set, pass every rater column. `yourhonor`
+compares the judge to the human *consensus* (per-item majority) and reports the
+human-human **ceiling** — the judge can't be expected to agree with people more
+than they agree with each other.
+
+```{r}
+multi <- tibble::tibble(
+  human_label   = c("C", "C", "P", "I", "C", "P", "I", "C"),
+  human_label_2 = c("C", "P", "P", "I", "C", "C", "I", "C"),
+  human_label_3 = c("C", "C", "P", "P", "C", "P", "I", "C"),
+  judge_label   = c("C", "C", "C", "I", "C", "P", "P", "C")
+)
+calibrate_judge(
+  multi,
+  human_cols = c("human_label", "human_label_2", "human_label_3"),
+  n_boot = 200, seed = 1
+)
+```
+
+## Probe for bias
+
+`probe_bias()` perturbs each item in a way a fair judge should ignore, then
+measures how often — and in which direction — the verdict flips. Here we use a
+deliberately length-sensitive judge to show verbosity bias being caught.
+
+```{r}
+length_judge <- function(data) ifelse(nchar(data$input) > 25, "C", "P")
+probe_bias(gold, length_judge,
+           probes = c("verbosity", "self_preference", "bandwagon"), seed = 1)
+```
+
+A significant flip rate in the `favors_perturbed` direction on the `verbosity`
+probe is the signal that your judge is rewarding length, not quality.
+
+## Check reproducibility
+
+A judge whose verdicts wobble between identical runs is not yet an instrument.
+`test_retest()` quantifies that wobble.
+
+```{r}
+noisy_judge <- function(data) {
+  ifelse(runif(nrow(data)) < 0.9, data$reference, "C")
+}
+test_retest(gold, noisy_judge, n_runs = 6, seed = 1)
+```
+
+## One-paragraph verdict
+
+`report()` rolls calibration, bias and stability into a single call you can paste
+beside an eval or into a README.
+
+```{r}
+bias <- probe_bias(gold, length_judge, probes = "verbosity", seed = 1)
+stab <- test_retest(gold, noisy_judge, n_runs = 6, seed = 1)
+report(cal, bias = bias, stability = stab, output = "console")
+```
+
+## Wiring a real judge (ellmer / vitals)
+
+In production your judge is a model. The contract is the same: wrap the call in a
+function that returns one label per row. This chunk is not run here because it
+needs an API key.
+
+```{r, eval = FALSE}
+library(ellmer)
+
+# A judge backed by a real model. Swap in your own grading prompt.
+model_judge <- function(data) {
+  chat <- chat_anthropic(
+    system_prompt = "Grade the answer as exactly one of C, P, or I.",
+    model = "claude-sonnet-4-6"
+  )
+  vapply(seq_len(nrow(data)), function(i) {
+    chat$clone()$chat(paste0(data$target[i], "\n\n", data$input[i]))
+  }, character(1))
+}
+
+calibrate_judge(support_gold, model_judge, seed = 1)
+```
+
+If you already grade with a `vitals` model-graded scorer, wrap that scorer the
+same way — call it inside the judge function and return its C/P/I grades — and
+`yourhonor` will calibrate it without changing your eval.

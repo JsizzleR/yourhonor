@@ -1,0 +1,22 @@
+url: https://github.com/JsizzleR/yourhonor
+
+template:
+  bootstrap: 5
+
+reference:
+- title: Calibrate a judge
+  contents:
+  - calibrate_judge
+  - agreement
+  - confusion
+- title: Reliability probes
+  contents:
+  - probe_bias
+  - test_retest
+- title: Report and visualise
+  contents:
+  - report
+  - plot_confusion
+- title: Data
+  contents:
+  - support_gold
