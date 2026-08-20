@@ -2,7 +2,7 @@ Package: yourhonor
 Title: Calibrate Large Language Model Judges
 Version: 0.0.0.9000
 Authors@R:
-    person("Jay", "Clark", , "placeholder@example.com", role = c("aut", "cre"))
+    person("Jay", "Clark", , "27960665+JsizzleR@users.noreply.github.com", role = c("aut", "cre"))
 Description: Treat a large language model used as an evaluator (an
     "LLM-as-judge") as a measurement instrument and report its
     psychometric properties. Given a judge and a set of human-labeled
