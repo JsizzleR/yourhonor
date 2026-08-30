@@ -2,39 +2,43 @@
 % Please edit documentation in R/report.R
 \name{report}
 \alias{report}
-\title{One-paragraph "is my judge usable?" verdict}
+\title{Report judge evidence or assess an explicit policy}
 \usage{
-report(x, bias = NULL, stability = NULL, output = c("console", "md"))
+report(
+  x,
+  bias = NULL,
+  stability = NULL,
+  policy = NULL,
+  output = c("console", "md")
+)
 }
 \arguments{
-\item{x}{An \code{yourhonor_calibration} object from \code{\link[=calibrate_judge]{calibrate_judge()}}.}
+\item{x}{A \code{yourhonor_calibration} object.}
 
-\item{bias}{Optional \code{\link[=probe_bias]{probe_bias()}} result.}
+\item{bias}{Optional result from \code{\link[=probe_bias]{probe_bias()}} or \code{\link[=probe_position]{probe_position()}}.}
 
-\item{stability}{Optional \code{\link[=test_retest]{test_retest()}} result.}
+\item{stability}{Optional result from \code{\link[=test_retest]{test_retest()}}.}
 
-\item{output}{\code{"console"} to print a formatted summary, or \code{"md"} to return a
-Markdown string.}
+\item{policy}{Optional policy from \code{\link[=acceptance_policy]{acceptance_policy()}}.}
+
+\item{output}{\code{"console"} or \code{"md"}.}
 }
 \value{
-For \code{output = "md"}, an \code{yourhonor_report} (a Markdown string) returned
-invisibly. For \code{"console"}, \code{x} invisibly, after printing.
+For Markdown, a \code{yourhonor_report} character vector with \code{decision}
+and \code{checks} attributes. Console output returns \code{x} invisibly.
 }
 \description{
-Summarises a calibration (and, optionally, bias and stability results) into a
-compact verdict you can drop next to a \code{vitals} eval or into a README: the
-headline agreement coefficient with its interval, any significant biases, the
-retest flip rate, and a single overall call.
-}
-\details{
-The overall call is intentionally conservative: a judge is only \code{"USE"} when
-agreement is strong, no probed bias is significant, and re-runs are stable.
+Without \code{policy}, this function renders descriptive evidence and returns the
+decision \code{"NOT_ASSESSED"}. It never infers that missing bias or stability
+evidence passed. With an \code{\link[=acceptance_policy]{acceptance_policy()}}, every criterion is rendered as
+\code{PASS}, \code{FAIL}, \code{NOT_ASSESSED}, or \code{INDETERMINATE}.
 }
 \examples{
 gold <- tibble::tibble(
   human_label = c("C", "C", "P", "I", "C", "P", "I", "C"),
   judge_label = c("C", "C", "C", "I", "C", "P", "P", "C")
 )
-cal <- calibrate_judge(gold, n_boot = 200, seed = 1)
+cal <- calibrate_judge(gold, label_levels = c("I", "P", "C"),
+                       n_boot = 200, seed = 1)
 report(cal, output = "md")
 }

@@ -1,33 +1,45 @@
 #' Judge-versus-human confusion matrix
 #'
-#' Shows *where* a judge and humans disagree, not just how much. Treating the
-#' human labels as truth, it returns the tidy contingency of human label by
-#' judge label, and attaches per-class precision and recall of the judge so you
-#' can see, for example, that a judge over-awards partial credit rather than
-#' failing good answers.
+#' Shows where a judge and humans disagree. Label order is preserved from
+#' `label_levels` rather than sorted alphabetically.
 #'
-#' @param x An `yourhonor_calibration` object or a two-column ratings data frame
-#'   (see [agreement()]).
-#' @param normalize One of `"none"` (proportions of the whole table), `"row"`
-#'   (within each human label) or `"col"` (within each judge label).
+#' @param x A `yourhonor_calibration` object or a two-column ratings data frame.
+#' @param normalize One of `"none"`, `"row"`, or `"col"`.
+#' @param label_levels Complete label universe in display order. A calibration
+#'   object's stored levels are used by default.
+#' @param conf_level Confidence level for exact per-class binomial intervals.
 #'
-#' @return A tibble with columns `human_label`, `judge_label`, `n` and `prop`.
-#'   Per-class precision and recall are attached as the `"metrics"` attribute.
-#'
+#' @return A tibble with `human_label`, `judge_label`, `n`, and `prop`.
+#'   Per-class metrics remain attached for compatibility and are also available
+#'   through [confusion_metrics()].
 #' @export
 #' @examples
 #' ratings <- data.frame(
-#'   human = c("C", "C", "P", "I", "C", "P", "I", "C"),
-#'   judge = c("C", "C", "C", "I", "C", "P", "P", "C")
+#'   human = c("C", "C", "P", "I"),
+#'   judge = c("C", "P", "P", "I")
 #' )
-#' confusion(ratings, normalize = "row")
-confusion <- function(x, normalize = c("none", "row", "col")) {
+#' confusion(ratings, normalize = "row", label_levels = c("I", "P", "C"))
+confusion <- function(x,
+                      normalize = c("none", "row", "col"),
+                      label_levels = NULL,
+                      conf_level = 0.95) {
   normalize <- rlang::arg_match(normalize)
+  conf_level <- check_probability(conf_level, "conf_level", open = TRUE)
+  if (inherits(x, "yourhonor_calibration") && is.null(label_levels)) {
+    label_levels <- x$label_levels
+  }
   ratings <- as_ratings(x)
-  levels <- sort(unique(c(ratings[[1]], ratings[[2]])))
-  human <- factor(ratings[[1]], levels = levels)
-  judge <- factor(ratings[[2]], levels = levels)
+  if (ncol(ratings) != 2L) {
+    cli::cli_abort("{.fn confusion} requires exactly two rating columns.")
+  }
+  label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE)
+  ratings <- ratings[stats::complete.cases(ratings), , drop = FALSE]
+  if (nrow(ratings) == 0L) {
+    cli::cli_abort("No complete judge-human pairs are available for a confusion matrix.")
+  }
 
+  human <- factor(as.character(ratings[[1]]), levels = label_levels)
+  judge <- factor(as.character(ratings[[2]]), levels = label_levels)
   tab <- table(human_label = human, judge_label = judge)
   df <- as.data.frame(tab, stringsAsFactors = FALSE)
   names(df)[names(df) == "Freq"] <- "n"
@@ -43,18 +55,51 @@ confusion <- function(x, normalize = c("none", "row", "col")) {
   df$prop <- prop
 
   out <- tibble::as_tibble(df)
-  attr(out, "metrics") <- class_metrics(tab)
+  attr(out, "metrics") <- class_metrics(tab, conf_level)
   out
 }
 
-# Per-class precision and recall, humans as truth.
-class_metrics <- function(tab) {
+#' Per-class judge metrics
+#'
+#' Returns class support, predicted support, precision, and recall with humans
+#' treated as the reference. Unlike a hidden tibble attribute, this accessor is
+#' stable across ordinary serialization and reporting workflows.
+#'
+#' @param x A `yourhonor_calibration` object, a confusion tibble returned by
+#'   [confusion()], or a two-column ratings data frame.
+#' @param label_levels Optional complete label universe in display order.
+#' @return A tibble with one row per label.
+#' @export
+confusion_metrics <- function(x, label_levels = NULL) {
+  if (inherits(x, "yourhonor_calibration")) {
+    return(x$confusion_metrics)
+  }
+  metrics <- attr(x, "metrics", exact = TRUE)
+  if (!is.null(metrics)) return(metrics)
+  attr(confusion(x, label_levels = label_levels), "metrics", exact = TRUE)
+}
+
+class_metrics <- function(tab, conf_level = 0.95) {
   hit <- diag(tab)
-  recall <- ifelse(rowSums(tab) > 0, hit / rowSums(tab), NA_real_)
-  precision <- ifelse(colSums(tab) > 0, hit / colSums(tab), NA_real_)
+  support <- rowSums(tab)
+  predicted <- colSums(tab)
+  recall <- ifelse(support > 0, hit / support, NA_real_)
+  precision <- ifelse(predicted > 0, hit / predicted, NA_real_)
+  recall_ci <- t(vapply(seq_along(hit), function(i) {
+    exact_binom_interval(hit[[i]], support[[i]], conf_level)
+  }, numeric(2)))
+  precision_ci <- t(vapply(seq_along(hit), function(i) {
+    exact_binom_interval(hit[[i]], predicted[[i]], conf_level)
+  }, numeric(2)))
   tibble::tibble(
     label = rownames(tab),
+    support = as.integer(support),
+    predicted = as.integer(predicted),
     precision = as.numeric(precision),
-    recall = as.numeric(recall)
+    precision_conf_low = precision_ci[, 1],
+    precision_conf_high = precision_ci[, 2],
+    recall = as.numeric(recall),
+    recall_conf_low = recall_ci[, 1],
+    recall_conf_high = recall_ci[, 2]
   )
 }

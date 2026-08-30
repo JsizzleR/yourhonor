@@ -2,78 +2,64 @@
 % Please edit documentation in R/bias.R
 \name{probe_bias}
 \alias{probe_bias}
-\title{Probe a judge for paired bias}
+\title{Probe a pointwise judge for paired bias}
 \usage{
 probe_bias(
   data,
   judge,
+  input_cols = "input",
+  id_col = NULL,
   probes = c("verbosity", "self_preference", "bandwagon"),
   ordered_levels = c("I", "P", "C"),
   n = NULL,
   seed = NULL,
   flip_threshold = 0.1,
   alpha = 0.05,
-  p_adjust = c("holm", "none", "BH", "bonferroni")
+  p_adjust = c("holm", "none", "BH", "bonferroni"),
+  conf_level = 0.95,
+  audit_id = NULL
 )
 }
 \arguments{
-\item{data}{A data frame with at least an \code{input} column to perturb. Data
-leads so a tibble can be piped in.}
+\item{data}{A data frame with an \code{input} column.}
 
-\item{judge}{A judge function \code{(data) -> character}, as in \code{\link[=calibrate_judge]{calibrate_judge()}}.
-A function is required (not pre-graded labels) because the perturbed inputs
-must actually be re-graded.}
+\item{judge}{A judge function.}
 
-\item{probes}{Character vector; any of \code{"verbosity"}, \code{"self_preference"},
-\code{"bandwagon"}, \code{"position"}. Defaults to the three that are valid for a
-pointwise grader.}
+\item{input_cols}{Columns visible to \code{judge}. The default exposes only
+\code{input}; all other columns are redacted.}
 
-\item{ordered_levels}{The label scale from worst to best, used to score the
-direction of a flip. Defaults to \code{c("I", "P", "C")}.}
+\item{id_col}{Optional unique source identifier. It is validated but is not
+exposed to the judge unless explicitly included in \code{input_cols}.}
 
-\item{n}{Optional number of items to sample (for speed); \code{NULL} uses all.}
+\item{probes}{Any of \code{"verbosity"}, \code{"self_preference"}, and \code{"bandwagon"}.}
 
-\item{seed}{Optional integer seed; the caller's random state is restored.}
+\item{ordered_levels}{Label scale from worst to best.}
 
-\item{flip_threshold}{Minimum flip rate, alongside \code{p_value_adj < alpha}, for a
-probe to be flagged as \code{"BIAS"} rather than \code{"ok"}.}
+\item{n}{Optional positive number of sampled items.}
 
-\item{alpha}{Significance level for the per-probe sign test.}
+\item{seed}{Optional R random seed.}
 
-\item{p_adjust}{Multiple-comparison correction across probes, passed to
-\code{\link[stats:p.adjust]{stats::p.adjust()}}. One of \code{"holm"} (default), \code{"none"}, \code{"BH"},
-\code{"bonferroni"}.}
+\item{flip_threshold}{Minimum directional flip rate used for a \code{"BIAS"} flag.}
+
+\item{alpha}{Significance level.}
+
+\item{p_adjust}{Multiple-comparison correction.}
+
+\item{conf_level}{Confidence level for the exact flip-rate interval.}
+
+\item{audit_id}{Optional evidence-bundle identifier. Use the same value as
+the related calibration and stability run.}
 }
 \value{
-A \code{yourhonor_bias} tibble with one row per probe: \code{flip_rate},
-\code{direction}, \code{statistic}, \code{n_discordant}, \code{p_value}, \code{p_value_adj} and
-\code{verdict} (\code{NA} when no item could be scored).
+A \code{yourhonor_bias} tibble. \code{"no_signal"} means the probe did not
+detect directional bias; it is not proof that the judge is unbiased.
 }
 \description{
-Re-grades each example after a controlled change that a fair judge should
-ignore, and measures how often the verdict flips and in which direction.
-Because each item is its own control, the test is paired and the direction is
-tested with an exact binomial sign test on the discordant items. With several
-probes the p-values are corrected for multiple comparisons (\code{p_adjust}).
-}
-\details{
-Every probe is built as a length-matched control/treatment pair, so a flip
-reflects the construct being probed and not a confound with answer length:
-\describe{
-\item{\code{verbosity}}{Pads the answer with neutral filler. Here the change
-deliberately \emph{does} alter length; that is the construct.}
-\item{\code{self_preference}}{"written by self" vs "written by peer" -- the two
-prefixes are the same length, so only the authorship claim varies.}
-\item{\code{bandwagon}}{"most reviewers said this looks right" vs "...wrong" --
-equal length, so only the claimed crowd verdict varies. A judge that
-follows the crowd drifts toward the claimed verdict.}
-\item{\code{position}}{Swaps "Answer A" / "Answer B" segments. Only meaningful for
-pairwise inputs; for a pointwise grader with no A/B structure it is a no-op
-(flip rate 0) and \code{probe_bias()} says so.}
-}
+Grades length-matched control/treatment pairs in one randomized batch and
+measures directional label movement. Position bias is intentionally handled
+by \code{\link[=probe_position]{probe_position()}}, which uses structured candidates and stable identities.
 }
 \examples{
-# a judge that rewards longer answers -> verbosity bias
 length_judge <- function(d) ifelse(nchar(d$input) > 40, "C", "P")
 data <- tibble::tibble(input = paste("answer", 1:20))
 probe_bias(data, length_judge, probes = "verbosity", seed = 1)

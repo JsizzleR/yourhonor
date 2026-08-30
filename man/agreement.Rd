@@ -9,58 +9,60 @@ agreement(
   coefficients = yourhonor_coefficients,
   conf_level = 0.95,
   n_boot = 2000,
-  seed = NULL
+  seed = NULL,
+  label_levels = NULL,
+  weights = c("unweighted", "linear", "quadratic", "ordinal")
 )
 }
 \arguments{
-\item{x}{Either an \code{yourhonor_calibration} object (in which case the stored
-agreement table is returned) or a two-column data frame / tibble of
+\item{x}{Either a \code{yourhonor_calibration} object or a data frame / tibble of
 ratings. If columns named \code{human} and \code{judge} are present they are used;
-otherwise the first two columns are taken as the two raters. Rows with a
-missing label in either column are dropped with a warning.}
+otherwise all supplied columns are treated as raters. Rows with fewer than
+two observed ratings do not contribute, while partially observed
+multi-rater rows remain available to coefficients that support them.}
 
-\item{coefficients}{Character vector of coefficients to compute. Any of
-\code{"cohen_kappa"}, \code{"krippendorff_alpha"}, \code{"gwet_ac1"}.}
+\item{coefficients}{Character vector containing any of \code{"cohen_kappa"},
+\code{"krippendorff_alpha"}, \code{"gwet_ac1"}, and \code{"gwet_ac2"}. AC1 is
+unweighted; AC2 is its weighted counterpart.}
 
-\item{conf_level}{Width of the bootstrap confidence interval.}
+\item{conf_level}{Confidence level for the bootstrap interval.}
 
-\item{n_boot}{Number of bootstrap resamples used for the interval.}
+\item{n_boot}{Positive number of bootstrap resamples.}
 
-\item{seed}{Optional integer seed for reproducible bootstrap intervals. The
-caller's random state is restored on exit.}
+\item{seed}{Optional integer seed. The caller's random state is restored.}
+
+\item{label_levels}{Complete label universe in its intended order. Supplying
+this is strongly recommended for ordinal scales and rare classes.}
+
+\item{weights}{Agreement weights. \code{"unweighted"} treats labels as nominal;
+\code{"linear"}, \code{"quadratic"}, or \code{"ordinal"} use the order in
+\code{label_levels}.}
 }
 \value{
-A tibble with one row per coefficient and columns \code{coefficient},
-\code{estimate}, \code{conf_low}, \code{conf_high}, \code{se}, \code{n_items}, \code{n_raters} and a
-plain-language \code{interpretation}.
+A tibble with point estimates, intervals, sample sizes, effective
+bootstrap counts, an explicit computation \code{status}, and a
+\code{boundary_degenerate} flag. A perfect finite sample can produce a
+zero-width nonparametric bootstrap; that interval is flagged unreliable
+rather than treated as proof of population-perfect agreement.
 }
 \description{
-Reports how closely a set of judge labels agrees with human labels, using
-the agreement coefficients appropriate for categorical ratings. All
-coefficients are chance-corrected; confidence intervals come from a
-nonparametric bootstrap over items so that every coefficient is reported on
-the same footing.
+Reports how closely a set of judge labels agrees with human labels. Confidence
+intervals use a nonparametric item bootstrap. Declared label levels are held
+fixed across bootstrap draws so rare categories do not silently disappear from
+the estimand.
 }
 \details{
-The coefficients are reported together because they disagree in informative
-ways. Cohen's kappa is the familiar baseline but is unstable when one label
-dominates (the "high-agreement, low-kappa" paradox). Gwet's AC1 is robust to
-that prevalence problem, and Krippendorff's alpha generalizes across scales
-and tolerates missing data. When AC1 sits well above kappa, your labels are
-skewed and kappa is understating real agreement.
-
-\code{cohen_kappa} is computed with \code{irrCAC::conger.kappa.raw()}, which
-equals Cohen's kappa for two raters. The Landis & Koch interpretation bands
-are a kappa-derived heuristic and are reused for all coefficients only as a
-rough guide; alpha and AC1 have their own conventions.
+Agreement is descriptive evidence, not a universal fitness gate. In
+particular, a high aggregate coefficient can coexist with zero recall on a
+rare, important class. Use \code{\link[=report]{report()}} with an explicit
+\code{\link[=acceptance_policy]{acceptance_policy()}} and inspect \code{\link[=confusion_metrics]{confusion_metrics()}} before making a
+deployment decision.
 }
 \examples{
 ratings <- data.frame(
   human = c("C", "C", "P", "I", "C", "P", "I", "C"),
   judge = c("C", "C", "C", "I", "C", "P", "P", "C")
 )
-agreement(ratings, n_boot = 200, seed = 1)
-}
-\seealso{
-\code{\link[=calibrate_judge]{calibrate_judge()}} which calls this on a judge and a gold set.
+agreement(ratings, n_boot = 200, seed = 1,
+          label_levels = c("I", "P", "C"), weights = "ordinal")
 }

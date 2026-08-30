@@ -9,13 +9,22 @@ reference:
   - calibrate_judge
   - agreement
   - confusion
+  - confusion_metrics
 - title: Reliability probes
   contents:
   - probe_bias
+  - probe_position
+  - combine_bias
   - test_retest
-- title: Report and visualise
+  - stability_vitals
+- title: Decisions and artifacts
   contents:
+  - acceptance_policy
   - report
+  - write_audit
+  - audit_vitals
+- title: Visualise
+  contents:
   - plot_confusion
 - title: Data
   contents:

@@ -4,45 +4,50 @@
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 <!-- badges: end -->
 
-**Your honor depends on the judge being accurate.** Is your LLM-as-judge fit to
-wear the robe? `yourhonor` puts it on the stand.
+**Your honor depends on the judge being accurate.** `yourhonor` audits an
+LLM-as-judge as a measurement instrument before its grades are used to make a
+decision.
 
-In R, [ellmer](https://ellmer.tidyverse.org) makes the model call and
-[vitals](https://vitals.tidyverse.org) runs the eval, scoring each answer
-Correct / Partial / Incorrect with a model-graded judge. But nothing tells you
-whether that judge is any good. Published `vitals` walkthroughs show the
-consequence: the same task scored **70% on one run and 90% on another**. If your
-instrument moves 20 points run to run, you don't have a measurement — you have a
-vibe.
+The package is deliberately R-native. This is not a claim of category novelty:
+Python users should evaluate [judgecal](https://pypi.org/project/judgecal/),
+which already provides clustered inference, paired testing, power analysis,
+bias validation, and batch/Inspect workflows. The narrower
+[judgy](https://pypi.org/project/judgy/) estimates corrected success rates from
+human and test labels. A straight Python port of `yourhonor` would add little.
 
-`yourhonor` treats the judge as a measurement instrument and reports its
-psychometrics. It does not run evaluations; it measures the judge that scores
-them. It is the complement to `vitals`: **vitals measures the model, yourhonor
-measures the ruler.**
+`yourhonor` instead fills a narrower gap around the
+[ellmer](https://ellmer.tidyverse.org) and
+[vitals](https://vitals.tidyverse.org) workflow: blind calibration, uncertainty,
+structured bias probes, explicit acceptance policy, and a language-neutral JSON
+audit summary. It does not replace an evaluation runner and it does not call a
+model unless you give it a judge function.
 
-## What it does
+## What it adds
 
-- **`calibrate_judge()`** — run a judge over human-labeled examples and report
-  judge-vs-human agreement with the right chance-corrected coefficients (Cohen's
-  kappa, Krippendorff's alpha, Gwet's AC1), each with a bootstrap confidence
-  interval. (`cohen_kappa` is computed via `irrCAC::conger.kappa.raw()`, which
-  equals Cohen's kappa for two raters.) Pass several `human_cols` and it also
-  reports the **human-human agreement ceiling** — you can't expect a judge to
-  agree with people more than they agree with each other.
-- **`confusion()`** — a tidy judge-vs-human confusion matrix with per-class
-  precision and recall, so you see *where* it diverges.
-- **`probe_bias()`** — paired, length-matched bias probes: perturb each item in a
-  way a fair judge should ignore, and measure the flip rate and direction with a
-  sign test (p-values corrected across probes). `verbosity`, `self_preference` and
-  `bandwagon` apply to a pointwise grader; `position` is for pairwise (A/B) judges.
-- **`test_retest()`** — re-grade the same items repeatedly and quantify the
-  run-to-run wobble, reported as a chance-corrected stability coefficient.
-- **`report()`** — a one-paragraph "USE / USE WITH CAUTION / NOT CALIBRATED"
-  verdict you can paste beside an eval.
-
-It is built on R's mature inter-rater statistics
-([irrCAC](https://cran.r-project.org/package=irrCAC)) rather than reinventing the
-math — the kind of measurement rigor R does better than any other ecosystem.
+- `calibrate_judge()` compares judge grades with one or more human raters. A
+  live judge sees only the columns explicitly listed in `input_cols`, never the
+  human labels. Rows are shuffled before opaque keys are assigned; keyed output
+  is restored safely.
+- `agreement()` reports Cohen's kappa, Krippendorff's alpha, and Gwet's AC1
+  (nominal) or AC2 (weighted) with item-bootstrap intervals, fixed category
+  levels, and explicit missingness. Weighted analyses require a declared order.
+- `confusion_metrics()` reports class support, precision, and recall with exact
+  intervals. This prevents a high aggregate agreement score from hiding failure
+  on a rare but important class.
+- `probe_bias()` tests pointwise verbosity, self-preference, and bandwagon
+  effects. `probe_position()` swaps separate candidate columns and maps display
+  choices from neutral display slots back to stable candidate identity. Both
+  record raw missingness and conservative directional-effect intervals.
+- `test_retest()` reports pairwise run disagreement with uncertainty, rather
+  than relying on an any-flip rate that rises mechanically with the number of
+  runs.
+- `acceptance_policy()` makes thresholds explicit. `report()` returns `PASS`,
+  `FAIL`, `NOT_ASSESSED`, or `INDETERMINATE`; without a policy, it is descriptive
+  and never implies that missing evidence passed.
+- `audit_vitals()` consumes grades already present in a vitals task without
+  paying for another model call. `stability_vitals()` handles invariant content
+  across repeated epochs. `write_audit()` writes Markdown or a versioned
+  aggregate JSON summary without automatically serializing item rows.
 
 ## Installation
 
@@ -51,12 +56,7 @@ math — the kind of measurement rigor R does better than any other ecosystem.
 pak::pak("JsizzleR/yourhonor")
 ```
 
-## Quick start
-
-`yourhonor` talks to a judge through one small contract: a function that takes a
-data frame of items and returns one label per row. That makes it trivial to wrap
-an `ellmer` chat or a `vitals` scorer — or, as here, to calibrate grades you
-already have. Data leads, so a gold tibble pipes straight in.
+## Calibrate precomputed grades
 
 ```r
 library(yourhonor)
@@ -66,56 +66,195 @@ gold <- tibble::tibble(
   judge_label = c("C", "C", "C", "I", "C", "P", "P", "C")
 )
 
-cal <- calibrate_judge(gold, seed = 1)
-cal
-#> ── yourhonor judge calibration ──
-#> 8 items - judge-vs-human agreement (95% bootstrap CI):
-#> • cohen_kappa: 0.58 [0.04, 1.00] (moderate)
-#> • krippendorff_alpha: 0.60 [-0.02, 1.00] (moderate)
-#> • gwet_ac1: 0.65 [0.10, 1.00] (substantial)
-#> 2 disagreements; see `confusion()` for where they fall.
+cal <- calibrate_judge(
+  gold,
+  label_levels = c("I", "P", "C"),
+  scale = "ordinal",
+  n_boot = 500,
+  seed = 1
+)
 
-report(cal, output = "console")
-#> ── yourhonor verdict: USE WITH CAUTION ──
-#> Agreement: gwet_ac1 = 0.65 [0.10, 1.00] (substantial).
+agreement(cal)
+confusion_metrics(cal)
+
+# Evidence alone is not a deployment decision.
+report(cal, output = "md")
+attr(report(cal, output = "md"), "decision")
+#> [1] "NOT_ASSESSED"
 ```
 
-(The intervals are wide here because the demo has only 8 items — that honesty is
-the point.) To calibrate a real model judge, pass a function instead:
+Declare thresholds from the task's error costs, not from a package-wide notion
+of a “good” score:
 
 ```r
-library(ellmer)
+policy <- acceptance_policy(
+  min_agreement_lower = 0.75,
+  min_n = 100,
+  min_class_n = 20,
+  min_recall = c(I = 0.90, P = 0.75, C = 0.90),
+  min_precision = c(C = 0.90),
+  max_missing_rate = 0.01,
+  max_pairwise_disagreement = 0.05,
+  min_stability_n = 100,
+  min_stability_runs = 3,
+  max_stability_missing_rate = 0.01,
+  required_probes = c("verbosity", "position"),
+  min_probe_n = 50,
+  max_probe_flip_rate = 0.05,
+  max_probe_directional_rate = 0.05,
+  max_probe_missing_rate = 0.01,
+  conf_level = 0.95,
+  coefficient = "gwet_ac2"
+)
 
+# Missing required probes or stability will be shown as NOT_ASSESSED.
+report(cal, policy = policy, output = "console")
+```
+
+## Calibrate a live judge without label leakage
+
+A judge function receives a shuffled, redacted data frame with a fresh opaque
+`.item_id`. Returning that key with the label lets `yourhonor` verify and restore
+row order. A caller ID is never exposed unless it is explicitly listed in
+`input_cols`.
+
+```r
 model_judge <- function(data) {
-  chat <- chat_anthropic(system_prompt = "Grade as exactly C, P or I.")
-  vapply(seq_len(nrow(data)),
-         \(i) chat$clone()$chat(paste(data$target[i], data$input[i])),
-         character(1))
+  # Replace this body with ellmer calls using data$input and data$target.
+  tibble::tibble(
+    .item_id = data$.item_id,
+    label = rep("C", nrow(data))
+  )
 }
 
-support_gold |> calibrate_judge(model_judge, seed = 1)
+cal <- calibrate_judge(
+  support_gold,
+  judge = model_judge,
+  input_cols = c("input", "target"),
+  id_col = "id",
+  label_levels = c("I", "P", "C"),
+  scale = "ordinal",
+  provenance = list(model = "provider/model", prompt_version = "judge-v3"),
+  audit_id = "support-judge-v3-gold-2026-08",
+  seed = 1
+)
 ```
 
-See `vignette("yourhonor")` for the full walkthrough.
+`input_cols` is required for a live judge. Human-rating columns and an existing
+judge-label column are rejected if included, making leakage an API error rather
+than a convention.
 
-## How it fits the stack
+## Position bias needs structured candidates
 
+Position is not a text-regex perturbation. Keep candidates separate so their
+identity survives the swap:
+
+```r
+pairs <- tibble::tibble(
+  question = c("2 + 2?", "Capital of France?"),
+  candidate_a = c("4", "Paris"),
+  candidate_b = c("5", "Berlin")
+)
+
+pairwise_judge <- function(data) {
+  # Candidate text is in neutral .candidate_1/.candidate_2 display slots.
+  # Return A/B in display space. This example always picks the first candidate.
+  rep("A", nrow(data))
+}
+
+probe_position(
+  pairs,
+  pairwise_judge,
+  candidate_a_col = "candidate_a",
+  candidate_b_col = "candidate_b",
+  context_cols = "question",
+  repeats = 2,
+  seed = 1,
+  audit_id = "pairwise-judge-v1"
+)
 ```
-ellmer      → makes the model call
-vitals      → runs the eval, scores with a judge
-yourhonor     → measures whether that judge can be trusted
+
+## Use grades already produced by vitals
+
+```r
+# task$eval() has already populated task$get_samples()$score.
+human <- tibble::tibble(
+  id = human_review$id,
+  human_label = human_review$label
+)
+
+cal <- audit_vitals(
+  task,
+  human_labels = human,
+  label_levels = c("I", "P", "C"),
+  scale = "ordinal",
+  provenance = list(judge_prompt = "grader-v3"),
+  audit_id = "support-judge-v3-gold-2026-08",
+  seed = 1
+)
+
+write_audit(cal, "judge-audit.json", policy = policy, format = "json")
 ```
 
-`yourhonor` consumes the judge you already use and stays out of the eval loop. A
-judge calibrated here is a judge you can defend.
+Vitals tasks with multiple epochs contain repeated IDs. Filter to one epoch for
+calibration. To reuse epochs as judge-stability evidence, list every
+judge-visible field and require it to remain invariant:
+
+```r
+stability <- stability_vitals(
+  task,
+  content_cols = c("input", "target", "result"),
+  label_levels = c("I", "P", "C"),
+  weights = "ordinal",
+  audit_id = "support-judge-v3-gold-2026-08",
+  seed = 1
+)
+```
+
+If solver output changes between epochs, this adapter refuses the claim: those
+rows measure end-to-end evaluation variation, not judge test-retest stability.
+
+JSON artifacts omit `cal$items`, but caller-supplied provenance is written
+verbatim. Do not place secrets or raw item content in provenance fields.
+
+## Interpreting the evidence
+
+- Human-human agreement is a reliability benchmark, not a ceiling. A judge can
+  agree with a consensus more strongly than individual humans agree with each
+  other.
+- `no_signal` from a bias probe means the probe did not detect a directional
+  effect. It is not proof that the judge is unbiased.
+- A single observed class cannot identify chance-corrected agreement. Such
+  results are `INDETERMINATE`, not perfect.
+- A finite sample with empirically perfect varied agreement produces a
+  zero-width item bootstrap. `yourhonor` flags that interval as unreliable
+  rather than treating `[1, 1]` as population certainty.
+- Aggregate agreement never substitutes for class-specific error requirements.
+
+## Statistical scope
+
+- Calibration and stability intervals treat rows/items as independent sampling
+  units. Repeated templates, conversations, users, or other clusters must be
+  reduced to independent units or analyzed with a cluster-aware method outside
+  this package. Vitals epochs are repeated measurements, not extra items.
+- Freeze a representative, held-out gold set before tuning the judge or prompt.
+  Record dataset split/version/hash and model/prompt versions in `provenance`.
+  Reusing a tuning set is not an independent audit.
+- Reported confidence levels apply to each interval, not to a simultaneous band
+  covering every displayed estimate. Policy acceptance is an all-criteria gate.
+- `support_gold` is an eight-item synthetic API demonstration, not a benchmark
+  or a basis for a deployment decision.
+
+See `vignette("yourhonor")` for an end-to-end walkthrough.
 
 ## Status
 
-Experimental and pre-release. The v1 surface above is implemented and the
-package passes `R CMD check` cleanly with a full test suite. Item-response
-(Rasch) judge-difficulty modeling and automatic bias *mitigation* are planned
-for a later release. The agreement statistics are delegated to `irrCAC`; the
-value `yourhonor` adds is the judge-native orchestration around them.
+Experimental and pre-release. The core audit surface is implemented and covered
+by regression tests. The package delegates agreement estimators to
+[irrCAC](https://cran.r-project.org/package=irrCAC); its value is the judge-safe
+workflow, conservative evidence model, and R/vitals integration around those
+estimators. JSON files are portable aggregate audit summaries; independent
+reproduction still requires the frozen data, judge configuration, and code.
 
 ## License
 

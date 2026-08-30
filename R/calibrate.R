@@ -1,70 +1,141 @@
 #' Calibrate an LLM-as-judge against human labels
 #'
-#' The core entry point. Runs a judge over a set of human-labeled examples and
-#' reports how well the judge agrees with the humans, where it diverges, and how
-#' the labels are distributed. This is what turns "we graded with an LLM judge"
-#' into "we graded with a judge that agrees with humans at AC1 = 0.81".
+#' Runs a judge on a redacted view of a human-labeled set and reports agreement,
+#' confusion metrics, and (for multiple human raters) human reliability. The
+#' result is descriptive evidence; deployment decisions require an explicit
+#' [acceptance_policy()].
 #'
 #' @section The judge contract:
-#' `judge` is a function of one argument that takes the whole `gold` tibble and
-#' returns a character vector of labels, one per row. This vectorised contract
-#' makes it easy to wrap an `ellmer` chat or a `vitals` model-graded scorer (see
-#' `vignette("yourhonor")`). To calibrate grades you already have, leave `judge`
-#' as `NULL` and include a `judge_label` column in `gold`.
+#' When `judge` is supplied, `input_cols` is required. The judge receives only a
+#' generated `.item_id` plus those columns; human labels and existing judge
+#' labels are never exposed. It may return either one label per input row or a
+#' data frame with `.item_id` and `label` columns. Structured output is preferred
+#' because IDs make accidental reordering detectable.
 #'
-#' @param gold A data frame of labeled examples. Must contain the column(s) named
-#'   in `human_cols`; when `judge` is a function it will typically also use
-#'   `input` and `target` columns. Labels may be any categorical scale (e.g.
-#'   `"C"`/`"P"`/`"I"`). Data leads so that a gold tibble can be piped in.
-#' @param judge A function `(gold) -> character` returning one label per row, or
-#'   `NULL` to use an existing `judge_label` column in `gold`.
-#' @param human_cols The human-rater column(s). One column (default
-#'   `"human_label"`) compares the judge to that rater. Two or more columns
-#'   compare the judge to the human *consensus* (per-item majority, `NA` on a
-#'   tie) and additionally report the human-human agreement *ceiling* -- you
-#'   cannot expect a judge to agree with people more than they agree with each
-#'   other.
+#' @param gold A data frame of labeled examples.
+#' @param judge A function receiving the redacted judge input, or `NULL` to read
+#'   precomputed labels from `judge_col`.
+#' @param input_cols Columns visible to `judge`. Required when `judge` is a
+#'   function. Human columns and `judge_col` are forbidden.
+#' @param id_col Optional unique item identifier. A sequential internal ID is
+#'   generated when omitted.
+#' @param human_cols Human-rater columns.
+#' @param judge_col Column containing precomputed judge labels when `judge` is
+#'   `NULL`.
+#' @param label_levels Complete label universe in intended order. Required for
+#'   `scale = "ordinal"`.
+#' @param scale Whether labels are nominal or ordinal.
+#' @param weights Agreement weights. `NULL` selects `"unweighted"` for nominal
+#'   labels and `"ordinal"` for ordinal labels.
 #' @param coefficients,conf_level,n_boot,seed Passed to [agreement()].
+#' @param provenance Optional named list describing the judge model, prompt,
+#'   parameters, and other audit metadata.
+#' @param audit_id Optional identifier for the frozen judge, prompt, and dataset
+#'   snapshot. Use the same non-empty value for related bias and stability
+#'   evidence so [report()] can prevent accidental cross-run bundling.
 #'
-#' @return A `yourhonor_calibration` object: a list with the `agreement` table,
-#'   the `confusion` tibble, the human-human `human_ceiling` (when `human_cols`
-#'   has more than one column), the per-item join (`items`), and the `ratings`.
-#'
-#' @seealso [agreement()], [confusion()], [probe_bias()], [report()].
+#' @return A `yourhonor_calibration` object with agreement, confusion and
+#'   per-class metrics, human reliability, judge-versus-each-rater agreement,
+#'   item-level evidence, label metadata, and provenance. `human_ceiling` remains
+#'   as a compatibility alias for `human_reliability` but is no longer described
+#'   as an upper bound.
 #' @export
 #' @examples
 #' gold <- tibble::tibble(
 #'   input = paste("answer", 1:8),
-#'   target = "is it correct?",
 #'   human_label = c("C", "C", "P", "I", "C", "P", "I", "C"),
 #'   judge_label = c("C", "C", "C", "I", "C", "P", "P", "C")
 #' )
-#' # calibrate grades that already exist
-#' cal <- calibrate_judge(gold, n_boot = 200, seed = 1)
-#' cal
+#' calibrate_judge(gold, label_levels = c("I", "P", "C"),
+#'                 n_boot = 200, seed = 1)
 calibrate_judge <- function(gold,
                             judge = NULL,
+                            input_cols = NULL,
+                            id_col = NULL,
                             human_cols = "human_label",
+                            judge_col = "judge_label",
+                            label_levels = NULL,
+                            scale = c("nominal", "ordinal"),
+                            weights = NULL,
                             coefficients = yourhonor_coefficients,
                             conf_level = 0.95,
                             n_boot = 2000,
-                            seed = NULL) {
+                            seed = NULL,
+                            provenance = list(),
+                            audit_id = NULL) {
   gold <- tibble::as_tibble(gold)
-  if (!all(human_cols %in% names(gold))) {
-    missing <- setdiff(human_cols, names(gold))
-    cli::cli_abort("{.arg gold} is missing human rater column{?s}: {.field {missing}}.")
+  if (".item_id" %in% names(gold)) {
+    cli::cli_abort("{.field .item_id} is reserved for opaque internal audit keys.")
   }
-  coefficients <- rlang::arg_match(coefficients, yourhonor_coefficients, multiple = TRUE)
+  scale <- rlang::arg_match(scale)
+  coefficients_missing <- missing(coefficients)
+  coefficients <- rlang::arg_match(coefficients, supported_coefficients, multiple = TRUE)
+  conf_level <- check_probability(conf_level, "conf_level", open = TRUE)
+  n_boot <- check_count(n_boot, "n_boot")
+  audit_id <- check_audit_id(audit_id)
+  if (!is.list(provenance) || (length(provenance) > 0L && is.null(names(provenance)))) {
+    cli::cli_abort("{.arg provenance} must be a named list (an empty list is allowed).")
+  }
 
-  judge_label <- grade(judge, gold)
-  human_mat <- as.data.frame(
-    lapply(gold[human_cols], as.character),
-    stringsAsFactors = FALSE
+  human_cols <- check_column_names(human_cols, "human_cols")
+  if (!is.character(judge_col) || length(judge_col) != 1L ||
+      is.na(judge_col) || !nzchar(judge_col)) {
+    cli::cli_abort("{.arg judge_col} must name one column.")
+  }
+  if (judge_col %in% human_cols) {
+    cli::cli_abort("{.arg judge_col} must differ from every {.arg human_cols} entry.")
+  }
+  missing_humans <- setdiff(human_cols, names(gold))
+  if (length(missing_humans) > 0L) {
+    cli::cli_abort(
+      "{.arg gold} is missing human rater column{?s}: {.field {missing_humans}}."
+    )
+  }
+  human_source <- gold[human_cols]
+  if (scale == "ordinal" && is.null(label_levels)) {
+    cli::cli_abort("{.arg label_levels} is required when {.code scale = 'ordinal'}.")
+  }
+  label_levels <- resolve_label_levels(human_source, label_levels)
+  if (length(label_levels) == 0L) {
+    cli::cli_abort("Human ratings contain no observed labels.")
+  }
+  if (is.null(weights)) weights <- if (scale == "ordinal") "ordinal" else "unweighted"
+  weights <- rlang::arg_match(weights, c("unweighted", "linear", "quadratic", "ordinal"))
+  if (scale == "nominal" && weights != "unweighted") {
+    cli::cli_abort("Weighted agreement requires {.code scale = 'ordinal'}.")
+  }
+  coefficients <- resolve_gwet_coefficient(
+    coefficients, weights, coefficients_missing, "coefficients"
   )
-  human <- if (length(human_cols) > 1) {
-    apply(human_mat, 1, modal_value)
+  if (!is.null(seed)) withr::local_seed(seed)
+
+  item_id <- calibration_ids(gold, id_col)
+  graded <- grade_calibration(
+    judge = judge,
+    gold = gold,
+    item_id = item_id,
+    input_cols = input_cols,
+    protected_cols = unique(c(human_cols, judge_col)),
+    judge_col = judge_col,
+    label_levels = label_levels
+  )
+  judge_label <- graded$label
+
+  human_mat <- as.data.frame(lapply(human_source, as.character), stringsAsFactors = FALSE)
+  human_observed <- rowSums(!is.na(human_mat))
+  human <- if (length(human_cols) > 1L) {
+    out <- apply(human_mat, 1, modal_value)
+    out[human_observed < 2L] <- NA_character_
+    out
   } else {
     human_mat[[1]]
+  }
+  consensus_tie <- if (length(human_cols) > 1L) {
+    out <- apply(human_mat, 1, is_tie)
+    out[human_observed < 2L] <- FALSE
+    out
+  } else {
+    rep(FALSE, nrow(gold))
   }
 
   ratings_full <- data.frame(
@@ -73,55 +144,103 @@ calibrate_judge <- function(gold,
     stringsAsFactors = FALSE
   )
   complete <- stats::complete.cases(ratings_full)
+  if (sum(complete) < 2L) {
+    cli::cli_abort("Need at least 2 complete judge-human pairs to calibrate.")
+  }
   if (any(!complete)) {
     cli::cli_warn(
-      "{sum(!complete)} item{?s} had a missing label and were excluded from the agreement estimate."
+      "{sum(!complete)} item{?s} lacked a usable consensus or judge label; exclusions are recorded."
     )
   }
-  ratings <- ratings_full[complete, , drop = FALSE]
-  if (nrow(ratings) < 2) {
-    cli::cli_abort("Need at least 2 fully-labeled items to calibrate.")
-  }
 
-  agr <- agreement(
-    ratings,
-    coefficients = coefficients,
-    conf_level = conf_level,
-    n_boot = n_boot,
-    seed = seed
+  agr <- compute_agreement(
+    ratings_full, coefficients, conf_level, n_boot, seed,
+    label_levels = label_levels, weights = weights
   )
-  conf <- confusion(ratings)
+  conf <- confusion(ratings_full, label_levels = label_levels, conf_level = conf_level)
+  conf_metrics <- confusion_metrics(conf)
 
-  human_ceiling <- NULL
-  if (length(human_cols) > 1) {
-    hm <- human_mat[stats::complete.cases(human_mat), , drop = FALSE]
-    if (nrow(hm) >= 2) {
-      human_ceiling <- compute_agreement(
-        hm, multirater_coefficients, conf_level, n_boot, seed
+  human_reliability <- NULL
+  per_rater <- NULL
+  if (length(human_cols) > 1L) {
+    human_coefficients <- resolve_gwet_coefficient(
+      multirater_coefficients, weights, coefficients_missing = TRUE,
+      arg = "coefficients"
+    )
+    human_reliability <- compute_agreement(
+      human_mat, human_coefficients, conf_level, n_boot, seed,
+      label_levels = label_levels, weights = weights
+    )
+    per_rater <- do.call(vctrs::vec_rbind, lapply(seq_along(human_cols), function(i) {
+      pair <- data.frame(human = human_mat[[i]], judge = judge_label)
+      out <- compute_agreement(
+        pair, coefficients, conf_level, n_boot, seed,
+        label_levels = label_levels, weights = weights
       )
-    }
+      out$rater <- human_cols[[i]]
+      out[, c("rater", setdiff(names(out), "rater"))]
+    }))
   }
 
   items <- gold
-  items$judge_label <- judge_label
-  if (length(human_cols) > 1) items$human_consensus <- human
-  items$agree <- ratings_full$human == ratings_full$judge
+  items$.item_id <- item_id
+  items[[judge_col]] <- judge_label
+  if (length(human_cols) > 1L) {
+    items$human_consensus <- human
+    items$n_human_observed <- human_observed
+    items$consensus_tie <- consensus_tie
+  }
+  items$agree <- ifelse(complete, ratings_full$human == ratings_full$judge, NA)
   items <- tibble::as_tibble(items)
+
+  provenance <- utils::modifyList(
+    provenance,
+    list(
+      created_at = format(Sys.time(), tz = "UTC", usetz = TRUE),
+      input_cols = if (is.null(judge)) character(0) else input_cols,
+      id_col = id_col,
+      judge_col = judge_col,
+      human_cols = human_cols,
+      label_levels = label_levels,
+      scale = scale,
+      weights = weights,
+      audit_id = audit_id
+    )
+  )
 
   structure(
     list(
       agreement = agr,
       confusion = conf,
-      human_ceiling = human_ceiling,
+      confusion_metrics = conf_metrics,
+      human_reliability = human_reliability,
+      human_ceiling = human_reliability,
+      per_rater_agreement = per_rater,
       items = items,
-      ratings = ratings,
+      ratings = ratings_full,
+      judge_output = graded$output,
       coefficients = coefficients,
       conf_level = conf_level,
       n_boot = n_boot,
       seed = seed,
-      n_items = nrow(ratings),
+      n_items = sum(complete),
+      n_input = nrow(gold),
       n_excluded = sum(!complete),
-      human_cols = human_cols
+      n_consensus_ties = sum(consensus_tie),
+      n_insufficient_human_ratings = if (length(human_cols) > 1L) {
+        sum(human_observed < 2L)
+      } else {
+        0L
+      },
+      human_cols = human_cols,
+      judge_col = judge_col,
+      input_cols = input_cols,
+      id_col = id_col,
+      label_levels = label_levels,
+      scale = scale,
+      weights = weights,
+      audit_id = audit_id,
+      provenance = provenance
     ),
     class = "yourhonor_calibration"
   )
@@ -131,54 +250,207 @@ calibrate_judge <- function(gold,
 print.yourhonor_calibration <- function(x, ...) {
   cli::cli_h1("yourhonor judge calibration")
   cli::cli_text(
-    "{x$n_items} item{?s} - judge-vs-human agreement ",
-    "({round(x$conf_level * 100)}% bootstrap CI):"
+    "{x$n_items} usable item{?s} of {x$n_input} - descriptive judge-vs-human agreement:"
   )
-  ag <- x$agreement
   cli::cli_ul()
-  for (i in seq_len(nrow(ag))) {
-    cli::cli_li(
-      "{.strong {ag$coefficient[i]}}: {fmt_num(ag$estimate[i])} [{fmt_num(ag$conf_low[i])}, {fmt_num(ag$conf_high[i])}] ({ag$interpretation[i]})"
-    )
+  for (i in seq_len(nrow(x$agreement))) {
+    ag <- x$agreement[i, ]
+    if (ag$status == "ok") {
+      cli::cli_li(
+        "{.strong {ag$coefficient}}: {fmt_num(ag$estimate)} ",
+        "[{fmt_num(ag$conf_low)}, {fmt_num(ag$conf_high)}] ({ag$interpretation})"
+      )
+    } else {
+      cli::cli_li("{.strong {ag$coefficient}}: not estimable ({ag$status})")
+    }
   }
   cli::cli_end()
   n_disagree <- sum(!x$items$agree, na.rm = TRUE)
-  cli::cli_text(
-    "{n_disagree} disagreement{?s}; see {.code confusion()} for where they fall."
-  )
-  if (!is.null(x$human_ceiling)) {
-    hc <- x$human_ceiling
-    ac1 <- hc$estimate[hc$coefficient == "gwet_ac1"]
+  cli::cli_text("{n_disagree} disagreement{?s}; inspect {.fn confusion_metrics} before use.")
+  if (!is.null(x$human_reliability)) {
+    gwet <- x$human_reliability[
+      x$human_reliability$coefficient %in% c("gwet_ac2", "gwet_ac1"), , drop = FALSE
+    ]
+    if (nrow(gwet) > 0L) {
+      cli::cli_text(
+        "Human reliability benchmark ({length(x$human_cols)} raters): ",
+        "{gwet$coefficient[[1]]} = {fmt_num(gwet$estimate[[1]])}."
+      )
+    }
+  }
+  if (x$n_consensus_ties > 0L) {
+    cli::cli_text("{x$n_consensus_ties} consensus tie{?s} recorded explicitly.")
+  }
+  if (x$n_insufficient_human_ratings > 0L) {
     cli::cli_text(
-      "Human-human ceiling ({length(x$human_cols)} raters): AC1 = {fmt_num(ac1)} ",
-      "(the judge cannot be expected to agree more than the humans do)."
+      "{x$n_insufficient_human_ratings} item{?s} had fewer than two observed human ratings."
     )
   }
-  if (!is.null(x$n_excluded) && x$n_excluded > 0) {
-    cli::cli_text("{x$n_excluded} item{?s} excluded for a missing label.")
+  if (x$n_excluded > 0L) {
+    cli::cli_text("{x$n_excluded} item{?s} excluded from judge-consensus agreement.")
   }
+  cli::cli_alert_info("No deployment decision is implied; call report() with a policy to assess one.")
   invisible(x)
 }
 
-# Run the judge, or reuse existing grades. Internal.
-grade <- function(judge, data) {
+calibration_ids <- function(gold, id_col) {
+  validate_source_ids(gold, id_col, "gold")
+  # Never expose caller IDs implicitly: they can contain labels or personal
+  # information. The key sent to a judge is always opaque and sequential.
+  seq_len(nrow(gold))
+}
+
+grade_calibration <- function(judge,
+                              gold,
+                              item_id,
+                              input_cols,
+                              protected_cols,
+                              judge_col,
+                              label_levels) {
   if (is.null(judge)) {
-    if (!"judge_label" %in% names(data)) {
+    if (!judge_col %in% names(gold)) {
       cli::cli_abort(
-        "With {.code judge = NULL}, {.arg gold} must contain a {.field judge_label} column."
+        "With {.code judge = NULL}, {.arg gold} must contain {.field {judge_col}}."
       )
     }
-    return(as.character(data$judge_label))
+    labels <- validate_labels(gold[[judge_col]], label_levels, judge_col)
+    return(list(label = labels, output = NULL))
   }
   if (!is.function(judge)) {
     cli::cli_abort("{.arg judge} must be a function or {.code NULL}.")
   }
-  out <- judge(data)
-  if (length(out) != nrow(data)) {
-    cli::cli_abort(
-      "The judge returned {length(out)} label{?s} for {nrow(data)} row{?s}; \\
-      it must return one label per row."
-    )
+  if (is.null(input_cols) || length(input_cols) == 0L) {
+    cli::cli_abort("{.arg input_cols} is required when {.arg judge} is supplied.")
   }
-  as.character(out)
+  input_cols <- check_column_names(input_cols, "input_cols")
+  if (".item_id" %in% input_cols) {
+    cli::cli_abort("{.field .item_id} is reserved and cannot appear in {.arg input_cols}.")
+  }
+  missing_inputs <- setdiff(input_cols, names(gold))
+  if (length(missing_inputs) > 0L) {
+    cli::cli_abort("Unknown {.arg input_cols}: {.field {missing_inputs}}.")
+  }
+  leaked <- intersect(input_cols, protected_cols)
+  if (length(leaked) > 0L) {
+    cli::cli_abort("Protected label column{?s} cannot be judge inputs: {.field {leaked}}.")
+  }
+
+  judge_input <- tibble::as_tibble(gold[input_cols])
+  grade_blind(judge, judge_input, label_levels = label_levels)
+}
+
+# Validate, but never implicitly reveal, caller-owned identifiers.
+validate_source_ids <- function(data, id_col, data_arg = "data") {
+  if (is.null(id_col)) return(seq_len(nrow(data)))
+  id_col <- check_column_name(id_col, "id_col")
+  if (!id_col %in% names(data)) {
+    cli::cli_abort("{.arg id_col} must name one column in {.arg {data_arg}}.")
+  }
+  ids <- data[[id_col]]
+  if (anyNA(ids) || anyDuplicated(ids)) {
+    cli::cli_abort("{.arg id_col} must contain unique, non-missing IDs.")
+  }
+  ids
+}
+
+redacted_judge_input <- function(data,
+                                 input_cols,
+                                 id_col = NULL,
+                                 protected_cols = character(0),
+                                 data_arg = "data") {
+  data <- tibble::as_tibble(data)
+  validate_source_ids(data, id_col, data_arg)
+  if (is.null(input_cols) || length(input_cols) == 0L) {
+    cli::cli_abort("{.arg input_cols} is required when {.arg judge} is supplied.")
+  }
+  input_cols <- check_column_names(input_cols, "input_cols")
+  if (".item_id" %in% input_cols) {
+    cli::cli_abort("{.field .item_id} is reserved and cannot appear in {.arg input_cols}.")
+  }
+  missing_inputs <- setdiff(input_cols, names(data))
+  if (length(missing_inputs) > 0L) {
+    cli::cli_abort("Unknown {.arg input_cols}: {.field {missing_inputs}}.")
+  }
+  leaked <- intersect(input_cols, protected_cols)
+  if (length(leaked) > 0L) {
+    cli::cli_abort("Protected label column{?s} cannot be judge inputs: {.field {leaked}}.")
+  }
+  out <- tibble::as_tibble(data[input_cols])
+  out
+}
+
+# Shuffle first, then assign fresh display keys. This prevents source order and
+# key ranges from becoming side channels for hidden conditions or labels.
+grade_blind <- function(judge,
+                        data,
+                        label_levels = NULL,
+                        context = "Structured judge output") {
+  data <- tibble::as_tibble(data)
+  if (".item_id" %in% names(data)) {
+    cli::cli_abort("Internal blind-grading input cannot already contain {.field .item_id}.")
+  }
+  permutation <- sample.int(nrow(data))
+  visible <- data[permutation, , drop = FALSE]
+  visible <- tibble::add_column(
+    visible, .item_id = seq_len(nrow(visible)), .before = 1L
+  )
+  graded <- grade_keyed(
+    judge, visible, label_levels = label_levels,
+    key_cols = ".item_id", context = context
+  )
+  restored <- character(nrow(data))
+  restored[permutation] <- graded$label
+  list(
+    label = restored,
+    output = tibble::tibble(.item_id = seq_len(nrow(data)), label = restored),
+    visible_output = graded$output,
+    blinding_map = tibble::tibble(
+      .item_id = seq_len(nrow(data)), .source_row = permutation
+    )
+  )
+}
+
+grade_keyed <- function(judge,
+                        data,
+                        label_levels = NULL,
+                        key_cols = ".item_id",
+                        context = "Structured judge output") {
+  if (!is.function(judge)) cli::cli_abort("{.arg judge} must be a function.")
+  data <- tibble::as_tibble(data)
+  if (!all(key_cols %in% names(data)) || anyNA(data[key_cols]) ||
+      anyDuplicated(as.data.frame(data[key_cols]))) {
+    cli::cli_abort("Internal judge keys must be present, unique, and non-missing.")
+  }
+  out <- judge(data)
+  if (is.data.frame(out)) {
+    required <- c(key_cols, "label")
+    if (!all(required %in% names(out))) {
+      cli::cli_abort(
+        "{context} must contain {.field label} and key column{?s}: {.field {key_cols}}."
+      )
+    }
+    output <- tibble::as_tibble(out)
+    output_keys <- as.data.frame(output[key_cols])
+    input_keys <- as.data.frame(data[key_cols])
+    index <- vctrs::vec_match(input_keys, output_keys)
+    reverse <- vctrs::vec_match(output_keys, input_keys)
+    if (nrow(output) != nrow(data) || anyNA(output_keys) ||
+        anyDuplicated(output_keys) || anyNA(index) || anyNA(reverse)) {
+      cli::cli_abort("{context} must return every input key exactly once.")
+    }
+    labels <- output$label[index]
+  } else {
+    if (length(out) != nrow(data)) {
+      cli::cli_abort(paste0(
+        "The judge returned {length(out)} label{?s} for {nrow(data)} row{?s}; ",
+        "it must return one label per row."
+      ))
+    }
+    labels <- out
+    output <- tibble::as_tibble(data[key_cols])
+    output$label <- as.character(out)
+  }
+  labels <- as.character(labels)
+  if (!is.null(label_levels)) labels <- validate_labels(labels, label_levels, "judge")
+  list(label = labels, output = output)
 }

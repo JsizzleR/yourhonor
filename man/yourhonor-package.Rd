@@ -6,7 +6,7 @@
 \alias{yourhonor-package}
 \title{yourhonor: Calibrate Large Language Model Judges}
 \description{
-Treat a large language model used as an evaluator (an "LLM-as-judge") as a measurement instrument and report its psychometric properties. Given a judge and a set of human-labeled examples, 'yourhonor' reports chance-corrected agreement between the judge and humans (Cohen's kappa, Krippendorff's alpha and Gwet's AC1) with bootstrap confidence intervals, the human-human agreement ceiling when several raters are supplied, a confusion matrix of where they diverge, length-matched paired bias probes (verbosity, self-preference and bandwagon, plus position for pairwise judges) and chance-corrected test-retest stability across repeated runs. It is designed to complement the 'ellmer' and 'vitals' evaluation stack: it does not run evaluations, it measures the judge that scores them.
+Treat a large language model used as an evaluator (an "LLM-as-judge") as a measurement instrument and report its psychometric properties. Given a judge and a set of human-labeled examples, 'yourhonor' reports chance-corrected agreement between the judge and humans (Cohen's kappa, Krippendorff's alpha and Gwet's AC1 and weighted AC2) with bootstrap confidence intervals, human-human reliability when several raters are supplied, per-class error intervals, structured paired bias probes and test-retest stability. Explicit acceptance policies turn evidence into conservative decisions, and versioned artifacts support portable aggregate audit review. It complements the 'ellmer' and 'vitals' evaluation stack: it does not run evaluations, it measures the judge that scores them.
 }
 \seealso{
 Useful links:
@@ -17,11 +17,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Jay Clark \email{placeholder@example.com}
+\strong{Maintainer}: Jay Clark \email{JsizzleR@users.noreply.github.com}
 
 Authors:
 \itemize{
-  \item Jay Clark \email{placeholder@example.com}
+  \item Jay Clark \email{JsizzleR@users.noreply.github.com}
 }
 
 }

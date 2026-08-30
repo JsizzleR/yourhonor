@@ -7,62 +7,83 @@
 calibrate_judge(
   gold,
   judge = NULL,
+  input_cols = NULL,
+  id_col = NULL,
   human_cols = "human_label",
+  judge_col = "judge_label",
+  label_levels = NULL,
+  scale = c("nominal", "ordinal"),
+  weights = NULL,
   coefficients = yourhonor_coefficients,
   conf_level = 0.95,
   n_boot = 2000,
-  seed = NULL
+  seed = NULL,
+  provenance = list(),
+  audit_id = NULL
 )
 }
 \arguments{
-\item{gold}{A data frame of labeled examples. Must contain the column(s) named
-in \code{human_cols}; when \code{judge} is a function it will typically also use
-\code{input} and \code{target} columns. Labels may be any categorical scale (e.g.
-\code{"C"}/\code{"P"}/\code{"I"}). Data leads so that a gold tibble can be piped in.}
+\item{gold}{A data frame of labeled examples.}
 
-\item{judge}{A function \code{(gold) -> character} returning one label per row, or
-\code{NULL} to use an existing \code{judge_label} column in \code{gold}.}
+\item{judge}{A function receiving the redacted judge input, or \code{NULL} to read
+precomputed labels from \code{judge_col}.}
 
-\item{human_cols}{The human-rater column(s). One column (default
-\code{"human_label"}) compares the judge to that rater. Two or more columns
-compare the judge to the human \emph{consensus} (per-item majority, \code{NA} on a
-tie) and additionally report the human-human agreement \emph{ceiling} -- you
-cannot expect a judge to agree with people more than they agree with each
-other.}
+\item{input_cols}{Columns visible to \code{judge}. Required when \code{judge} is a
+function. Human columns and \code{judge_col} are forbidden.}
+
+\item{id_col}{Optional unique item identifier. A sequential internal ID is
+generated when omitted.}
+
+\item{human_cols}{Human-rater columns.}
+
+\item{judge_col}{Column containing precomputed judge labels when \code{judge} is
+\code{NULL}.}
+
+\item{label_levels}{Complete label universe in intended order. Required for
+\code{scale = "ordinal"}.}
+
+\item{scale}{Whether labels are nominal or ordinal.}
+
+\item{weights}{Agreement weights. \code{NULL} selects \code{"unweighted"} for nominal
+labels and \code{"ordinal"} for ordinal labels.}
 
 \item{coefficients, conf_level, n_boot, seed}{Passed to \code{\link[=agreement]{agreement()}}.}
+
+\item{provenance}{Optional named list describing the judge model, prompt,
+parameters, and other audit metadata.}
+
+\item{audit_id}{Optional identifier for the frozen judge, prompt, and dataset
+snapshot. Use the same non-empty value for related bias and stability
+evidence so \code{\link[=report]{report()}} can prevent accidental cross-run bundling.}
 }
 \value{
-A \code{yourhonor_calibration} object: a list with the \code{agreement} table,
-the \code{confusion} tibble, the human-human \code{human_ceiling} (when \code{human_cols}
-has more than one column), the per-item join (\code{items}), and the \code{ratings}.
+A \code{yourhonor_calibration} object with agreement, confusion and
+per-class metrics, human reliability, judge-versus-each-rater agreement,
+item-level evidence, label metadata, and provenance. \code{human_ceiling} remains
+as a compatibility alias for \code{human_reliability} but is no longer described
+as an upper bound.
 }
 \description{
-The core entry point. Runs a judge over a set of human-labeled examples and
-reports how well the judge agrees with the humans, where it diverges, and how
-the labels are distributed. This is what turns "we graded with an LLM judge"
-into "we graded with a judge that agrees with humans at AC1 = 0.81".
+Runs a judge on a redacted view of a human-labeled set and reports agreement,
+confusion metrics, and (for multiple human raters) human reliability. The
+result is descriptive evidence; deployment decisions require an explicit
+\code{\link[=acceptance_policy]{acceptance_policy()}}.
 }
 \section{The judge contract}{
 
-\code{judge} is a function of one argument that takes the whole \code{gold} tibble and
-returns a character vector of labels, one per row. This vectorised contract
-makes it easy to wrap an \code{ellmer} chat or a \code{vitals} model-graded scorer (see
-\code{vignette("yourhonor")}). To calibrate grades you already have, leave \code{judge}
-as \code{NULL} and include a \code{judge_label} column in \code{gold}.
+When \code{judge} is supplied, \code{input_cols} is required. The judge receives only a
+generated \code{.item_id} plus those columns; human labels and existing judge
+labels are never exposed. It may return either one label per input row or a
+data frame with \code{.item_id} and \code{label} columns. Structured output is preferred
+because IDs make accidental reordering detectable.
 }
 
 \examples{
 gold <- tibble::tibble(
   input = paste("answer", 1:8),
-  target = "is it correct?",
   human_label = c("C", "C", "P", "I", "C", "P", "I", "C"),
   judge_label = c("C", "C", "C", "I", "C", "P", "P", "C")
 )
-# calibrate grades that already exist
-cal <- calibrate_judge(gold, n_boot = 200, seed = 1)
-cal
-}
-\seealso{
-\code{\link[=agreement]{agreement()}}, \code{\link[=confusion]{confusion()}}, \code{\link[=probe_bias]{probe_bias()}}, \code{\link[=report]{report()}}.
+calibrate_judge(gold, label_levels = c("I", "P", "C"),
+                n_boot = 200, seed = 1)
 }

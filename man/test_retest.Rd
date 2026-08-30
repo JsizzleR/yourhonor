@@ -4,39 +4,63 @@
 \alias{test_retest}
 \title{Test-retest stability of a judge}
 \usage{
-test_retest(data, judge, n_runs = 5, seed = NULL)
+test_retest(
+  data,
+  judge,
+  input_cols = NULL,
+  id_col = NULL,
+  n_runs = 5,
+  seed = NULL,
+  label_levels = NULL,
+  weights = c("unweighted", "linear", "quadratic", "ordinal"),
+  conf_level = 0.95,
+  n_boot = 1000,
+  audit_id = NULL
+)
 }
 \arguments{
-\item{data}{A data frame of items to grade. Data leads so it can be piped in.}
+\item{data}{A data frame of items to grade.}
 
-\item{judge}{A judge function \code{(data) -> character}, as in \code{\link[=calibrate_judge]{calibrate_judge()}}.
-For the stability to be meaningful the judge should be stochastic (e.g. a
-non-zero temperature); a deterministic judge reports a flip rate of 0.}
+\item{judge}{A judge function \code{(data) -> labels}.}
 
-\item{n_runs}{Number of repeated gradings.}
+\item{input_cols}{Columns visible to \code{judge}. Required so labels and other
+audit-only fields are not passed through accidentally.}
 
-\item{seed}{Optional integer seed; the caller's random state is restored.}
+\item{id_col}{Optional unique source identifier. It is validated but is not
+exposed to the judge unless explicitly included in \code{input_cols}.}
+
+\item{n_runs}{Number of repeated gradings; must be at least two.}
+
+\item{seed}{Optional R random seed. This does not force deterministic behavior
+from a remote model provider.}
+
+\item{label_levels}{Optional complete label universe.}
+
+\item{weights}{Agreement weights passed to Gwet's coefficient.}
+
+\item{conf_level}{Bootstrap confidence level.}
+
+\item{n_boot}{Number of item-bootstrap resamples.}
+
+\item{audit_id}{Optional evidence-bundle identifier. Use the same value as
+the related calibration and bias probes.}
 }
 \value{
-An \code{yourhonor_stability} object with the per-item \code{modal} grade (NA on a
-tie), \code{flipped} and \code{tie} flags, the overall \code{flip_rate}, the chance-corrected
-\code{stability}, and the raw \code{percent_agreement}.
+A \code{yourhonor_stability} object with raw runs, per-item evidence,
+missingness, pairwise disagreement, Gwet agreement, and intervals.
+\code{stability_status} explains why chance-corrected agreement is unavailable;
+in particular, one observed category is \code{insufficient_variation}, not
+perfect AC1/AC2. The pairwise-disagreement interval remains available.
 }
 \description{
-Re-grades the same items several times and reports how often the grade
-changes. A judge whose verdicts wobble run to run is not a measurement
-instrument yet; this puts a number on that wobble instead of discovering it
-by accident in production.
-}
-\details{
-Two numbers are reported. \code{stability} is chance-corrected (Gwet's AC1 treating
-the runs as raters), so a pure-noise judge scores near 0 rather than near the
-percent-agreement chance floor. \code{percent_agreement} is the raw mean pairwise
-agreement, kept for reference but not chance-corrected.
+Re-grades the same items and reports chance-corrected agreement plus mean
+pairwise disagreement. \code{any_flip_rate_at_n_runs} is retained as a descriptive
+quantity but must not be compared across different \code{n_runs}, because it rises
+mechanically as more opportunities to flip are observed.
 }
 \examples{
-set.seed(1)
 noisy_judge <- function(d) sample(c("C", "P"), nrow(d), replace = TRUE)
 data <- tibble::tibble(input = paste("answer", 1:10))
-test_retest(data, noisy_judge, n_runs = 4, seed = 1)
+test_retest(data, noisy_judge, input_cols = "input",
+            n_runs = 4, n_boot = 100, seed = 1)
 }

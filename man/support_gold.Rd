@@ -10,8 +10,8 @@ A tibble with columns:
 \item{id}{Item identifier.}
 \item{input}{The question and candidate answer presented to the judge.}
 \item{target}{The grading criterion.}
-\item{human_label}{Human rating, a factor with levels \code{I} < \code{P} < \code{C}.}
-\item{judge_label}{Example judge rating, same levels.}
+\item{human_label}{Human rating, an ordered factor with levels \code{I} < \code{P} < \code{C}.}
+\item{judge_label}{Example judge rating, same ordered levels.}
 }
 }
 \source{

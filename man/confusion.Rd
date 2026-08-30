@@ -4,30 +4,36 @@
 \alias{confusion}
 \title{Judge-versus-human confusion matrix}
 \usage{
-confusion(x, normalize = c("none", "row", "col"))
+confusion(
+  x,
+  normalize = c("none", "row", "col"),
+  label_levels = NULL,
+  conf_level = 0.95
+)
 }
 \arguments{
-\item{x}{An \code{yourhonor_calibration} object or a two-column ratings data frame
-(see \code{\link[=agreement]{agreement()}}).}
+\item{x}{A \code{yourhonor_calibration} object or a two-column ratings data frame.}
 
-\item{normalize}{One of \code{"none"} (proportions of the whole table), \code{"row"}
-(within each human label) or \code{"col"} (within each judge label).}
+\item{normalize}{One of \code{"none"}, \code{"row"}, or \code{"col"}.}
+
+\item{label_levels}{Complete label universe in display order. A calibration
+object's stored levels are used by default.}
+
+\item{conf_level}{Confidence level for exact per-class binomial intervals.}
 }
 \value{
-A tibble with columns \code{human_label}, \code{judge_label}, \code{n} and \code{prop}.
-Per-class precision and recall are attached as the \code{"metrics"} attribute.
+A tibble with \code{human_label}, \code{judge_label}, \code{n}, and \code{prop}.
+Per-class metrics remain attached for compatibility and are also available
+through \code{\link[=confusion_metrics]{confusion_metrics()}}.
 }
 \description{
-Shows \emph{where} a judge and humans disagree, not just how much. Treating the
-human labels as truth, it returns the tidy contingency of human label by
-judge label, and attaches per-class precision and recall of the judge so you
-can see, for example, that a judge over-awards partial credit rather than
-failing good answers.
+Shows where a judge and humans disagree. Label order is preserved from
+\code{label_levels} rather than sorted alphabetically.
 }
 \examples{
 ratings <- data.frame(
-  human = c("C", "C", "P", "I", "C", "P", "I", "C"),
-  judge = c("C", "C", "C", "I", "C", "P", "P", "C")
+  human = c("C", "C", "P", "I"),
+  judge = c("C", "P", "P", "I")
 )
-confusion(ratings, normalize = "row")
+confusion(ratings, normalize = "row", label_levels = c("I", "P", "C"))
 }
