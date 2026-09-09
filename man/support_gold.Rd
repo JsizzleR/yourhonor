@@ -5,12 +5,15 @@
 \alias{support_gold}
 \title{Example gold-labeled support answers}
 \format{
-A tibble with columns:
+A tibble with 8 rows and 5 columns:
 \describe{
-\item{id}{Item identifier.}
-\item{input}{The question and candidate answer presented to the judge.}
-\item{target}{The grading criterion.}
-\item{human_label}{Human rating, an ordered factor with levels \code{I} < \code{P} < \code{C}.}
+\item{id}{Integer item identifier, \code{1:8}.}
+\item{input}{Character. The question and candidate answer presented to the
+judge, formatted as \code{"Question: ...\\nAnswer: ..."}.}
+\item{target}{Character. The grading criterion; the same sentence for
+every item.}
+\item{human_label}{Human rating, an ordered factor with levels
+\code{I} < \code{P} < \code{C}.}
 \item{judge_label}{Example judge rating, same ordered levels.}
 }
 }
@@ -22,9 +25,23 @@ support_gold
 }
 \description{
 A small synthetic dataset of support-style question/answer items, each rated
-Correct / Partial / Incorrect by a human and by an example LLM judge. Used in
-examples and \code{vignette("yourhonor")} to demonstrate judge calibration without a
-live model call. The judge labels deliberately disagree with the human labels
-on a minority of items so the agreement coefficients are realistic (not 1.0).
+Incorrect / Partial / Correct by a human and by an example LLM judge. It is
+the input for the live-judge example in the README and exists to
+demonstrate the \code{\link[=calibrate_judge]{calibrate_judge()}} API without a model call. It is eight
+items: not a benchmark and not a basis for any deployment decision. The
+judge labels disagree with the human labels on two items (1 and 7, where
+the judge is one level more lenient), so agreement is realistic rather
+than 1.0.
+}
+\examples{
+support_gold
+calibrate_judge(
+  support_gold,
+  id_col = "id",
+  label_levels = c("I", "P", "C"),
+  scale = "ordinal",
+  n_boot = 100,
+  seed = 1
+)
 }
 \keyword{datasets}

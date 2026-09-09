@@ -1,43 +1,174 @@
-# yourhonor 0.0.0.9000
+# yourhonor 0.0.0.9000 (development version, unreleased)
+
+Initial development version. Nothing has been released; the list below is the
+feature set as it stands, and the "Review fixes" section records what changed
+during the pre-release code review so that early adopters can update their
+calls.
+
+## Features
+
+* `calibrate_judge()` compares judge labels with one or more human raters.
+  A live judge sees only the columns listed in `input_cols`; human columns and
+  `judge_col` are rejected as inputs. Items are shuffled before grading and
+  keyed with a fresh opaque `.item_id`; keyed output is validated and restored
+  to source order. With several raters the reference label is the modal
+  consensus, ties are excluded and counted, and human-human reliability is
+  reported as a benchmark rather than a ceiling.
+* `agreement()` reports Cohen's kappa, Krippendorff's alpha, and Gwet's AC1
+  (nominal) or AC2 (weighted) with item-bootstrap intervals, a fixed label
+  universe, explicit missingness, and an explicit `status` for degenerate
+  data. Zero-width bootstraps at empirically perfect agreement are flagged
+  unreliable rather than reported as certainty.
+* `confusion()` and `confusion_metrics()` give the confusion matrix in declared
+  label order plus per-class support, precision, and recall with exact
+  intervals; `plot_confusion()` draws the matrix with ggplot2.
+* `probe_bias()` runs pointwise verbosity, self-preference, and bandwagon
+  probes in one blind, randomised batch. `probe_position()` swaps structured
+  candidate columns into neutral display slots and maps choices back to stable
+  candidate identity. `combine_bias()` merges probe evidence under one
+  multiple-comparison family. All three report raw missingness and
+  conservative directional intervals.
+* `test_retest()` re-grades items and reports mean pairwise disagreement with
+  a hybrid bootstrap/Wilson interval, chance-corrected stability, and an
+  any-flip rate that is explicitly tied to the number of runs.
+* `acceptance_policy()` makes thresholds explicit, including sample-size,
+  class-support, missingness, probe, and stability requirements. `report()`
+  turns the evidence into `PASS`, `FAIL`, `NOT_ASSESSED`, or `INDETERMINATE`
+  and is descriptive only when no policy is supplied.
+* `audit_vitals()` and `stability_vitals()` reuse grades and epochs already
+  present in a vitals task without another model call; `stability_vitals()`
+  refuses epochs whose judge-visible content changed. `write_audit()` writes a
+  Markdown report or a versioned JSON summary (`yourhonor.audit.v1`) that
+  omits item rows.
+* `support_gold` is an eight-item synthetic dataset for API demonstration.
+
+## Review fixes
+
+User-visible changes made while addressing the pre-release code review.
+
+### Labels and blinding
 
 * Ratings are integer-coded before they reach irrCAC, which upper-cases, trims,
   and blanks character labels internally. Labels that differ only by case or
   whitespace now stay distinct in every coefficient and in test-retest
   stability, matching `confusion()`. Empty or whitespace-only labels are
-  rejected with a request to use `NA`.
+  rejected everywhere with a request to use `NA` instead.
+* Inferred label universes union declared factor levels with every label
+  observed in a non-factor column, so `confusion()` no longer silently drops a
+  pair whose label is absent from a factor's levels.
+* Blind grading strips element names and free-form attributes from every
+  judge-visible vector, list element, record field, and nested frame, closing a
+  channel through which a column built with `sapply()` over labels or IDs
+  carried them to the judge row-aligned through the shuffle. Structural
+  attributes (class, levels, tzone, units, dim, ptype) are kept; S4 objects,
+  environments, and functions inside list columns pass through as is.
+* Calibration results keep both key spaces: `items$.item_id` is the source-row
+  key and `items$.judge_item_id` is the key the judge saw. `cal$blinding_map`
+  maps between them and `cal$judge_output` is keyed by both. `test_retest()`
+  returns a parallel `judge_item_ids` matrix. Join judge-side logs on the judge
+  key, never on the row number.
+* A judge that returns a factor declares its own label universe; those levels
+  are kept when `label_levels` is `NULL`. `stability_vitals()` likewise uses a
+  factor `score_col`'s levels so declared-but-unobserved labels count toward
+  chance agreement.
+
+### Agreement and confusion
+
+* `agreement()` and `confusion()` gain explicit column arguments
+  (`rater_cols`; `human_col` and `judge_col`). Without them, columns named
+  `human` and `judge` are used when both exist; otherwise `agreement()` treats
+  every column as a rater and `confusion()` reads a two-column frame
+  positionally and errors on wider frames. Any inferred choice that ignored or
+  positionally read columns is reported with a message of class
+  `yourhonor_inferred_columns`. `plot_confusion()` forwards `...` to
+  `confusion()`.
+* `coefficients` now defaults to `NULL` in `agreement()` and
+  `calibrate_judge()`, meaning kappa, alpha, and AC1 with AC2 substituted for
+  AC1 under weights. Explicitly requesting `"gwet_ac1"` with weights is an
+  error rather than a silent substitution.
+* `agreement(<calibration>)` inherits every stored setting (`coefficients`,
+  `conf_level`, `n_boot`, `seed`, `label_levels`, `weights`) for arguments left
+  at their default, so `agreement(cal, n_boot = 50)` keeps the stored seed and
+  confidence level. One set of bootstrap resamples is shared by all
+  coefficients within a call.
+* `plot_confusion()` keeps the declared label order on both axes instead of
+  sorting alphabetically; `confusion()` attaches the resolved order as the
+  `"label_levels"` attribute.
+* `print()` for a calibration shows each coefficient's interval and
+  interpretation; the interval was previously dropped.
+* The modal-consensus rule for multiple raters, its exclusions
+  (`n_consensus_ties`, `n_insufficient_human_ratings`, `n_excluded`), and its
+  optimistic direction are documented in `?calibrate_judge`.
+
+### Bias probes
+
+* `probe_bias()` and `probe_position()` return one shared schema (32 columns)
+  built by a single constructor, so pointwise and position rows can always be
+  combined. `n_missing` and `pair_missing_rate` are renamed `n_unscored` and
+  `unscored_rate`; `n_items_missing` (items with at least one `NA` judgment)
+  and `n_directional_items` are reported for every probe. The `evidence` and
+  `item_evidence` attributes are lists named by probe on every object;
+  `combine_bias()` concatenates them without nesting.
 * `probe_position()` counts an item toward the directional sign test only when
   it was decided in both display orders and its canonical choice moved with
   the order, so abstaining on one order no longer reads as a position
   preference. A tie counts as a decided judgement that commits to neither
-  slot. The directional rate and interval now use scored items as the
-  denominator, as the pointwise probes do.
-* Blind grading strips element names and free-form attributes from every
-  judge-visible vector, list element, record field and nested frame, closing
-  a channel through which a column built with `sapply()` over labels or IDs
-  carried them to the judge row-aligned through the shuffle. Structural
-  attributes (class, levels, tzone, units, dim, ptype) are kept, and S4
-  objects, environments and functions inside list columns pass through as is.
-* Inferred label universes now union declared factor levels with every label
-  observed in a non-factor column, so `confusion()` no longer silently drops a
-  pair whose label is absent from a factor's levels.
-* Calibration now shuffles redacted judge inputs before assigning opaque keys,
-  validates keyed output, preserves a declared label universe, and distinguishes
-  human reliability from a purported ceiling.
-* Agreement supports nominal and ordinal weights, fixed-category bootstraps,
-  missingness accounting, and explicit indeterminate states for degenerate data.
-* Per-class precision and recall now include exact confidence intervals through
-  `confusion_metrics()`.
-* `probe_position()` uses neutral display slots, structurally swapped candidates,
-  and stable canonical identity. Pointwise probes are blind-keyed in one batch;
-  both APIs report raw missingness and conservative directional intervals.
-* `test_retest()` reports pairwise disagreement with uncertainty and separates
-  it from the run-count-dependent any-flip rate. Single-class runs retain that
-  disagreement evidence but report chance-corrected agreement as unidentified.
-* `acceptance_policy()` gates calibration, class errors, human-gold reliability,
-  probe coverage/effects, and stability with explicit sample-size, missingness,
-  and confidence-level requirements. `report()` provides conservative `PASS`,
-  `FAIL`, `NOT_ASSESSED`, and `INDETERMINATE` outcomes.
-* `audit_vitals()` consumes precomputed vitals scores without another model call.
-  `stability_vitals()` reuses repeated scores only after judge-visible content is
-  verified invariant and distinct from ID/epoch/score roles, and `write_audit()`
-  emits a versioned aggregate summary.
+  slot. The directional rate and interval use scored items as the denominator,
+  as the pointwise probes do.
+* A probe with no label movement now enters the multiple-comparison family
+  with `p_value = 1` instead of `NA`; `p_value` is `NA` only when
+  `status == "insufficient_data"`, and `combine_bias()` recomputes verdicts.
+* `flip_threshold` is now a practical-significance floor on the net
+  `directional_rate`, not on the any-direction `flip_rate`: a large but
+  balanced flip rate is reported but never flagged `"BIAS"`.
+* The directional interval's upper bound is capped at the flip-rate upper bound
+  over the same denominator, since the net rate can never exceed the
+  any-direction rate.
+* `probe_bias()` aborts when `input` is not a character column or contains
+  `NA`; a pasted `NA` would otherwise be graded as a real answer and hide
+  abstention from the missingness gate.
+
+### Stability
+
+* The pairwise-disagreement interval is documented as a hybrid: the percentile
+  item bootstrap widened to a Wilson score interval for the mean per-item
+  disagreement. It can only widen. The chance-corrected estimate and its
+  `stability_status` are derived from the same filtered matrix, and the label
+  universe for the coefficient comes from every run.
+
+### Policy and report
+
+* `report()` always returns a visible `yourhonor_report` list with `decision`,
+  `checks`, and the supplied evidence; `output` only sets the default print
+  rendering. Use `x$decision` instead of `attr(x, "decision")`, and
+  `format(x, output = "md")` or `as.character(x)` for the Markdown lines.
+* `checks` gains numeric `value` and `threshold` columns and an `op` column
+  (`">="`, `"<="`, `"lower >="`, `"upper <="`, `"="`); the old prose
+  `threshold` string is gone. Each required probe yields up to four checks
+  (`bias_<probe>`, `_direction`, `_missing_rate`, `_n`), and printed check lines
+  show `value (op threshold)`.
+* `acceptance_policy()` rejects a stability or probe threshold supplied
+  without its gate (`max_pairwise_disagreement` or `required_probes`), so a
+  policy can never carry a threshold the assessment does not read. Those
+  errors and probe-name errors carry class `yourhonor_policy_error`. Every
+  required argument is checked with `rlang::check_required()`.
+* Validation errors name the caller's argument (for example `n_boot`,
+  `ordered_levels`, `choice_levels`) and the calling function rather than an
+  internal helper.
+* The report's bias summary distinguishes required probes from probes supplied
+  outside the policy, and mentions descriptive signals in the latter.
+
+### vitals adapters and artifacts
+
+* `audit_vitals()` uses `score_col` directly as the judge-label column, so
+  `cal$judge_col`, `cal$items`, and the JSON provenance no longer contain an
+  internal sentinel name. It aborts when the samples already contain a
+  `human_col` column instead of overwriting it, and validates `provenance`.
+* `write_audit()` gains `overwrite = FALSE`; an existing file is an error unless
+  `overwrite = TRUE`. JSON is written at full precision (`digits = NA`), every
+  absent value is `null` (never `{}`), vector-by-contract fields
+  (`label_levels`, `coefficients`, `required_probes`, adapter `input_cols` and
+  `human_cols`) are always arrays, class-specific `min_recall` and
+  `min_precision` are objects keyed by class, `created_at` is RFC 3339 UTC
+  (`2026-01-31T12:00:00Z`), and `checks` carries `value`, `op`, and
+  `threshold`. The schema is documented in `?write_audit`.

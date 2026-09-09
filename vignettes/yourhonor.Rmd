@@ -9,6 +9,7 @@ vignette: >
 
 ```{r, include = FALSE}
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(cli.num_colors = 1, width = 80)
 set.seed(1)
 ```
 
@@ -19,7 +20,13 @@ library(yourhonor)
 An LLM judge is a measurement instrument. Before its scores drive a launch,
 ranking, or regression gate, we need evidence about agreement with humans,
 class-specific errors, bias sensitivity, and repeatability. `yourhonor` assembles
-that evidence, but it does not invent a universal definition of “good enough.”
+that evidence, but it does not invent a universal definition of "good enough."
+
+This walkthrough audits **one** judge end to end. Every piece of evidence is
+tagged with the same `audit_id`, and `report()` only binds evidence that shares
+that tag. The judge is synthetic, so no model is called, but it has a flaw
+that a real judge might have: it reads long answers as more complete than short
+ones. The audit is designed to find that flaw.
 
 ## Build a gold set
 
@@ -52,13 +59,21 @@ only a generated `.item_id` and those declared columns. Human labels are never
 passed to it. A keyed data-frame result is safest because row reordering becomes
 detectable.
 
+The judge below grades by keyword, adds a little random error so that repeated
+runs are not identical, and carries the deliberate flaw: any input longer than
+200 characters is graded one level more generously.
+
 ```{r}
 toy_judge <- function(data) {
   label <- ifelse(
     grepl("fully resolves", data$input), "C",
     ifelse(grepl("omits", data$input), "P", "I")
   )
-  # Add a small amount of judge error.
+  # The flaw under audit: long answers look more complete to this judge.
+  long <- nchar(data$input) > 200
+  label[long & label == "P"] <- "C"
+  label[long & label == "I"] <- "P"
+  # A small amount of run-to-run judge error.
   change <- runif(nrow(data)) < 0.08
   label[change] <- sample(c("I", "P", "C"), sum(change), replace = TRUE)
   tibble::tibble(.item_id = data$.item_id, label = label)
@@ -79,6 +94,18 @@ cal <- calibrate_judge(
 cal
 ```
 
+The gold inputs are all shorter than 200 characters, so calibration alone
+cannot see the flaw. That is the point of running probes as well.
+
+Items are shuffled before grading and the judge sees a fresh key. The result
+keeps both: `items$.item_id` is the source-row key and `items$.judge_item_id`
+is the key the judge saw, so judge-side logs can be joined back without
+un-blinding the run.
+
+```{r}
+head(cal$items[, c(".item_id", ".judge_item_id", "human_label", "judge_label")])
+```
+
 `agreement()` returns chance-corrected estimates and bootstrap intervals. A
 single-class sample is reported as insufficient variation rather than perfect
 agreement. For ordered labels, set `scale = "ordinal"` and declare the label
@@ -89,6 +116,10 @@ rather than treated as proof of population-perfect agreement.
 ```{r}
 agreement(cal)
 ```
+
+Called on a calibration object, `agreement()` inherits the stored
+`conf_level`, `n_boot`, and `seed`, so overriding one setting keeps the
+others comparable with the original run.
 
 ## Inspect rare-class behavior
 
@@ -104,11 +135,50 @@ confusion_metrics(cal)
 plot_confusion(cal)
 ```
 
+The gold set above is balanced enough that this is not dramatic. Here is the
+failure mode at its worst: 990 acceptable answers, 10 incorrect ones, and a
+judge that misses nine of the ten incorrect answers while getting almost every
+acceptable answer right.
+
+```{r}
+human <- c(rep("C", 990), rep("I", 10))
+judge <- human
+judge[1:5] <- "I"      # five false alarms
+judge[991:999] <- "C"  # nine of ten incorrect answers waved through
+rare <- tibble::tibble(human_label = human, judge_label = judge)
+rare_cal <- calibrate_judge(rare, label_levels = c("I", "C"), n_boot = 200, seed = 1)
+rare_cal
+confusion_metrics(rare_cal)
+```
+
+Gwet's AC1 is almost perfect because the prevalent class dominates; kappa is
+near zero because the judge adds almost nothing over "always say C". Neither
+coefficient is the quantity that matters here. A policy with a recall floor for
+`I` names the failure directly:
+
+```{r}
+rare_policy <- acceptance_policy(
+  min_agreement_lower = 0.75,
+  min_n = 100,
+  min_class_n = 10,
+  min_recall = c(I = 0.90, C = 0.90),
+  max_missing_rate = 0.01,
+  max_pairwise_disagreement = NULL
+)
+rare_report <- report(rare_cal, policy = rare_policy)
+rare_report$decision
+rare_report$checks[, c("check", "status", "value", "op", "threshold")]
+```
+
 ## Multiple human raters
 
-With multiple raters, `yourhonor` records ties, computes judge agreement with
-each rater, and reports human-human reliability. Reliability is a benchmark,
-not a ceiling: agreement with a consensus can exceed pairwise human agreement.
+With multiple raters, each item's reference label is the modal (most frequent)
+human label. An item whose top labels tie has no consensus; it is counted in
+`n_consensus_ties` and excluded from the judge-versus-consensus evidence. With
+two raters every disagreement is a tie, so the judge is scored only on items
+the humans agreed about, which is optimistic. `per_rater_agreement` is the
+all-items counterpart, and human-human reliability is a benchmark, not a
+ceiling: agreement with a consensus can exceed pairwise human agreement.
 
 ```{r}
 multi <- tibble::tibble(
@@ -125,6 +195,7 @@ multi_cal <- calibrate_judge(
   n_boot = 100,
   seed = 1
 )
+multi_cal$n_consensus_ties
 multi_cal$human_reliability
 multi_cal$per_rater_agreement
 ```
@@ -132,25 +203,44 @@ multi_cal$per_rater_agreement
 ## Probe pointwise bias
 
 Pointwise probes score control and treatment rows in one randomized batch.
-`no_signal` means no directional effect was detected by that probe; it is not a
-claim that bias is absent.
+The verbosity probe pads each answer with filler; the self-preference and
+bandwagon probes prepend a short framing sentence. `no_signal` means no
+directional effect was detected by that probe; it is not a claim that bias is
+absent.
 
 ```{r}
-length_judge <- function(data) ifelse(nchar(data$input) > 80, "C", "P")
 bias <- probe_bias(
   gold,
-  length_judge,
+  toy_judge,
   input_cols = c("input", "target"),
   probes = c("verbosity", "self_preference", "bandwagon"),
   seed = 1,
   audit_id = "synthetic-judge-v1"
 )
-bias
+bias[, c("probe", "flip_rate", "directional_rate", "direction", "p_value_adj", "verdict")]
 ```
 
-Position bias uses a separate structured API. Source columns are swapped and
-shown to the judge only as neutral `.candidate_1` and `.candidate_2` slots, then
-display choices are mapped back to stable candidate identity.
+The padded answers cross the judge's 200-character threshold, so the verbosity
+probe finds the flaw: labels move towards the perturbed (longer) version. The
+short framing prefixes do not, so those probes report `no_signal`. A `BIAS`
+verdict needs both a small adjusted p-value and a `directional_rate` above
+`flip_threshold`; a large but balanced `flip_rate` is reported but never
+flagged.
+
+Missingness is reported on two denominators. `missing_rate` is the share of
+individual judgments that came back `NA` and is the quantity a policy gates;
+`unscored_rate` is the share of items that could not be scored, which for the
+position probe also includes within-condition ties.
+
+```{r}
+bias[, c("probe", "n_scored", "n_unscored", "unscored_rate", "missing_rate")]
+```
+
+Position bias uses a separate structured API for a *pairwise* judge. Source
+columns are swapped and shown to the judge only as neutral `.candidate_1` and
+`.candidate_2` slots, then display choices are mapped back to stable candidate
+identity. A pairwise judge is a different instrument from the pointwise judge
+audited above, so it gets its own `audit_id`.
 
 ```{r}
 pairs <- tibble::tibble(
@@ -159,36 +249,45 @@ pairs <- tibble::tibble(
   candidate_b = c("5", "Berlin")
 )
 always_first <- function(data) rep("A", nrow(data))
-probe_position(
+position <- probe_position(
   pairs,
   always_first,
   candidate_a_col = "candidate_a",
   candidate_b_col = "candidate_b",
   context_cols = "question",
   repeats = 2,
-  seed = 1
+  seed = 1,
+  audit_id = "pairwise-judge-v1"
 )
+position[, c("probe", "flip_rate", "position_preference", "direction", "verdict")]
+```
+
+Every item flipped with the display order and the preference is entirely for
+the first slot, yet the verdict is `no_signal`: two items cannot reach
+significance in a sign test. A real position audit needs a proper item count,
+which is what `min_probe_n` in a policy enforces.
+
+Because its `audit_id` differs, `report()` refuses to bind this evidence to the
+pointwise calibration rather than silently assessing two judges as one:
+
+```{r, error = TRUE}
+report(cal, bias = position)
 ```
 
 ## Measure repeatability
 
-The primary stability quantity is mean pairwise disagreement across runs, with
-an item-bootstrap interval. The any-flip rate is also shown but is explicitly
-tied to the chosen number of runs.
+The primary stability quantity is mean pairwise disagreement across runs. Its
+interval is a hybrid: the percentile item bootstrap widened to include a Wilson
+score interval for the mean per-item disagreement, so a sample with no observed
+disagreement never yields a zero-width interval. The Wilson bound usually sets
+both ends once there are more than two runs; the interval can only widen, never
+narrow. The any-flip rate is also shown but is explicitly tied to the chosen
+number of runs.
 
 ```{r}
-noisy_judge <- function(data) {
-  base <- ifelse(
-    grepl("fully resolves", data$input), "C",
-    ifelse(grepl("omits", data$input), "P", "I")
-  )
-  change <- runif(nrow(data)) < 0.1
-  base[change] <- sample(c("I", "P", "C"), sum(change), replace = TRUE)
-  base
-}
 stability <- test_retest(
   gold,
-  noisy_judge,
+  toy_judge,
   input_cols = c("input", "target"),
   n_runs = 5,
   label_levels = c("I", "P", "C"),
@@ -203,7 +302,10 @@ stability
 
 `report()` is descriptive unless it receives an acceptance policy. Policy checks
 use confidence bounds and distinguish failure, missing evidence, and statistical
-indeterminacy.
+indeterminacy. Thresholds that only apply inside a gate (`max_pairwise_disagreement`
+for stability, `required_probes` for bias) must be supplied with that gate and
+are rejected without it, so a policy never carries a threshold the assessment
+does not read.
 
 ```{r}
 policy <- acceptance_policy(
@@ -224,19 +326,62 @@ policy <- acceptance_policy(
   conf_level = 0.95,
   coefficient = "gwet_ac2"
 )
-report(cal, bias = bias, stability = stability, policy = policy, output = "console")
+verdict <- report(cal, bias = bias, stability = stability, policy = policy)
+verdict
+```
+
+`report()` returns a `yourhonor_report` whichever `output` you choose; `output`
+only sets the default rendering. `verdict$decision` is the overall outcome,
+`verdict$checks` holds one row per check with the observed `value`, the
+comparison `op`, and the numeric `threshold`, and
+`format(verdict, output = "md")` gives the Markdown lines.
+
+```{r}
+verdict$decision
+verdict$checks[verdict$checks$status != "PASS", c("check", "status", "value", "op", "threshold")]
 ```
 
 The outcome may be `PASS`, `FAIL`, `NOT_ASSESSED`, or `INDETERMINATE`. That is
 intentional: absence of a probe and an underpowered probe are different facts.
+Here the verbosity flaw fails both verbosity checks (the flip-rate interval and
+the directional interval both sit above the 0.10 ceiling), while the small gold
+set leaves several other checks `INDETERMINATE` rather than `PASS`: their
+intervals overlap the threshold, so the evidence neither clears nor fails it.
 
-## Reuse vitals scores and write an artifact
+## Write an artifact
+
+`write_audit()` writes the same assessment as a Markdown report or as a
+versioned JSON summary (`yourhonor.audit.v1`). An existing file is never
+replaced unless `overwrite = TRUE`, so a re-run cannot clobber an earlier audit.
+
+```{r}
+path <- tempfile("judge-audit-", fileext = ".json")
+write_audit(cal, path, bias = bias, stability = stability, policy = policy)
+```
+
+```{r, eval = requireNamespace("jsonlite", quietly = TRUE)}
+audit <- jsonlite::read_json(path)
+audit$decision
+names(audit)
+```
+
+```{r, include = FALSE}
+unlink(path)
+```
+
+The JSON artifact contains aggregate calibration evidence, policy checks, and
+provenance at full numeric precision, with `null` for every absent value.
+Calibration item rows are omitted, but caller-supplied provenance is written
+verbatim; keep secrets and raw item content out of provenance fields.
+
+## Reuse vitals scores
 
 `audit_vitals()` reads `task$get_samples()$score` and joins human labels by ID;
 it does not invoke the scorer again. A multi-epoch vitals task must be filtered
 to one epoch for calibration because repeated grades are not independent gold
 items. `stability_vitals()` can reuse epochs only after verifying that every
-judge-visible content column stayed invariant.
+judge-visible content column stayed invariant. The chunk below is not run; it
+needs a graded `vitals::Task` and a human review table.
 
 ```{r, eval = FALSE}
 human_review <- tibble::tibble(id = review$id, human_label = review$label)
@@ -257,12 +402,8 @@ stability <- stability_vitals(
   audit_id = "support-judge-v3-gold-2026-08",
   seed = 1
 )
-write_audit(cal, "judge-audit.json", policy = policy, format = "json")
+write_audit(cal, "judge-audit.json", policy = policy, format = "json", overwrite = TRUE)
 ```
-
-The JSON artifact contains aggregate calibration evidence, policy checks, and
-provenance. Calibration item rows are omitted, but caller-supplied provenance is
-written verbatim; keep secrets and raw item content out of provenance fields.
 
 ## Statistical scope
 

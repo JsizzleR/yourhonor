@@ -3,5 +3,9 @@
 .RData
 .Ruserdata
 docs/
+inst/doc
+/doc/
+/Meta/
+.DS_Store
 *.tar.gz
 *.Rcheck/

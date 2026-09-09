@@ -1,31 +1,38 @@
-url: https://github.com/JsizzleR/yourhonor
+url: https://jsizzler.github.io/yourhonor/
 
 template:
   bootstrap: 5
 
 reference:
 - title: Calibrate a judge
+  desc: Compare judge labels with human labels, blind to the labels.
   contents:
   - calibrate_judge
   - agreement
   - confusion
   - confusion_metrics
-- title: Reliability probes
+  - plot_confusion
+- title: Bias probes
+  desc: Structured perturbations that measure directional label movement.
   contents:
   - probe_bias
   - probe_position
   - combine_bias
+- title: Stability
+  desc: Test-retest evidence from repeated gradings.
+  contents:
   - test_retest
-  - stability_vitals
 - title: Decisions and artifacts
+  desc: Explicit acceptance criteria, reports, and portable audit files.
   contents:
   - acceptance_policy
   - report
   - write_audit
-  - audit_vitals
-- title: Visualise
+- title: vitals integration
+  desc: Reuse grades and epochs already present in a vitals task.
   contents:
-  - plot_confusion
+  - audit_vitals
+  - stability_vitals
 - title: Data
   contents:
   - support_gold

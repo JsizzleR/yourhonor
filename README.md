@@ -27,7 +27,8 @@ model unless you give it a judge function.
 - `calibrate_judge()` compares judge grades with one or more human raters. A
   live judge sees only the columns explicitly listed in `input_cols`, never the
   human labels. Rows are shuffled before opaque keys are assigned; keyed output
-  is restored safely.
+  is validated and restored, and the result keeps the judge-side key so logs
+  can be joined back without un-blinding the run.
 - `agreement()` reports Cohen's kappa, Krippendorff's alpha, and Gwet's AC1
   (nominal) or AC2 (weighted) with item-bootstrap intervals, fixed category
   levels, and explicit missingness. Weighted analyses require a declared order.
@@ -37,17 +38,20 @@ model unless you give it a judge function.
 - `probe_bias()` tests pointwise verbosity, self-preference, and bandwagon
   effects. `probe_position()` swaps separate candidate columns and maps display
   choices from neutral display slots back to stable candidate identity. Both
-  record raw missingness and conservative directional-effect intervals.
-- `test_retest()` reports pairwise run disagreement with uncertainty, rather
-  than relying on an any-flip rate that rises mechanically with the number of
-  runs.
-- `acceptance_policy()` makes thresholds explicit. `report()` returns `PASS`,
-  `FAIL`, `NOT_ASSESSED`, or `INDETERMINATE`; without a policy, it is descriptive
-  and never implies that missing evidence passed.
+  return the same schema, record raw missingness, and report conservative
+  directional-effect intervals.
+- `test_retest()` reports pairwise run disagreement with a conservative
+  interval, rather than relying on an any-flip rate that rises mechanically
+  with the number of runs.
+- `acceptance_policy()` makes thresholds explicit. `report()` returns a
+  `yourhonor_report` whose `$decision` is `PASS`, `FAIL`, `NOT_ASSESSED`, or
+  `INDETERMINATE`; without a policy, it is descriptive and never implies that
+  missing evidence passed.
 - `audit_vitals()` consumes grades already present in a vitals task without
   paying for another model call. `stability_vitals()` handles invariant content
   across repeated epochs. `write_audit()` writes Markdown or a versioned
-  aggregate JSON summary without automatically serializing item rows.
+  aggregate JSON summary without automatically serializing item rows, and
+  never overwrites an existing file unless told to.
 
 ## Installation
 
@@ -73,18 +77,38 @@ cal <- calibrate_judge(
   n_boot = 500,
   seed = 1
 )
+cal
+#> ── yourhonor judge calibration ─────────────────────────────────────────────────
+#> 8 usable items of 8 - descriptive judge-vs-human agreement:
+#> • cohen_kappa: 0.76 [0.25, 1.00] (substantial)
+#> • krippendorff_alpha: 0.77 [0.18, 1.00] (substantial)
+#> • gwet_ac2: 0.81 [0.56, 1.00] (almost perfect)
+#> 2 disagreements; inspect `confusion_metrics()` before use.
+#> ℹ No deployment decision is implied; call report() with a policy to assess one.
 
 agreement(cal)
 confusion_metrics(cal)
+#> # A tibble: 3 × 9
+#>   label support predicted precision precision_conf_low precision_conf_high
+#>   <chr>   <int>     <int>     <dbl>              <dbl>               <dbl>
+#> 1 I           2         1       1               0.0250               1    
+#> 2 P           2         2       0.5             0.0126               0.987
+#> 3 C           4         5       0.8             0.284                0.995
+#> # ℹ 3 more variables: recall <dbl>, recall_conf_low <dbl>,
+#> #   recall_conf_high <dbl>
 
 # Evidence alone is not a deployment decision.
-report(cal, output = "md")
-attr(report(cal, output = "md"), "decision")
+rep <- report(cal, output = "md")
+rep$decision
 #> [1] "NOT_ASSESSED"
 ```
 
+`report()` returns the same `yourhonor_report` object whichever `output` you
+choose; `output` only sets how it prints. `rep$checks` is a tibble with one row
+per policy check, and `format(rep, output = "md")` gives the Markdown lines.
+
 Declare thresholds from the task's error costs, not from a package-wide notion
-of a “good” score:
+of a "good" score:
 
 ```r
 policy <- acceptance_policy(
@@ -107,9 +131,41 @@ policy <- acceptance_policy(
   coefficient = "gwet_ac2"
 )
 
-# Missing required probes or stability will be shown as NOT_ASSESSED.
+# Missing required probes or stability are shown as NOT_ASSESSED.
 report(cal, policy = policy, output = "console")
+#> ── yourhonor assessment: NOT_ASSESSED ──────────────────────────────────────────
+#> Agreement evidence: gwet_ac2 = 0.81 [0.56, 1.00] (almost perfect).
+#> Worst class recall: "I" = 0.50 (support 2).
+#> Bias probes: NOT ASSESSED.
+#> Test-retest stability: NOT ASSESSED.
+#> 
+#> ── policy checks ──
+#> 
+#> INDETERMINATE: usable_items = 8 (>= 100) - Sample size is below the declared
+#> minimum.
+#> PASS: calibration_confidence_level = 0.95 (= 0.95) - Confidence level matches
+#> policy.
+#> PASS: calibration_missing_rate = 0 (<= 0.01) - Criterion met.
+#> INDETERMINATE: agreement_gwet_ac2 = 0.557 (lower >= 0.75) - Interval overlaps
+#> threshold.
+#> INDETERMINATE: class_support = 2 (>= 20) - Insufficient reference support for:
+#> I, P, C
+#> INDETERMINATE: recall_I = 0.0126 (lower >= 0.9) - Interval overlaps threshold.
+#> INDETERMINATE: recall_P = 0.0126 (lower >= 0.75) - Interval overlaps threshold.
+#> INDETERMINATE: recall_C = 0.398 (lower >= 0.9) - Interval overlaps threshold.
+#> INDETERMINATE: precision_C = 0.284 (lower >= 0.9) - Interval overlaps
+#> threshold.
+#> NOT_ASSESSED: bias_verbosity = NA (upper <= 0.05) - Required bias probe was not
+#> supplied.
+#> NOT_ASSESSED: bias_position = NA (upper <= 0.05) - Required bias probe was not
+#> supplied.
+#> NOT_ASSESSED: stability_pairwise_disagreement = NA (upper <= 0.05) - Required
+#> stability evidence was not supplied.
 ```
+
+Stability and probe thresholds live behind their gates
+(`max_pairwise_disagreement` and `required_probes`). Supplying one without its
+gate is an error, so a policy never carries a threshold that is not assessed.
 
 ## Calibrate a live judge without label leakage
 
@@ -142,7 +198,8 @@ cal <- calibrate_judge(
 
 `input_cols` is required for a live judge. Human-rating columns and an existing
 judge-label column are rejected if included, making leakage an API error rather
-than a convention.
+than a convention. The `.item_id` the judge sees is assigned after shuffling;
+`cal$items$.judge_item_id` records it so judge-side logs can be joined back.
 
 ## Position bias needs structured candidates
 
@@ -172,7 +229,25 @@ probe_position(
   seed = 1,
   audit_id = "pairwise-judge-v1"
 )
+#> ── yourhonor bias probes ──
+#> 
+#> # A tibble: 1 × 32
+#>   probe    flip_rate conf_low conf_high direction    directional_rate
+#>   <chr>        <dbl>    <dbl>     <dbl> <chr>                   <dbl>
+#> 1 position         1    0.158         1 favors_first                1
+#> # ℹ 26 more variables: directional_conf_low <dbl>, directional_conf_high <dbl>,
+#> #   position_preference <dbl>, display_first_rate <dbl>,
+#> #   position_conf_low <dbl>, position_conf_high <dbl>, statistic <int>,
+#> #   n_discordant <int>, n_scored <int>, n_directional_items <int>,
+#> #   n_input <int>, n_unscored <int>, unscored_rate <dbl>,
+#> #   n_items_missing <int>, n_judgments <int>, n_judgments_missing <int>,
+#> #   missing_rate <dbl>, n_comparisons <int>, p_value <dbl>, …
 ```
+
+Pointwise and position probes share this schema; `?probe_bias` documents every
+column and its denominator. Two items cannot reach significance, so the verdict
+here is `no_signal` despite a total preference for the first slot: use
+`min_probe_n` in a policy to require a real sample.
 
 ## Use grades already produced by vitals
 
@@ -193,6 +268,7 @@ cal <- audit_vitals(
   seed = 1
 )
 
+# An existing file is an error unless overwrite = TRUE.
 write_audit(cal, "judge-audit.json", policy = policy, format = "json")
 ```
 
@@ -215,15 +291,64 @@ If solver output changes between epochs, this adapter refuses the claim: those
 rows measure end-to-end evaluation variation, not judge test-retest stability.
 
 JSON artifacts omit `cal$items`, but caller-supplied provenance is written
-verbatim. Do not place secrets or raw item content in provenance fields.
+verbatim. Do not place secrets or raw item content in provenance fields. The
+`yourhonor.audit.v1` schema is documented in `?write_audit`: numbers are
+written at full precision, absent values are `null`, and vector fields are
+always arrays.
+
+## Working with raw rating frames
+
+`agreement()`, `confusion()`, and `plot_confusion()` also accept a plain data
+frame. Name the columns explicitly (`rater_cols` for `agreement()`,
+`human_col`/`judge_col` for `confusion()`); when you do not, columns named
+`human` and `judge` are used if both exist, and any other inference is
+announced with a message so a wide frame is never silently misread:
+
+```r
+ratings <- data.frame(
+  id = 1:4,
+  human = c("C", "C", "P", "I"),
+  judge = c("C", "P", "P", "I")
+)
+confusion(ratings, label_levels = c("I", "P", "C"))
+#> ℹ Using human and judge as the rating columns.
+#> ℹ Ignoring column: id.
+#>   Set `human_col` to choose explicitly.
+#> # A tibble: 9 × 4
+#>   human_label judge_label     n  prop
+#>   <chr>       <chr>       <int> <dbl>
+#> 1 I           I               1  0.25
+#> 2 P           I               0  0   
+#> 3 C           I               0  0   
+#> 4 I           P               0  0   
+#> 5 P           P               1  0.25
+#> 6 C           P               1  0.25
+#> 7 I           C               0  0   
+#> 8 P           C               0  0   
+#> 9 C           C               1  0.25
+```
 
 ## Interpreting the evidence
 
 - Human-human agreement is a reliability benchmark, not a ceiling. A judge can
   agree with a consensus more strongly than individual humans agree with each
   other.
+- With several human raters, each item's reference label is the modal (most
+  frequent) human label. Items whose top labels tie have no consensus and are
+  excluded from the judge-versus-consensus evidence (`n_consensus_ties`). With
+  two raters every disagreement is a tie, so the judge is scored only on the
+  items humans agreed about; that direction is optimistic. `per_rater_agreement`
+  compares the judge against each rater on every item.
+- The test-retest pairwise-disagreement interval is a hybrid: the percentile
+  item bootstrap widened to include a Wilson score interval for the mean
+  per-item disagreement. It keeps a zero-disagreement sample from producing a
+  zero-width interval, usually sets both bounds once there are more than two
+  runs, and can only widen the bootstrap, never narrow it. The chance-corrected
+  stability interval is the plain item bootstrap.
 - `no_signal` from a bias probe means the probe did not detect a directional
-  effect. It is not proof that the judge is unbiased.
+  effect. It is not proof that the judge is unbiased. A `BIAS` verdict needs
+  both a small adjusted p-value and a net `directional_rate` above
+  `flip_threshold`; a large but balanced flip rate is reported, not flagged.
 - A single observed class cannot identify chance-corrected agreement. Such
   results are `INDETERMINATE`, not perfect.
 - A finite sample with empirically perfect varied agreement produces a

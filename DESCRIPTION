@@ -30,13 +30,11 @@ Imports:
     vctrs,
     withr
 Suggests:
-    ellmer,
     ggplot2,
     jsonlite,
     knitr,
     rmarkdown,
-    testthat (>= 3.0.0),
-    vitals
+    testthat (>= 3.0.0)
 VignetteBuilder:
     knitr
 Config/testthat/edition: 3
