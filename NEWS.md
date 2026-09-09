@@ -197,8 +197,11 @@ User-visible changes made while addressing the pre-release code review.
   and every validation error it raises carries class
   `yourhonor_policy_error`.
 * The console report prints every class line and the `n of N` judge-evidence
-  line that the Markdown report already had, and a non-required probe whose
-  verdict is `INCONCLUSIVE` is mentioned in the bias summary.
+  line that the Markdown report already had (and, like the Markdown report,
+  tolerates a calibration without class metrics), and a non-required probe
+  whose verdict is `INCONCLUSIVE` is mentioned in the bias summary whether or
+  not the policy names required probes. A check value and threshold that
+  only part beyond 15 significant digits are printed exactly.
 * `agreement(<calibration>, weights = ...)` re-resolves the inherited
   coefficients under the new weights instead of treating the stored Gwet
   variant as an explicit, conflicting request. `confusion()` and
@@ -206,13 +209,17 @@ User-visible changes made while addressing the pre-release code review.
   object as `agreement()` rejects `rater_cols`; `confusion_metrics()` applies
   `label_levels` to a calibration's or confusion tibble's stored metrics;
   frames with duplicated column names are refused; the positional-inference
-  hint names both selectors; and errors from `confusion_metrics()` name it.
+  hint names both selectors; and errors from `confusion_metrics()` name it
+  and say whether a calibration object or a confusion tibble was passed.
+  A count above the integer range (for example `n_boot = 1e10`) is rejected
+  with a message naming that bound.
 * The bootstrap draws one resample per iteration, shared by every requested
   coefficient, instead of materialising an `n x n_boot` index matrix, and
   draws nothing when no coefficient is estimable.
 * `combine_bias()` carries over only evidence for probes present in each
   constituent's rows, so stale evidence left by row-subsetting cannot shadow
-  a newer run, and names given to `...` no longer prefix the evidence names.
+  a newer run, refuses an unnamed evidence list instead of emptying it, and
+  names given to `...` no longer prefix the evidence names.
   `probe_position()` reserves `.judge_item_id`, `display_choice`, and
   `canonical_choice`; `probe_bias()` validates `id_col` on the full data
   before sampling.

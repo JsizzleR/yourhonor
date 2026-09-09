@@ -665,6 +665,16 @@ test_that("combine_bias keeps only evidence for each constituent's rows", {
     probe_named_list(list(position = 1, position = 2), "position"),
     "named uniquely"
   )
+
+  # An unnamed evidence list is refused rather than filtered down to nothing.
+  unnamed <- consistent
+  attr(unnamed, "evidence") <- list(attr(consistent, "evidence")$position)
+  expect_error(
+    combine_bias(pointwise, unnamed), "evidence attribute must be a list named"
+  )
+  unnamed <- consistent
+  attr(unnamed, "item_evidence") <- list(1)
+  expect_error(combine_bias(pointwise, unnamed), "item_evidence attribute")
 })
 
 test_that("every internally assigned position column is reserved", {

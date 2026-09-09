@@ -131,17 +131,16 @@ as_confusion_ratings <- function(x,
   x[, cols, drop = FALSE]
 }
 
-# A calibration object carries its own pairing, so an explicit selection on
-# one would be silently ignored; agreement() refuses `rater_cols` the same way.
+# A calibration object or a confusion tibble carries its own pairing, so an
+# explicit selection on one would be silently ignored; agreement() refuses
+# `rater_cols` the same way. `what` names the object the caller passed.
 check_no_column_selection <- function(human_col,
                                       judge_col,
+                                      what = "a calibration object",
                                       call = rlang::caller_env()) {
   if (!is.null(human_col) || !is.null(judge_col)) {
     cli::cli_abort(
-      paste0(
-        "{.arg human_col} and {.arg judge_col} cannot be combined with a ",
-        "calibration object."
-      ),
+      "{.arg human_col} and {.arg judge_col} cannot be combined with {what}.",
       call = call
     )
   }
@@ -157,7 +156,8 @@ check_unique_column_names <- function(x,
   if (length(repeated) > 0L) {
     cli::cli_abort(
       paste0(
-        "{.arg {arg}} has duplicated column name{?s}: {.field {repeated}}."
+        "{.arg {arg}} has duplicated column ",
+        "{cli::qty(length(repeated))}name{?s}: {.field {repeated}}."
       ),
       call = call
     )
@@ -224,13 +224,15 @@ confusion_metrics <- function(x,
                               human_col = NULL,
                               judge_col = NULL) {
   call <- rlang::current_env()
-  cached <- if (inherits(x, "yourhonor_calibration")) {
+  is_calibration <- inherits(x, "yourhonor_calibration")
+  cached <- if (is_calibration) {
     x$confusion_metrics
   } else {
     attr(x, "metrics", exact = TRUE)
   }
   if (!is.null(cached)) {
-    check_no_column_selection(human_col, judge_col, call = call)
+    what <- if (is_calibration) "a calibration object" else "a confusion tibble"
+    check_no_column_selection(human_col, judge_col, what = what, call = call)
     return(reindex_class_metrics(cached, label_levels, call = call))
   }
   conf <- build_confusion(

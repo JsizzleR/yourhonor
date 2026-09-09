@@ -74,15 +74,28 @@ acceptance_policy <- function(min_agreement_lower,
                                 "gwet_ac1", "gwet_ac2", "cohen_kappa",
                                 "krippendorff_alpha"
                               )) {
-  rlang::check_required(min_agreement_lower)
-  rlang::check_required(min_n)
-  rlang::check_required(min_class_n)
-  rlang::check_required(min_recall)
-  rlang::check_required(max_missing_rate)
-  rlang::check_required(max_pairwise_disagreement)
-  coefficient <- rlang::arg_match(coefficient)
-  # Every validation error below carries `policy_error`, so a caller can
-  # catch a malformed policy as one condition class.
+  # Every validation error acceptance_policy() raises carries `policy_error`,
+  # so a caller can catch a malformed policy as one condition class; the
+  # rlang argument checks are re-signalled under it with the original as
+  # `parent`.
+  call <- rlang::current_env()
+  coefficient <- rlang::try_fetch(
+    {
+      rlang::check_required(min_agreement_lower)
+      rlang::check_required(min_n)
+      rlang::check_required(min_class_n)
+      rlang::check_required(min_recall)
+      rlang::check_required(max_missing_rate)
+      rlang::check_required(max_pairwise_disagreement)
+      rlang::arg_match(coefficient)
+    },
+    error = function(err) {
+      header <- rlang::cnd_header(err)
+      cli::cli_abort(
+        "{header}", class = policy_error, parent = err, call = call
+      )
+    }
+  )
   conf_level <- check_probability(conf_level, open = TRUE, class = policy_error)
   min_agreement_lower <- check_numeric_threshold(min_agreement_lower)
   min_n <- check_count(min_n, minimum = 2L, class = policy_error)
@@ -477,12 +490,14 @@ class_metric_checks <- function(x, policy, level_ok) {
 
 # One required probe yields up to four checks: `bias_<probe>` (flip-rate
 # interval), `bias_<probe>_direction`, `bias_<probe>_missing_rate`, and
-# `bias_<probe>_n`. The missingness, status, and sample-size gates are
-# prerequisites for the two interval checks: when one stops the assessment
-# the outcome is reported under `bias_<probe>` with the flip-rate threshold
-# so that check name keeps one meaning. A probe at another confidence level
-# reports `bias_<probe>_confidence_level` in place of the interval checks
-# while its rate and count checks are still assessed.
+# `bias_<probe>_n`. The status and sample-size gates are prerequisites for
+# the two interval checks: when one stops the assessment the outcome is
+# reported under `bias_<probe>` with the flip-rate threshold so that check
+# name keeps one meaning. The missingness gate is an independent check: it
+# can `FAIL` the policy on its own, but the interval checks are still
+# assessed on the scored items. A probe at another confidence level reports
+# `bias_<probe>_confidence_level` in place of the interval checks while its
+# rate and count checks are still assessed.
 probe_checks <- function(x, bias, policy) {
   unlist(
     lapply(policy$required_probes, function(probe) {

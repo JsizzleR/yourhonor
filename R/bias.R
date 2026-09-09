@@ -409,11 +409,17 @@ probe_named_list <- function(x, probes) {
 
 # Row-subsetting a result keeps its attributes, so a constituent can carry
 # evidence for probes it no longer has rows for; only entries matching its
-# own rows are kept. `unname()` stops names given to `...` from becoming
-# prefixes such as `position.position`.
-collect_bias_attr <- function(probes, which) {
+# own rows are kept. Names are checked before that filter, otherwise an
+# unnamed list would be emptied silently instead of refused. `unname()` stops
+# names given to `...` from becoming prefixes such as `position.position`.
+collect_bias_attr <- function(probes, which, call = rlang::caller_env()) {
   kept <- lapply(unname(probes), function(x) {
     ev <- attr(x, which, exact = TRUE)
+    if (length(ev) > 0L && is.null(names(ev))) {
+      cli::cli_abort(
+        "Bias {which} attribute must be a list named by probe.", call = call
+      )
+    }
     ev[names(ev) %in% x$probe]
   })
   do.call(c, kept)

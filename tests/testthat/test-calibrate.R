@@ -108,6 +108,10 @@ test_that("reserved keys, provenance, judge_col, and judge are validated", {
     "provenance"
   )
   expect_error(
+    calibrate_judge(make_gold(), provenance = data.frame(a = 1)),
+    "must be a plain list, not a data frame"
+  )
+  expect_error(
     calibrate_judge(make_gold(), judge_col = c("a", "b")), "judge_col"
   )
   expect_error(calibrate_judge(make_gold(), judge_col = ""), "judge_col")

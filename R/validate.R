@@ -21,8 +21,14 @@ check_count <- function(x,
   # for complex or list input, and `as.integer()` warns above the integer
   # range instead of failing.
   ok <- is.numeric(x) && length(x) == 1L && !is.na(x) && is.finite(x) &&
-    x >= minimum && x <= .Machine$integer.max && x == as.integer(x)
-  if (!ok) {
+    x >= minimum
+  if (ok && x > .Machine$integer.max) {
+    cli::cli_abort(
+      "{.arg {arg}} must be at most {(.Machine$integer.max)}.",
+      call = call, class = class
+    )
+  }
+  if (!ok || x != as.integer(x)) {
     cli::cli_abort(
       "{.arg {arg}} must be a whole number greater than or equal to {minimum}.",
       call = call, class = class
@@ -73,7 +79,12 @@ check_provenance <- function(x,
     !is.null(names(x)) && !anyNA(names(x)) &&
       all(nzchar(trimws(names(x)))) && !anyDuplicated(names(x))
   )
-  if (!is.list(x) || is.data.frame(x) || !names_ok) {
+  if (is.data.frame(x)) {
+    cli::cli_abort(
+      "{.arg {arg}} must be a plain list, not a data frame.", call = call
+    )
+  }
+  if (!is.list(x) || !names_ok) {
     cli::cli_abort(
       paste0(
         "{.arg {arg}} must be a list with unique, non-empty names ",

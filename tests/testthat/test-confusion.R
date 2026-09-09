@@ -192,7 +192,12 @@ test_that("explicit columns cannot be combined with a calibration", {
   )
   expect_error(
     confusion_metrics(confusion(cal), human_col = "a", judge_col = "b"),
-    "cannot be combined with a calibration"
+    "cannot be combined with a confusion tibble"
+  )
+  conf <- confusion(data.frame(human = c("C", "P"), judge = c("C", "P")))
+  expect_error(
+    confusion_metrics(conf, human_col = "human"),
+    "cannot be combined with a confusion tibble"
   )
 })
 
@@ -256,4 +261,10 @@ test_that("duplicated column names are rejected before selection", {
     "duplicated column name: human"
   )
   expect_error(confusion(ratings), "duplicated column name: human")
+  twice <- data.frame(1, 2, 3, 4)
+  names(twice) <- c("human", "human", "judge", "judge")
+  expect_error(
+    confusion(twice, human_col = "human", judge_col = "judge"),
+    "duplicated column names: human and judge"
+  )
 })

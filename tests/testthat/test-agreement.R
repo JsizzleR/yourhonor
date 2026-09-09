@@ -438,8 +438,11 @@ test_that("inherited coefficients follow an overridden weights argument", {
 })
 
 test_that("count and probability validators reject odd numeric input cleanly", {
-  expect_error(check_count(3e9), "whole number")
+  expect_error(check_count(3e9), "must be at most 2147483647")
+  expect_error(check_count(2147483648, "n_boot"), "`n_boot` must be at most")
+  expect_identical(check_count(2147483647), 2147483647L)
   expect_error(check_count(-3e9), "whole number")
+  expect_error(check_count(2.5), "whole number")
   expect_error(check_count(1 + 0i), "whole number")
   expect_error(check_count(list(1)), "whole number")
   expect_error(check_probability(1i), "between 0 and 1")
@@ -456,4 +459,29 @@ test_that("no bootstrap is drawn when nothing is estimable", {
   after <- runif(1)
   expect_true(all(out$status == "insufficient_variation"))
   expect_identical(before, after)
+
+  # Variation is sufficient here, but the only requested coefficient is
+  # undefined for three raters, so nothing is estimable and nothing is drawn.
+  three <- data.frame(
+    r1 = c("C", "C", "P", "P"),
+    r2 = c("C", "P", "P", "P"),
+    r3 = c("C", "C", "P", "C")
+  )
+  set.seed(4)
+  before <- runif(1)
+  set.seed(4)
+  out <- agreement(
+    three, coefficients = "cohen_kappa", n_boot = 50,
+    rater_cols = c("r1", "r2", "r3")
+  )
+  after <- runif(1)
+  expect_identical(out$status, "invalid_rater_count")
+  expect_identical(before, after)
+  # A coefficient that is estimable still consumes the stream.
+  set.seed(4)
+  agreement(
+    three, coefficients = "gwet_ac1", n_boot = 50,
+    rater_cols = c("r1", "r2", "r3")
+  )
+  expect_false(identical(runif(1), after))
 })

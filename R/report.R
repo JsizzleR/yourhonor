@@ -162,24 +162,28 @@ format_check_lines <- function(checks, style = c("console", "md")) {
 # missing rate of 0.003 is not rendered as the "0.00" of a two-decimal format.
 # A value and threshold that differ must also render differently, otherwise
 # a FAIL at 0.1005 against 0.1 would read as "0.1 (<= 0.1)"; the precision is
-# raised for that pair until the two strings part.
+# raised for that pair until the two strings part. Past 15 significant digits
+# `format()` can still merge neighbouring doubles, so the pair then falls back
+# to the 17 digits that identify every double uniquely.
 fmt_check_pair <- function(value, threshold) {
   rendered <- vapply(seq_along(value), function(i) {
     v <- value[[i]]
     t <- threshold[[i]]
-    digits <- 3L
-    repeat {
-      out <- c(fmt_check_number(v, digits), fmt_check_number(t, digits))
-      distinct <- is.na(v) || is.na(t) || v == t || out[[1]] != out[[2]]
-      if (distinct || digits >= 15L) return(out)
-      digits <- digits + 1L
+    if (is.na(v) || is.na(t) || v == t) {
+      return(c(fmt_check_number(v), fmt_check_number(t)))
     }
+    for (digits in 3:15) {
+      out <- c(fmt_check_number(v, digits), fmt_check_number(t, digits))
+      if (out[[1]] != out[[2]]) return(out)
+    }
+    c(fmt_check_number(v, exact = TRUE), fmt_check_number(t, exact = TRUE))
   }, character(2))
   list(value = rendered[1, ], threshold = rendered[2, ])
 }
 
-fmt_check_number <- function(x, digits = 3L) {
-  if (is.na(x)) "NA" else format(x, digits = digits)
+fmt_check_number <- function(x, digits = 3L, exact = FALSE) {
+  if (is.na(x)) return("NA")
+  if (exact) sprintf("%.17g", x) else format(x, digits = digits)
 }
 
 headline_row <- function(x, policy = NULL) {
@@ -230,6 +234,12 @@ bias_summary <- function(bias, checks, policy) {
 
   required <- policy$required_probes
   outside <- detected_biases(bias[!bias$probe %in% required, , drop = FALSE])
+  # An unscored probe outside the policy is not a gate outcome, but hiding
+  # it would let the summary imply the extra probe produced evidence.
+  unscored <- bias$probe[
+    !bias$probe %in% required & !is.na(bias$verdict) &
+      bias$verdict == "INCONCLUSIVE"
+  ]
   if (length(required) == 0L) {
     state <- if (length(outside) > 0L) {
       paste0(
@@ -238,7 +248,9 @@ bias_summary <- function(bias, checks, policy) {
     } else {
       "descriptive probe settings did not flag a directional signal"
     }
-    return(paste0("Bias probes were outside the policy; ", state, "."))
+    return(append_unscored(
+      paste0("Bias probes were outside the policy; ", state, "."), unscored
+    ))
   }
   bias_checks <- checks[startsWith(checks$check, "bias_"), , drop = FALSE]
   failed <- bias_checks$check[bias_checks$status == "FAIL"]
@@ -256,20 +268,16 @@ bias_summary <- function(bias, checks, policy) {
       paste(outside, collapse = ", "), "."
     )
   }
-  # An unscored probe outside the policy is not a gate outcome, but hiding
-  # it would let the summary imply the extra probe produced evidence.
-  unscored <- bias$probe[
-    !bias$probe %in% required & !is.na(bias$verdict) &
-      bias$verdict == "INCONCLUSIVE"
-  ]
-  if (length(unscored) > 0L) {
-    verb <- if (length(unscored) == 1L) "was" else "were"
-    summary <- paste0(
-      summary, " Outside the policy, ", paste(unscored, collapse = ", "),
-      " ", verb, " INCONCLUSIVE."
-    )
-  }
-  summary
+  append_unscored(summary, unscored)
+}
+
+append_unscored <- function(summary, unscored) {
+  if (length(unscored) == 0L) return(summary)
+  verb <- if (length(unscored) == 1L) "was" else "were"
+  paste0(
+    summary, " Outside the policy, ", paste(unscored, collapse = ", "),
+    " ", verb, " INCONCLUSIVE."
+  )
 }
 
 validate_report_evidence <- function(x, bias, stability) {
@@ -348,7 +356,7 @@ print_agreement_line <- function(head) {
 # The console shows the same per-class facts as the Markdown report, so a
 # rare class with poor recall is never hidden behind a single summary line.
 print_class_lines <- function(metrics) {
-  if (nrow(metrics) == 0L) {
+  if (is.null(metrics) || nrow(metrics) == 0L) {
     cli::cli_text("Per-class evidence: not available.")
     return(invisible(NULL))
   }

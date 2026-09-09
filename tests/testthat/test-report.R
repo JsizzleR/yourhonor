@@ -895,6 +895,20 @@ test_that("a rendered value never equals the threshold it failed", {
   expect_match(
     console[[1]], "FAIL: calibration_missing_rate = 0.1005 \\(<= 0.1\\)"
   )
+
+  # Neighbouring doubles that format() cannot separate at 15 significant
+  # digits fall back to an exact rendering rather than reading as equal.
+  below_one <- 1 - .Machine$double.eps
+  pair <- fmt_check_pair(below_one, 1)
+  expect_identical(pair$threshold, "1")
+  expect_identical(pair$value, sprintf("%.17g", below_one))
+  expect_false(identical(pair$value, pair$threshold))
+  edge <- assessment_row("agreement", "FAIL", below_one, "lower >=", 1, "w")
+  expect_match(
+    format_check_lines(edge, style = "md"),
+    "= 0.99999999999999978 \\(lower >= 1\\)",
+    fixed = FALSE
+  )
 })
 
 test_that("an untrusted interval reports NA and its cause, not the estimate", {
@@ -1047,6 +1061,31 @@ test_that("an inconclusive probe outside the policy is mentioned", {
   md <- paste(format(rep), collapse = "\n")
   expect_match(md, "Required bias probes cleared the declared policy gates")
   expect_match(md, "Outside the policy, bandwagon was INCONCLUSIVE")
+
+  # A policy with no required probes leaves every probe outside it; the
+  # unscored one is still named rather than described as showing no signal.
+  none <- report(make_cal(), bias = bias, policy = make_policy(), output = "md")
+  md <- paste(format(none), collapse = "\n")
+  expect_match(md, "Bias probes were outside the policy")
+  expect_match(md, "Outside the policy, bandwagon was INCONCLUSIVE")
+  console <- paste(format(none, output = "console"), collapse = "\n")
+  expect_match(console, "Outside the policy, bandwagon was INCONCLUSIVE")
+  plain <- paste(format(report(make_cal(), bias = bias)), collapse = "\n")
+  expect_match(plain, "At least one supplied bias probe was INCONCLUSIVE")
+})
+
+test_that("the console report renders a calibration without class metrics", {
+  cal <- make_cal()
+  cal$confusion_metrics <- NULL
+  rep <- report(cal, policy = make_policy())
+  expect_identical(rep$decision, "NOT_ASSESSED")
+  expect_no_error(md <- format(rep, output = "md"))
+  console <- paste(format(rep, output = "console"), collapse = "\n")
+  expect_match(console, "Per-class evidence: not available")
+  expect_match(
+    paste(format(report(cal), output = "console"), collapse = "\n"),
+    "Per-class evidence: not available"
+  )
 })
 
 test_that("orphan thresholds are rejected with a readable sentence", {
@@ -1085,9 +1124,25 @@ test_that("every acceptance_policy() validation error is classed", {
     quote(acceptance_policy(
       .8, 50, 10, .8, 0, 0.1, min_stability_n = 0, min_stability_runs = 3,
       max_stability_missing_rate = 0
+    )),
+    quote(acceptance_policy(.8, 50, 10, .8, 0, NULL, coefficient = "bogus")),
+    quote(acceptance_policy(.8, 50, 10, .8)),
+    quote(acceptance_policy(
+      .8, min_class_n = 10, min_recall = .8, max_missing_rate = 0,
+      max_pairwise_disagreement = NULL
     ))
   )
   for (call in bad) {
     expect_error(eval(call), class = "yourhonor_policy_error")
   }
+  # The rlang argument checks keep their own message and travel as `parent`.
+  err <- rlang::catch_cnd(
+    acceptance_policy(.8, 50, 10, .8, 0, NULL, coefficient = "bogus")
+  )
+  expect_match(rlang::cnd_header(err), "`coefficient` must be one of")
+  expect_identical(rlang::call_name(err$call), "acceptance_policy")
+  expect_s3_class(err$parent, "rlang_error")
+  err <- rlang::catch_cnd(acceptance_policy(.8, 50, 10, .8))
+  expect_match(rlang::cnd_header(err), "`max_missing_rate` is absent")
+  expect_identical(rlang::call_name(err$call), "acceptance_policy")
 })
