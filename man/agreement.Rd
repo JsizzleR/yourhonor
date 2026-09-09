@@ -6,28 +6,40 @@
 \usage{
 agreement(
   x,
-  coefficients = yourhonor_coefficients,
+  coefficients = NULL,
   conf_level = 0.95,
   n_boot = 2000,
   seed = NULL,
   label_levels = NULL,
-  weights = c("unweighted", "linear", "quadratic", "ordinal")
+  weights = c("unweighted", "linear", "quadratic", "ordinal"),
+  rater_cols = NULL
 )
 }
 \arguments{
 \item{x}{Either a \code{yourhonor_calibration} object or a data frame / tibble of
-ratings. If columns named \code{human} and \code{judge} are present they are used;
-otherwise all supplied columns are treated as raters. Rows with fewer than
-two observed ratings do not contribute, while partially observed
-multi-rater rows remain available to coefficients that support them.}
+ratings with one column per rater (see \code{rater_cols}). Rows with fewer
+than two observed ratings do not contribute, while partially observed
+multi-rater rows remain available to coefficients that support them.
+
+For a calibration object every argument left at its default is inherited
+from the calibration (\code{coefficients}, \code{conf_level}, \code{n_boot}, \code{seed},
+\code{label_levels}, and \code{weights}), so \code{agreement(cal, n_boot = 50)} reuses the
+stored seed and confidence level. When nothing is overridden the stored
+agreement table is returned unchanged.}
 
 \item{coefficients}{Character vector containing any of \code{"cohen_kappa"},
-\code{"krippendorff_alpha"}, \code{"gwet_ac1"}, and \code{"gwet_ac2"}. AC1 is
-unweighted; AC2 is its weighted counterpart.}
+\code{"krippendorff_alpha"}, \code{"gwet_ac1"}, and \code{"gwet_ac2"}. \code{NULL} (the
+default) selects \code{"cohen_kappa"}, \code{"krippendorff_alpha"}, and
+\code{"gwet_ac1"}, replacing \code{"gwet_ac1"} with its weighted counterpart
+\code{"gwet_ac2"} when \code{weights} is not \code{"unweighted"}. Explicitly requesting
+\code{"gwet_ac1"} together with weights is an error rather than a silent
+substitution.}
 
 \item{conf_level}{Confidence level for the bootstrap interval.}
 
-\item{n_boot}{Positive number of bootstrap resamples.}
+\item{n_boot}{Positive number of bootstrap resamples. One set of item
+resamples is shared by every coefficient, so intervals from one call are
+computed on identical draws.}
 
 \item{seed}{Optional integer seed. The caller's random state is restored.}
 
@@ -38,15 +50,42 @@ empty or whitespace-only labels are rejected. Use \code{NA} for a missing or
 failed judgement.}
 
 \item{weights}{Agreement weights. \code{"unweighted"} treats labels as nominal;
-\code{"linear"}, \code{"quadratic"}, or \code{"ordinal"} use the order in
-\code{label_levels}.}
+\code{"linear"}, \code{"quadratic"}, and \code{"ordinal"} use the order in
+\code{label_levels} and are Gwet's weight schemes as implemented by
+\pkg{irrCAC} (\code{linear.weights()}, \code{quadratic.weights()}, and
+\code{ordinal.weights()}). Every weighted coefficient, including
+\code{"krippendorff_alpha"}, uses these schemes; \code{weights = "ordinal"} is
+Gwet's combinatorial ordinal weighting and is not Krippendorff's ordinal
+alpha, which weights by cumulative category frequencies.}
+
+\item{rater_cols}{Optional character vector naming the rater columns of a
+ratings data frame. When \code{NULL}, columns named \code{human} and \code{judge} are
+used if both exist; otherwise every column is treated as a rater. A
+message (class \code{yourhonor_inferred_columns}) reports the choice whenever
+inference ignored columns or fell back to all columns; supply
+\code{rater_cols} to choose explicitly. Cannot be combined with a calibration
+object, which carries its own ratings.}
 }
 \value{
-A tibble with point estimates, intervals, sample sizes, effective
-bootstrap counts, an explicit computation \code{status}, and a
-\code{boundary_degenerate} flag. A perfect finite sample can produce a
-zero-width nonparametric bootstrap; that interval is flagged unreliable
-rather than treated as proof of population-perfect agreement.
+A tibble with one row per coefficient and columns
+\code{coefficient}, \code{estimate}, \code{conf_low}, \code{conf_high}, \code{se}, \code{n_items},
+\code{n_input}, \code{n_raters}, \code{n_missing_rows}, \code{weights},
+\code{n_boot_effective}, \code{boundary_degenerate}, \code{ci_reliable}, \code{status}, and
+\code{interpretation}.
+
+\code{status} is \code{"ok"} when the estimate and interval were computed, or one
+of \code{"insufficient_items"}, \code{"insufficient_variation"},
+\code{"invalid_rater_count"}, and \code{"undefined"}. \code{ci_reliable} is \code{TRUE} only
+when at least 80\% of the requested resamples produced a finite statistic
+and the interval is not \code{boundary_degenerate}: a perfect finite sample
+produces a zero-width nonparametric bootstrap, and that interval is
+flagged unreliable rather than treated as proof of population-perfect
+agreement. \code{interpretation} applies the Landis and Koch (1977) bands
+(\code{"poor"} below 0, then \code{"slight"}, \code{"fair"}, \code{"moderate"},
+\code{"substantial"}, and \code{"almost perfect"} at 0.2 steps). Those bands were
+proposed for kappa; applied to alpha, AC1, or AC2 they are a heuristic
+reading aid, not a validated scale, and the same data can land in
+different bands under different coefficients.
 }
 \description{
 Reports how closely a set of judge labels agrees with human labels. Confidence
@@ -67,5 +106,13 @@ ratings <- data.frame(
   judge = c("C", "C", "C", "I", "C", "P", "P", "C")
 )
 agreement(ratings, n_boot = 200, seed = 1,
-          label_levels = c("I", "P", "C"), weights = "ordinal")
+          label_levels = c("I", "P", "C"), weights = "ordinal",
+          rater_cols = c("human", "judge"))
+}
+\references{
+Gwet, K. L. (2014). \emph{Handbook of Inter-Rater Reliability} (4th ed.).
+Advanced Analytics, LLC.
+
+Landis, J. R., & Koch, G. G. (1977). The measurement of observer agreement
+for categorical data. \emph{Biometrics}, 33(1), 159-174.
 }

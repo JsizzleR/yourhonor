@@ -12,15 +12,26 @@
 #' deployment decision.
 #'
 #' @param x Either a `yourhonor_calibration` object or a data frame / tibble of
-#'   ratings. If columns named `human` and `judge` are present they are used;
-#'   otherwise all supplied columns are treated as raters. Rows with fewer than
-#'   two observed ratings do not contribute, while partially observed
+#'   ratings with one column per rater (see `rater_cols`). Rows with fewer
+#'   than two observed ratings do not contribute, while partially observed
 #'   multi-rater rows remain available to coefficients that support them.
+#'
+#'   For a calibration object every argument left at its default is inherited
+#'   from the calibration (`coefficients`, `conf_level`, `n_boot`, `seed`,
+#'   `label_levels`, and `weights`), so `agreement(cal, n_boot = 50)` reuses the
+#'   stored seed and confidence level. When nothing is overridden the stored
+#'   agreement table is returned unchanged.
 #' @param coefficients Character vector containing any of `"cohen_kappa"`,
-#'   `"krippendorff_alpha"`, `"gwet_ac1"`, and `"gwet_ac2"`. AC1 is
-#'   unweighted; AC2 is its weighted counterpart.
+#'   `"krippendorff_alpha"`, `"gwet_ac1"`, and `"gwet_ac2"`. `NULL` (the
+#'   default) selects `"cohen_kappa"`, `"krippendorff_alpha"`, and
+#'   `"gwet_ac1"`, replacing `"gwet_ac1"` with its weighted counterpart
+#'   `"gwet_ac2"` when `weights` is not `"unweighted"`. Explicitly requesting
+#'   `"gwet_ac1"` together with weights is an error rather than a silent
+#'   substitution.
 #' @param conf_level Confidence level for the bootstrap interval.
-#' @param n_boot Positive number of bootstrap resamples.
+#' @param n_boot Positive number of bootstrap resamples. One set of item
+#'   resamples is shared by every coefficient, so intervals from one call are
+#'   computed on identical draws.
 #' @param seed Optional integer seed. The caller's random state is restored.
 #' @param label_levels Complete label universe in its intended order. Supplying
 #'   this is strongly recommended for ordinal scales and rare classes. Labels
@@ -28,14 +39,46 @@
 #'   empty or whitespace-only labels are rejected. Use `NA` for a missing or
 #'   failed judgement.
 #' @param weights Agreement weights. `"unweighted"` treats labels as nominal;
-#'   `"linear"`, `"quadratic"`, or `"ordinal"` use the order in
-#'   `label_levels`.
+#'   `"linear"`, `"quadratic"`, and `"ordinal"` use the order in
+#'   `label_levels` and are Gwet's weight schemes as implemented by
+#'   \pkg{irrCAC} (`linear.weights()`, `quadratic.weights()`, and
+#'   `ordinal.weights()`). Every weighted coefficient, including
+#'   `"krippendorff_alpha"`, uses these schemes; `weights = "ordinal"` is
+#'   Gwet's combinatorial ordinal weighting and is not Krippendorff's ordinal
+#'   alpha, which weights by cumulative category frequencies.
+#' @param rater_cols Optional character vector naming the rater columns of a
+#'   ratings data frame. When `NULL`, columns named `human` and `judge` are
+#'   used if both exist; otherwise every column is treated as a rater. A
+#'   message (class `yourhonor_inferred_columns`) reports the choice whenever
+#'   inference ignored columns or fell back to all columns; supply
+#'   `rater_cols` to choose explicitly. Cannot be combined with a calibration
+#'   object, which carries its own ratings.
 #'
-#' @return A tibble with point estimates, intervals, sample sizes, effective
-#'   bootstrap counts, an explicit computation `status`, and a
-#'   `boundary_degenerate` flag. A perfect finite sample can produce a
-#'   zero-width nonparametric bootstrap; that interval is flagged unreliable
-#'   rather than treated as proof of population-perfect agreement.
+#' @return A tibble with one row per coefficient and columns
+#'   `coefficient`, `estimate`, `conf_low`, `conf_high`, `se`, `n_items`,
+#'   `n_input`, `n_raters`, `n_missing_rows`, `weights`,
+#'   `n_boot_effective`, `boundary_degenerate`, `ci_reliable`, `status`, and
+#'   `interpretation`.
+#'
+#'   `status` is `"ok"` when the estimate and interval were computed, or one
+#'   of `"insufficient_items"`, `"insufficient_variation"`,
+#'   `"invalid_rater_count"`, and `"undefined"`. `ci_reliable` is `TRUE` only
+#'   when at least 80% of the requested resamples produced a finite statistic
+#'   and the interval is not `boundary_degenerate`: a perfect finite sample
+#'   produces a zero-width nonparametric bootstrap, and that interval is
+#'   flagged unreliable rather than treated as proof of population-perfect
+#'   agreement. `interpretation` applies the Landis and Koch (1977) bands
+#'   (`"poor"` below 0, then `"slight"`, `"fair"`, `"moderate"`,
+#'   `"substantial"`, and `"almost perfect"` at 0.2 steps). Those bands were
+#'   proposed for kappa; applied to alpha, AC1, or AC2 they are a heuristic
+#'   reading aid, not a validated scale, and the same data can land in
+#'   different bands under different coefficients.
+#' @references
+#' Gwet, K. L. (2014). *Handbook of Inter-Rater Reliability* (4th ed.).
+#' Advanced Analytics, LLC.
+#'
+#' Landis, J. R., & Koch, G. G. (1977). The measurement of observer agreement
+#' for categorical data. *Biometrics*, 33(1), 159-174.
 #' @export
 #' @examples
 #' ratings <- data.frame(
@@ -43,44 +86,76 @@
 #'   judge = c("C", "C", "C", "I", "C", "P", "P", "C")
 #' )
 #' agreement(ratings, n_boot = 200, seed = 1,
-#'           label_levels = c("I", "P", "C"), weights = "ordinal")
+#'           label_levels = c("I", "P", "C"), weights = "ordinal",
+#'           rater_cols = c("human", "judge"))
 agreement <- function(x,
-                      coefficients = yourhonor_coefficients,
+                      coefficients = NULL,
                       conf_level = 0.95,
                       n_boot = 2000,
                       seed = NULL,
                       label_levels = NULL,
-                      weights = c("unweighted", "linear", "quadratic", "ordinal")) {
-  stored_request <- inherits(x, "yourhonor_calibration") &&
-    missing(coefficients) && missing(conf_level) && missing(n_boot) &&
-    missing(seed) && missing(label_levels) && missing(weights)
-  if (stored_request) return(x$agreement)
-
-  coefficients_missing <- missing(coefficients)
-  coefficients <- rlang::arg_match(coefficients, supported_coefficients, multiple = TRUE)
-  weights_missing <- missing(weights)
-  weights <- rlang::arg_match(weights)
-  conf_level <- check_probability(conf_level, "conf_level", open = TRUE)
-  n_boot <- check_count(n_boot, "n_boot")
-
-  if (inherits(x, "yourhonor_calibration")) {
-    if (is.null(label_levels)) label_levels <- x$label_levels
-    if (weights_missing && !is.null(x$weights)) weights <- x$weights
-  }
-  coefficients <- resolve_gwet_coefficient(
-    coefficients, weights, coefficients_missing, "coefficients"
+                      weights = c("unweighted", "linear", "quadratic", "ordinal"),
+                      rater_cols = NULL) {
+  # Capture the "left at default" flags before any argument is reassigned;
+  # `missing()` reports FALSE once a formal has been overwritten.
+  inherit <- inherits(x, "yourhonor_calibration")
+  at_default <- c(
+    coefficients = is.null(coefficients),
+    conf_level = missing(conf_level),
+    n_boot = missing(n_boot),
+    seed = missing(seed),
+    label_levels = is.null(label_levels),
+    weights = missing(weights)
   )
+  if (inherit && !is.null(rater_cols)) {
+    cli::cli_abort(
+      "{.arg rater_cols} cannot be combined with a calibration object."
+    )
+  }
+  if (inherit && all(at_default)) return(x$agreement)
+
+  if (inherit) {
+    if (at_default[["coefficients"]]) coefficients <- x$coefficients
+    if (at_default[["conf_level"]]) conf_level <- x$conf_level
+    if (at_default[["n_boot"]]) n_boot <- x$n_boot
+    if (at_default[["seed"]]) seed <- x$seed
+    if (at_default[["label_levels"]]) label_levels <- x$label_levels
+    if (at_default[["weights"]] && !is.null(x$weights)) weights <- x$weights
+  }
+  weights <- rlang::arg_match(weights)
+  coefficients <- resolve_coefficients(coefficients, weights)
+  conf_level <- check_probability(conf_level, open = TRUE)
+  n_boot <- check_count(n_boot)
+
   if (weights != "unweighted" && is.null(label_levels)) {
     cli::cli_abort(
       "{.arg label_levels} is required for weighted agreement; ordinal order cannot be inferred."
     )
   }
-  ratings <- as_ratings(x)
+  ratings <- as_ratings(x, rater_cols)
   label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE, arg = "x")
   compute_agreement(
     ratings, coefficients, conf_level, n_boot, seed,
     label_levels = label_levels, weights = weights
   )
+}
+
+# `NULL` means "the default set, adapted to the weights"; an explicit vector
+# is validated as given so callers never get a coefficient they did not ask for.
+resolve_coefficients <- function(coefficients,
+                                 weights,
+                                 arg = "coefficients",
+                                 call = rlang::caller_env()) {
+  auto <- is.null(coefficients)
+  if (auto) {
+    coefficients <- yourhonor_coefficients
+  } else {
+    coefficients <- rlang::arg_match(
+      coefficients, supported_coefficients, multiple = TRUE,
+      error_arg = arg, error_call = call
+    )
+  }
+  resolve_gwet_coefficient(coefficients, weights, auto = auto, call = call)
 }
 
 compute_agreement <- function(ratings,
@@ -89,27 +164,30 @@ compute_agreement <- function(ratings,
                               n_boot,
                               seed,
                               label_levels = NULL,
-                              weights = "unweighted") {
-  conf_level <- check_probability(conf_level, "conf_level", open = TRUE)
-  n_boot <- check_count(n_boot, "n_boot")
+                              weights = "unweighted",
+                              call = rlang::caller_env()) {
+  conf_level <- check_probability(conf_level, open = TRUE, call = call)
+  n_boot <- check_count(n_boot, call = call)
   ratings <- as.data.frame(ratings, stringsAsFactors = FALSE)
-  label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE)
+  label_levels <- resolve_label_levels(
+    ratings, label_levels, allow_single = TRUE, call = call
+  )
   ratings[] <- lapply(ratings, as.character)
   if (!is.null(seed)) withr::local_seed(seed)
 
-  rows <- lapply(coefficients, function(co) {
-    eligible <- rowSums(!is.na(ratings)) >= 2L
-    usable <- ratings[eligible, , drop = FALSE]
-    n_items <- nrow(usable)
-    n_missing <- sum(!stats::complete.cases(ratings))
-    variation <- length(observed_categories(usable))
+  # Everything below is invariant across coefficients, including the bootstrap
+  # index set: sharing one draw keeps the coefficients' intervals comparable.
+  usable <- ratings[rowSums(!is.na(ratings)) >= 2L, , drop = FALSE]
+  n_items <- nrow(usable)
+  n_missing <- sum(!stats::complete.cases(ratings))
+  variation <- length(observed_categories(usable))
+  estimable <- n_items >= 2L && variation >= 2L
+  boot_index <- if (estimable) draw_bootstrap_index(usable, n_boot) else NULL
 
+  rows <- lapply(coefficients, function(co) {
     status <- "ok"
     estimate <- NA_real_
-    ci <- list(
-      conf_low = NA_real_, conf_high = NA_real_, se = NA_real_,
-      n_effective = 0L, ci_reliable = FALSE
-    )
+    ci <- bootstrap_quantiles(numeric(0), conf_level)
 
     if (n_items < 2L) {
       status <- "insufficient_items"
@@ -118,26 +196,17 @@ compute_agreement <- function(ratings,
     } else if (co == "cohen_kappa" && ncol(usable) != 2L) {
       status <- "invalid_rater_count"
     } else {
-      estimate <- tryCatch(
-        suppressWarnings(coeff_point(usable, co, weights, label_levels)),
-        error = function(e) NA_real_
-      )
-      if (!is.finite(estimate)) {
-        estimate <- NA_real_
+      estimate <- safe_coeff_point(usable, co, weights, label_levels)
+      if (is.na(estimate)) {
         status <- "undefined"
       } else {
         ci <- boot_ci(
-          usable, co, n_boot = n_boot, conf_level = conf_level,
+          usable, co, boot_index, conf_level = conf_level,
           weights = weights, label_levels = label_levels
         )
       }
     }
-
-    boundary_degenerate <- identical(status, "ok") && is.finite(estimate) &&
-      estimate >= 1 - sqrt(.Machine$double.eps) &&
-      is.finite(ci$se) && abs(ci$se) <= sqrt(.Machine$double.eps) &&
-      is.finite(ci$conf_low) && is.finite(ci$conf_high) &&
-      abs(ci$conf_high - ci$conf_low) <= sqrt(.Machine$double.eps)
+    boundary_degenerate <- is_boundary_degenerate(status, estimate, ci)
 
     tibble::tibble(
       coefficient = co,
@@ -152,8 +221,7 @@ compute_agreement <- function(ratings,
       weights = weights,
       n_boot_effective = ci$n_effective,
       boundary_degenerate = boundary_degenerate,
-      ci_reliable = ci$ci_reliable &&
-        ci$n_effective >= ceiling(0.8 * n_boot) && !boundary_degenerate,
+      ci_reliable = ci_is_reliable(ci, n_boot, boundary_degenerate),
       status = status,
       interpretation = interpret_agreement(estimate)
     )
@@ -161,19 +229,72 @@ compute_agreement <- function(ratings,
   do.call(vctrs::vec_rbind, rows)
 }
 
-as_ratings <- function(x) {
+as_ratings <- function(x, rater_cols = NULL, call = rlang::caller_env()) {
   if (inherits(x, "yourhonor_calibration")) return(x$ratings)
   x <- as.data.frame(x, stringsAsFactors = FALSE)
-  if (all(c("human", "judge") %in% names(x))) {
-    x <- x[, c("human", "judge"), drop = FALSE]
+  if (is.null(rater_cols)) {
+    rater_cols <- infer_rater_cols(x)
+  } else {
+    rater_cols <- check_column_names(
+      rater_cols, "rater_cols", minimum = 2L, call = call
+    )
+    check_columns_present(x, rater_cols, "rater_cols", call = call)
   }
+  x <- x[, rater_cols, drop = FALSE]
   if (ncol(x) < 2L) {
-    cli::cli_abort("Ratings need at least two columns (e.g. {.field human} and {.field judge}).")
+    cli::cli_abort(
+      paste0(
+        "Ratings need at least two columns ",
+        "(e.g. {.field human} and {.field judge})."
+      ),
+      call = call
+    )
   }
   if (nrow(x) < 2L) {
-    cli::cli_abort("Need at least 2 rated items to estimate agreement.")
+    cli::cli_abort(
+      "Need at least 2 rated items to estimate agreement.",
+      call = call
+    )
   }
   x
+}
+
+# Inference is convenient for the common two-column case but easy to get wrong
+# on wider frames, so any choice beyond the documented default is reported.
+infer_rater_cols <- function(x) {
+  default_pair <- c("human", "judge")
+  if (all(default_pair %in% names(x))) {
+    ignored <- setdiff(names(x), default_pair)
+    if (length(ignored) > 0L) {
+      inform_inferred_cols(
+        c(
+          "Using {.field human} and {.field judge} as rater columns.",
+          "Ignoring column{?s}: {.field {ignored}}."
+        ),
+        "rater_cols"
+      )
+    }
+    return(default_pair)
+  }
+  inform_inferred_cols(
+    "Treating all {ncol(x)} column{?s} as raters: {.field {names(x)}}.",
+    "rater_cols"
+  )
+  names(x)
+}
+
+# Classed so callers can `suppressMessages()` selectively; `.envir` lets the
+# glue expressions see the caller's variables.
+inform_inferred_cols <- function(message, arg, .envir = parent.frame()) {
+  hint <- cli::format_inline("Set {.arg {arg}} to choose explicitly.")
+  cli::cli_inform(
+    c(
+      stats::setNames(message, rep("i", length(message))),
+      " " = hint
+    ),
+    class = "yourhonor_inferred_columns",
+    .envir = .envir
+  )
 }
 
 coeff_point <- function(ratings,
@@ -207,47 +328,71 @@ coeff_point <- function(ratings,
   as.numeric(val)
 }
 
+# irrCAC warns and errors on degenerate resamples; treat both as "undefined".
+safe_coeff_point <- function(ratings, coefficient, weights, label_levels) {
+  val <- tryCatch(
+    suppressWarnings(coeff_point(ratings, coefficient, weights, label_levels)),
+    error = function(e) NA_real_
+  )
+  if (is.finite(val)) val else NA_real_
+}
+
 resolve_gwet_coefficient <- function(coefficients,
                                      weights,
-                                     coefficients_missing = FALSE,
-                                     arg = "coefficients") {
+                                     auto = FALSE,
+                                     call = rlang::caller_env()) {
   if (weights == "unweighted") {
     if ("gwet_ac2" %in% coefficients) {
-      cli::cli_abort("{.val gwet_ac2} requires non-default agreement weights.")
+      cli::cli_abort(
+        "{.val gwet_ac2} requires non-default agreement weights.",
+        call = call
+      )
     }
     return(coefficients)
   }
   if ("gwet_ac1" %in% coefficients) {
-    if (!coefficients_missing) {
-      cli::cli_abort(paste0(
-        "Weighted Gwet agreement is AC2, not AC1. Request {.val gwet_ac2} ",
-        "or omit {.arg {arg}} to select it automatically."
-      ))
+    if (!auto) {
+      cli::cli_abort(
+        paste0(
+          "Weighted Gwet agreement is AC2, not AC1. Request {.val gwet_ac2} ",
+          "or leave {.arg coefficients} as {.code NULL} to select it ",
+          "automatically."
+        ),
+        call = call
+      )
     }
     coefficients[coefficients == "gwet_ac1"] <- "gwet_ac2"
   }
   coefficients
 }
 
+# One column per resample. Draws that observe a single category are marked so
+# each coefficient can skip them without re-scanning the labels.
+draw_bootstrap_index <- function(ratings, n_boot) {
+  n <- nrow(ratings)
+  index <- matrix(sample.int(n, n * n_boot, replace = TRUE), nrow = n)
+  varied <- vapply(seq_len(n_boot), function(i) {
+    length(observed_categories(ratings[index[, i], , drop = FALSE])) >= 2L
+  }, logical(1))
+  list(index = index, varied = varied)
+}
+
 boot_ci <- function(ratings,
                     coefficient,
-                    n_boot,
+                    boot_index,
                     conf_level,
                     weights = "unweighted",
                     label_levels = NULL) {
-  n <- nrow(ratings)
-  stat <- vapply(seq_len(n_boot), function(i) {
-    samp <- ratings[sample.int(n, n, replace = TRUE), , drop = FALSE]
-    if (length(observed_categories(samp)) < 2L) return(NA_real_)
-    val <- tryCatch(
-      suppressWarnings(coeff_point(samp, coefficient, weights, label_levels)),
-      error = function(e) NA_real_
-    )
-    if (is.finite(val)) val else NA_real_
+  stat <- vapply(seq_along(boot_index$varied), function(i) {
+    if (!boot_index$varied[[i]]) return(NA_real_)
+    samp <- ratings[boot_index$index[, i], , drop = FALSE]
+    safe_coeff_point(samp, coefficient, weights, label_levels)
   }, numeric(1))
   bootstrap_quantiles(stat, conf_level)
 }
 
+# Landis & Koch (1977) proposed these bands for kappa. They are applied to
+# every coefficient here as a reading aid only; see `?agreement`.
 interpret_agreement <- function(value) {
   if (length(value) != 1L || is.na(value)) return(NA_character_)
   breaks <- c(-Inf, 0.0, 0.2, 0.4, 0.6, 0.8, Inf)

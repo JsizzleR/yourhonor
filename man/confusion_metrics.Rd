@@ -4,13 +4,15 @@
 \alias{confusion_metrics}
 \title{Per-class judge metrics}
 \usage{
-confusion_metrics(x, label_levels = NULL)
+confusion_metrics(x, label_levels = NULL, human_col = NULL, judge_col = NULL)
 }
 \arguments{
 \item{x}{A \code{yourhonor_calibration} object, a confusion tibble returned by
-\code{\link[=confusion]{confusion()}}, or a two-column ratings data frame.}
+\code{\link[=confusion]{confusion()}}, or a ratings data frame.}
 
 \item{label_levels}{Optional complete label universe in display order.}
+
+\item{human_col, judge_col}{Passed to \code{\link[=confusion]{confusion()}} for a ratings data frame.}
 }
 \value{
 A tibble with one row per label.

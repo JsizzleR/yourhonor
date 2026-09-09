@@ -4,20 +4,25 @@
 \alias{plot_confusion}
 \title{Plot a judge-versus-human confusion matrix}
 \usage{
-plot_confusion(x, normalize = "row")
+plot_confusion(x, normalize = "row", ...)
 }
 \arguments{
-\item{x}{An \code{yourhonor_calibration} object or a two-column ratings data frame.}
+\item{x}{An \code{yourhonor_calibration} object or a ratings data frame.}
 
 \item{normalize}{Passed to \code{\link[=confusion]{confusion()}}; defaults to \code{"row"} so each row
 shows how a human label was graded by the judge.}
+
+\item{...}{Further arguments passed to \code{\link[=confusion]{confusion()}}, such as
+\code{label_levels}, \code{human_col}, and \code{judge_col}.}
 }
 \value{
 A ggplot object.
 }
 \description{
 A quick ggplot2 heatmap of where the judge and humans diverge. Requires the
-Suggested ggplot2 package.
+Suggested ggplot2 package. Axes follow the resolved \code{label_levels} order:
+judge labels left to right and human labels top to bottom, so the agreement
+diagonal runs from the top-left corner to the bottom-right.
 }
 \examples{
 if (requireNamespace("ggplot2", quietly = TRUE)) {
@@ -25,6 +30,6 @@ if (requireNamespace("ggplot2", quietly = TRUE)) {
     human = c("C", "C", "P", "I", "C", "P", "I", "C"),
     judge = c("C", "C", "C", "I", "C", "P", "P", "C")
   )
-  plot_confusion(ratings)
+  plot_confusion(ratings, label_levels = c("I", "P", "C"))
 }
 }

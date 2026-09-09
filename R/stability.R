@@ -15,8 +15,9 @@
 #' @param seed Optional R random seed. This does not force deterministic behavior
 #'   from a remote model provider.
 #' @param label_levels Optional complete label universe.
-#' @param weights Agreement weights passed to Gwet's coefficient.
-#' @param conf_level Bootstrap confidence level.
+#' @param weights Agreement weights passed to Gwet's coefficient; see
+#'   [agreement()] for the weight schemes.
+#' @param conf_level Confidence level for both intervals.
 #' @param n_boot Number of item-bootstrap resamples.
 #' @param audit_id Optional evidence-bundle identifier. Use the same value as
 #'   the related calibration and bias probes.
@@ -26,6 +27,20 @@
 #'   `stability_status` explains why chance-corrected agreement is unavailable;
 #'   in particular, one observed category is `insufficient_variation`, not
 #'   perfect AC1/AC2. The pairwise-disagreement interval remains available.
+#'
+#'   The pairwise-disagreement interval is a hybrid: the percentile item
+#'   bootstrap widened to include a Wilson score interval for the mean
+#'   per-item disagreement over `n_items_scored` items. The Wilson interval
+#'   keeps a zero-disagreement sample from producing a zero-width interval and
+#'   typically sets both bounds once `n_runs > 2`, so this interval is
+#'   conservative relative to the bootstrap alone and widens only, never
+#'   narrows. The chance-corrected interval is the plain item bootstrap.
+#'
+#'   `runs` holds labels in source-row order. Because every run is graded
+#'   under a fresh shuffled key, `judge_item_ids` is an integer matrix parallel
+#'   to `runs` whose entry `[i, r]` is the `.item_id` the judge saw for source
+#'   row `i` in run `r`; join judge-side logs on that key, never on the row
+#'   number.
 #' @export
 #' @examples
 #' noisy_judge <- function(d) sample(c("C", "P"), nrow(d), replace = TRUE)
@@ -46,10 +61,10 @@ test_retest <- function(data,
   if (!is.function(judge)) {
     cli::cli_abort("{.arg judge} must be a function to re-run for stability.")
   }
-  n_runs <- check_count(n_runs, "n_runs", minimum = 2L)
-  n_boot <- check_count(n_boot, "n_boot")
+  n_runs <- check_count(n_runs, minimum = 2L)
+  n_boot <- check_count(n_boot)
   audit_id <- check_audit_id(audit_id)
-  conf_level <- check_probability(conf_level, "conf_level", open = TRUE)
+  conf_level <- check_probability(conf_level, open = TRUE)
   weights <- rlang::arg_match(weights)
   if (weights != "unweighted" && is.null(label_levels)) {
     cli::cli_abort(
@@ -61,13 +76,17 @@ test_retest <- function(data,
   if (!is.null(seed)) withr::local_seed(seed)
   judge_input <- redacted_judge_input(data, input_cols, id_col = id_col)
 
-  runs <- vapply(
-    seq_len(n_runs),
-    function(i) grade_blind(judge, judge_input, label_levels)$label,
-    character(nrow(data))
-  )
+  graded <- lapply(seq_len(n_runs), function(i) {
+    grade_blind(judge, judge_input, label_levels)
+  })
+  runs <- vapply(graded, function(g) g$label, character(nrow(data)))
   runs <- matrix(runs, nrow = nrow(data), ncol = n_runs)
-  summarize_stability_runs(
+  judge_item_ids <- vapply(graded, function(g) {
+    source_judge_item_ids(g$blinding_map, nrow(data))
+  }, integer(nrow(data)))
+  judge_item_ids <- matrix(judge_item_ids, nrow = nrow(data), ncol = n_runs)
+
+  out <- summarize_stability_runs(
     runs = runs,
     label_levels = label_levels,
     weights = weights,
@@ -76,6 +95,8 @@ test_retest <- function(data,
     arg = "judge",
     audit_id = audit_id
   )
+  out$judge_item_ids <- judge_item_ids
+  out
 }
 
 summarize_stability_runs <- function(runs,
@@ -84,21 +105,26 @@ summarize_stability_runs <- function(runs,
                                      conf_level = 0.95,
                                      n_boot = 1000,
                                      audit_id = NULL,
-                                     arg = "ratings") {
+                                     arg = "ratings",
+                                     call = rlang::caller_env()) {
   runs <- as.matrix(runs)
   storage.mode(runs) <- "character"
   if (nrow(runs) < 1L || ncol(runs) < 2L) {
-    cli::cli_abort("Stability ratings need at least one item and two runs.")
+    cli::cli_abort(
+      "Stability ratings need at least one item and two runs.",
+      call = call
+    )
   }
   n_runs <- ncol(runs)
   if (all(is.na(runs))) {
-    cli::cli_abort("Every stability judgment was missing.")
+    cli::cli_abort("Every stability judgment was missing.", call = call)
   }
   label_levels <- resolve_label_levels(
     as.data.frame(runs, stringsAsFactors = FALSE),
     label_levels,
     allow_single = TRUE,
-    arg = arg
+    arg = arg,
+    call = call
   )
 
   observed_count <- apply(runs, 1, function(z) sum(!is.na(z)))
@@ -117,24 +143,20 @@ summarize_stability_runs <- function(runs,
 
   item_disagreement <- item_pairwise_disagreement(runs)
   per_item$pairwise_disagreement <- item_disagreement
-  pairwise_disagreement <- if (all(is.na(item_disagreement))) {
-    NA_real_
-  } else {
-    mean(item_disagreement, na.rm = TRUE)
-  }
+  pairwise_disagreement <- mean_or_na(item_disagreement)
   pairwise <- if (is.na(pairwise_disagreement)) NA_real_ else 1 - pairwise_disagreement
   chance <- chance_corrected_stability(runs, weights, label_levels)
-  chance_status <- chance_corrected_stability_status(runs, chance)
-  boot <- bootstrap_stability(runs, n_boot, conf_level, weights, label_levels)
-  any_flip <- if (all(is.na(per_item$flipped))) NA_real_ else mean(per_item$flipped, na.rm = TRUE)
-  stability_boundary_degenerate <- identical(chance_status, "ok") &&
-    is.finite(chance) && chance >= 1 - sqrt(.Machine$double.eps) &&
-    is.finite(boot$stability$se) &&
-    abs(boot$stability$se) <= sqrt(.Machine$double.eps) &&
-    is.finite(boot$stability$conf_low) &&
-    is.finite(boot$stability$conf_high) &&
-    abs(boot$stability$conf_high - boot$stability$conf_low) <=
-      sqrt(.Machine$double.eps)
+  boot <- bootstrap_stability(
+    runs, item_disagreement, n_boot, conf_level, weights, label_levels
+  )
+  any_flip <- mean_or_na(per_item$flipped)
+  stability_boundary_degenerate <- is_boundary_degenerate(
+    chance$status, chance$estimate, boot$stability
+  )
+  pairwise_ci_reliable <- ci_is_reliable(boot$pairwise, n_boot)
+  stability_ci_reliable <- ci_is_reliable(
+    boot$stability, n_boot, stability_boundary_degenerate
+  )
 
   structure(
     list(
@@ -145,10 +167,10 @@ summarize_stability_runs <- function(runs,
       pairwise_disagreement = pairwise_disagreement,
       pairwise_disagreement_conf_low = boot$pairwise$conf_low,
       pairwise_disagreement_conf_high = boot$pairwise$conf_high,
-      stability = chance,
+      stability = chance$estimate,
       stability_conf_low = boot$stability$conf_low,
       stability_conf_high = boot$stability$conf_high,
-      stability_status = chance_status,
+      stability_status = chance$status,
       stability_boundary_degenerate = stability_boundary_degenerate,
       percent_agreement = pairwise,
       missing_rate = mean(is.na(runs)),
@@ -163,14 +185,9 @@ summarize_stability_runs <- function(runs,
       pairwise_n_boot_effective = boot$pairwise$n_effective,
       stability_n_boot_effective = boot$stability$n_effective,
       n_boot_effective = min(boot$pairwise$n_effective, boot$stability$n_effective),
-      pairwise_ci_reliable = boot$pairwise$ci_reliable &&
-        boot$pairwise$n_effective >= ceiling(0.8 * n_boot),
-      stability_ci_reliable = boot$stability$ci_reliable &&
-        boot$stability$n_effective >= ceiling(0.8 * n_boot) &&
-        !stability_boundary_degenerate,
-      ci_reliable = boot$pairwise$ci_reliable && boot$stability$ci_reliable &&
-        min(boot$pairwise$n_effective, boot$stability$n_effective) >=
-          ceiling(0.8 * n_boot) && !stability_boundary_degenerate,
+      pairwise_ci_reliable = pairwise_ci_reliable,
+      stability_ci_reliable = stability_ci_reliable,
+      ci_reliable = pairwise_ci_reliable && stability_ci_reliable,
       audit_id = audit_id
     ),
     class = "yourhonor_stability"
@@ -202,6 +219,15 @@ print.yourhonor_stability <- function(x, ...) {
   invisible(x)
 }
 
+# Map each source row to the shuffled key the judge saw in one grading pass.
+source_judge_item_ids <- function(blinding_map, n) {
+  blinding_map$.item_id[match(seq_len(n), blinding_map$.source_row)]
+}
+
+mean_or_na <- function(x) {
+  if (all(is.na(x))) NA_real_ else mean(x, na.rm = TRUE)
+}
+
 modal_value <- function(z) {
   z <- z[!is.na(z)]
   if (length(z) == 0L) return(NA_character_)
@@ -217,43 +243,34 @@ is_tie <- function(z) {
   sum(tab == max(tab)) > 1L
 }
 
+# Estimate and status are derived from the same filtered matrix so they can
+# never disagree about why an estimate is unavailable.
 chance_corrected_stability <- function(runs,
                                        weights = "unweighted",
                                        label_levels = NULL) {
-  if (ncol(runs) < 2L || nrow(runs) < 1L) return(NA_real_)
-  runs <- runs[rowSums(!is.na(runs)) >= 2L, , drop = FALSE]
-  if (nrow(runs) < 2L) return(NA_real_)
-  runs <- runs[, colSums(!is.na(runs)) > 0L, drop = FALSE]
-  if (ncol(runs) < 2L) return(NA_real_)
-  if (length(unique(stats::na.omit(as.vector(runs)))) < 2L) {
-    return(NA_real_)
+  unavailable <- function(status) list(estimate = NA_real_, status = status)
+  usable <- runs[rowSums(!is.na(runs)) >= 2L, , drop = FALSE]
+  if (nrow(usable) < 2L) return(unavailable("insufficient_items"))
+  # Every usable row has two observed runs, so at least two columns survive
+  # this filter; it only removes all-missing runs that irrCAC cannot score.
+  usable <- usable[, colSums(!is.na(usable)) > 0L, drop = FALSE]
+  if (length(unique(stats::na.omit(as.vector(usable)))) < 2L) {
+    return(unavailable("insufficient_variation"))
   }
+  # The label universe comes from every run so a category seen only in rows
+  # that later drop out still counts toward chance agreement, as it does for
+  # the full-data estimate that the bootstrap draws are compared against.
   if (is.null(label_levels)) label_levels <- sort(observed_categories(runs))
-  tryCatch(
+  estimate <- tryCatch(
     as.numeric(irrCAC::gwet.ac1.raw(
-      encode_ratings(runs, label_levels),
+      encode_ratings(usable, label_levels),
       weights = weights,
       categ.labels = seq_along(label_levels)
     )$est$coeff.val),
     error = function(e) NA_real_
   )
-}
-
-chance_corrected_stability_status <- function(runs, estimate) {
-  usable <- runs[rowSums(!is.na(runs)) >= 2L, , drop = FALSE]
-  if (nrow(usable) < 2L) return("insufficient_items")
-  usable <- usable[, colSums(!is.na(usable)) > 0L, drop = FALSE]
-  if (ncol(usable) < 2L) return("insufficient_runs")
-  if (length(unique(stats::na.omit(as.vector(usable)))) < 2L) {
-    return("insufficient_variation")
-  }
-  if (!is.finite(estimate)) return("undefined")
-  "ok"
-}
-
-pairwise_agreement <- function(runs) {
-  disagreement <- item_pairwise_disagreement(runs)
-  if (all(is.na(disagreement))) NA_real_ else 1 - mean(disagreement, na.rm = TRUE)
+  if (!is.finite(estimate)) return(unavailable("undefined"))
+  list(estimate = estimate, status = "ok")
 }
 
 item_pairwise_disagreement <- function(runs) {
@@ -276,7 +293,12 @@ wilson_interval <- function(probability, n, conf_level) {
   pmax(0, pmin(1, c(center - half, center + half)))
 }
 
+# The pairwise statistic is the mean of a per-item vector, so the bootstrap
+# resamples that vector directly; only the chance-corrected coefficient needs
+# the resampled label matrix. Both use the same item draw so the two intervals
+# describe the same resamples.
 bootstrap_stability <- function(runs,
+                                item_disagreement,
                                 n_boot,
                                 conf_level,
                                 weights,
@@ -285,24 +307,36 @@ bootstrap_stability <- function(runs,
   pairwise <- numeric(n_boot)
   stability <- numeric(n_boot)
   for (i in seq_len(n_boot)) {
-    samp <- runs[sample.int(n, n, replace = TRUE), , drop = FALSE]
-    pa <- pairwise_agreement(samp)
-    pairwise[[i]] <- if (is.na(pa)) NA_real_ else 1 - pa
-    stability[[i]] <- chance_corrected_stability(samp, weights, label_levels)
-  }
-  pairwise_ci <- bootstrap_quantiles(pairwise, conf_level)
-  item_disagreement <- item_pairwise_disagreement(runs)
-  item_disagreement <- item_disagreement[is.finite(item_disagreement)]
-  boundary <- wilson_interval(
-    if (length(item_disagreement) == 0L) NA_real_ else mean(item_disagreement),
-    length(item_disagreement), conf_level
-  )
-  if (all(is.finite(boundary))) {
-    pairwise_ci$conf_low <- min(pairwise_ci$conf_low, boundary[[1]], na.rm = TRUE)
-    pairwise_ci$conf_high <- max(pairwise_ci$conf_high, boundary[[2]], na.rm = TRUE)
+    idx <- sample.int(n, n, replace = TRUE)
+    pairwise[[i]] <- mean_or_na(item_disagreement[idx])
+    stability[[i]] <- chance_corrected_stability(
+      runs[idx, , drop = FALSE], weights, label_levels
+    )$estimate
   }
   list(
-    pairwise = pairwise_ci,
+    pairwise = widen_to_wilson(
+      bootstrap_quantiles(pairwise, conf_level), item_disagreement, conf_level
+    ),
     stability = bootstrap_quantiles(stability, conf_level)
   )
+}
+
+# A sample with no observed disagreement bootstraps to a zero-width interval at
+# 0, which overstates certainty for small item counts. The Wilson score
+# interval for the mean per-item disagreement has positive width there, so the
+# reported interval is the union of the two: it can only widen the bootstrap.
+widen_to_wilson <- function(pairwise_ci, item_disagreement, conf_level) {
+  scored <- item_disagreement[is.finite(item_disagreement)]
+  wilson_ci <- wilson_interval(
+    mean_or_na(scored), length(scored), conf_level
+  )
+  if (all(is.finite(wilson_ci))) {
+    pairwise_ci$conf_low <- min(
+      pairwise_ci$conf_low, wilson_ci[[1]], na.rm = TRUE
+    )
+    pairwise_ci$conf_high <- max(
+      pairwise_ci$conf_high, wilson_ci[[2]], na.rm = TRUE
+    )
+  }
+  pairwise_ci
 }

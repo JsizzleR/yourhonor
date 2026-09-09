@@ -14,7 +14,7 @@ calibrate_judge(
   label_levels = NULL,
   scale = c("nominal", "ordinal"),
   weights = NULL,
-  coefficients = yourhonor_coefficients,
+  coefficients = NULL,
   conf_level = 0.95,
   n_boot = 2000,
   seed = NULL,
@@ -34,7 +34,9 @@ function. Human columns and \code{judge_col} are forbidden.}
 \item{id_col}{Optional unique item identifier. A sequential internal ID is
 generated when omitted.}
 
-\item{human_cols}{Human-rater columns.}
+\item{human_cols}{Human-rater columns. Supplying more than one enables the
+modal-consensus rule described in the "Human consensus" section and the
+human-reliability benchmark.}
 
 \item{judge_col}{Column containing precomputed judge labels when \code{judge} is
 \code{NULL}.}
@@ -47,9 +49,14 @@ rejected; represent a failed judgement as \code{NA}. Required for
 \item{scale}{Whether labels are nominal or ordinal.}
 
 \item{weights}{Agreement weights. \code{NULL} selects \code{"unweighted"} for nominal
-labels and \code{"ordinal"} for ordinal labels.}
+labels and \code{"ordinal"} for ordinal labels. Weighted coefficients use
+Gwet's weight schemes; see \code{\link[=agreement]{agreement()}}.}
 
-\item{coefficients, conf_level, n_boot, seed}{Passed to \code{\link[=agreement]{agreement()}}.}
+\item{coefficients}{Passed to \code{\link[=agreement]{agreement()}}. \code{NULL} (the default) selects
+Cohen's kappa, Krippendorff's alpha, and Gwet's AC1, with AC2 replacing
+AC1 for weighted (ordinal) runs.}
+
+\item{conf_level, n_boot, seed}{Passed to \code{\link[=agreement]{agreement()}}.}
 
 \item{provenance}{Optional named list describing the judge model, prompt,
 parameters, and other audit metadata.}
@@ -64,6 +71,24 @@ per-class metrics, human reliability, judge-versus-each-rater agreement,
 item-level evidence, label metadata, and provenance. \code{human_ceiling} remains
 as a compatibility alias for \code{human_reliability} but is no longer described
 as an upper bound.
+
+Item-level elements:
+\itemize{
+\item \code{items}: \code{gold} plus \code{.item_id} (source-row key), \code{.judge_item_id}
+(the shuffled key the judge saw; \code{NA} when \code{judge = NULL}), the judge
+label, \code{agree}, and for several raters \code{human_consensus},
+\code{n_human_observed}, and \code{consensus_tie}.
+\item \code{judge_output}: the judge's own returned rows in the order it saw them,
+keyed by \code{.judge_item_id} with \code{.item_id} joined in; \code{NULL} when
+\code{judge = NULL}.
+\item \code{blinding_map}: one row per item mapping \code{.judge_item_id} to
+\code{.item_id}; \code{NULL} when \code{judge = NULL}.
+}
+
+Exclusion counts: \code{n_input} items were supplied, \code{n_items} had a usable
+human consensus and judge label, \code{n_excluded = n_input - n_items}, and
+\code{n_consensus_ties} and \code{n_insufficient_human_ratings} break the exclusions
+down for multi-rater runs.
 }
 \description{
 Runs a judge on a redacted view of a human-labeled set and reports agreement,
@@ -78,6 +103,28 @@ generated \code{.item_id} plus those columns; human labels and existing judge
 labels are never exposed. It may return either one label per input row or a
 data frame with \code{.item_id} and \code{label} columns. Structured output is preferred
 because IDs make accidental reordering detectable.
+
+Items are shuffled before grading and the \code{.item_id} the judge sees is
+assigned after the shuffle, so it is not the source row number. The result
+keeps both keys: \code{items$.item_id} is the source-row audit key and
+\code{items$.judge_item_id} is the key the judge saw. Join judge-side logs
+(prompts, raw completions) on \code{.judge_item_id}, never on \code{.item_id}.
+}
+
+\section{Human consensus}{
+
+With one column in \code{human_cols} the human label is used as given. With
+several, each item's reference label is the modal (most frequent) human
+label. An item with fewer than two observed human ratings has no consensus
+and is counted in \code{n_insufficient_human_ratings}; an item whose most
+frequent labels tie has no consensus either, is flagged in
+\code{items$consensus_tie}, and is counted in \code{n_consensus_ties}. Items without a
+consensus are excluded from the judge-versus-consensus agreement and
+confusion evidence (\code{n_excluded}). Because ties are exactly the items humans
+found hardest, and with two raters every human disagreement is a tie, the
+judge is scored only on the items humans agreed about; that direction is
+optimistic. \code{per_rater_agreement} compares the judge against each rater on
+every item and is the all-items counterpart.
 }
 
 \examples{

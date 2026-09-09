@@ -8,11 +8,14 @@ confusion(
   x,
   normalize = c("none", "row", "col"),
   label_levels = NULL,
-  conf_level = 0.95
+  conf_level = 0.95,
+  human_col = NULL,
+  judge_col = NULL
 )
 }
 \arguments{
-\item{x}{A \code{yourhonor_calibration} object or a two-column ratings data frame.}
+\item{x}{A \code{yourhonor_calibration} object or a ratings data frame holding
+one human column and one judge column (see \code{human_col} and \code{judge_col}).}
 
 \item{normalize}{One of \code{"none"}, \code{"row"}, or \code{"col"}.}
 
@@ -20,11 +23,20 @@ confusion(
 object's stored levels are used by default.}
 
 \item{conf_level}{Confidence level for exact per-class binomial intervals.}
+
+\item{human_col, judge_col}{Names of the human and judge columns of a ratings
+data frame. Both must be given together. When both are \code{NULL}, columns
+named \code{human} and \code{judge} are used if present; otherwise a data frame with
+exactly two columns is read as human then judge. A message (class
+\code{yourhonor_inferred_columns}) reports the choice whenever inference
+ignored columns or read them positionally. Ignored for calibration
+objects.}
 }
 \value{
-A tibble with \code{human_label}, \code{judge_label}, \code{n}, and \code{prop}.
-Per-class metrics remain attached for compatibility and are also available
-through \code{\link[=confusion_metrics]{confusion_metrics()}}.
+A tibble with \code{human_label}, \code{judge_label}, \code{n}, and \code{prop}, in
+\code{label_levels} order. The resolved level order is attached as the
+\code{"label_levels"} attribute. Per-class metrics remain attached for
+compatibility and are also available through \code{\link[=confusion_metrics]{confusion_metrics()}}.
 }
 \description{
 Shows where a judge and humans disagree. Label order is preserved from
@@ -35,5 +47,6 @@ ratings <- data.frame(
   human = c("C", "C", "P", "I"),
   judge = c("C", "P", "P", "I")
 )
-confusion(ratings, normalize = "row", label_levels = c("I", "P", "C"))
+confusion(ratings, normalize = "row", label_levels = c("I", "P", "C"),
+          human_col = "human", judge_col = "judge")
 }

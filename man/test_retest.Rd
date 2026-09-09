@@ -36,9 +36,10 @@ from a remote model provider.}
 
 \item{label_levels}{Optional complete label universe.}
 
-\item{weights}{Agreement weights passed to Gwet's coefficient.}
+\item{weights}{Agreement weights passed to Gwet's coefficient; see
+\code{\link[=agreement]{agreement()}} for the weight schemes.}
 
-\item{conf_level}{Bootstrap confidence level.}
+\item{conf_level}{Confidence level for both intervals.}
 
 \item{n_boot}{Number of item-bootstrap resamples.}
 
@@ -51,6 +52,20 @@ missingness, pairwise disagreement, Gwet agreement, and intervals.
 \code{stability_status} explains why chance-corrected agreement is unavailable;
 in particular, one observed category is \code{insufficient_variation}, not
 perfect AC1/AC2. The pairwise-disagreement interval remains available.
+
+The pairwise-disagreement interval is a hybrid: the percentile item
+bootstrap widened to include a Wilson score interval for the mean
+per-item disagreement over \code{n_items_scored} items. The Wilson interval
+keeps a zero-disagreement sample from producing a zero-width interval and
+typically sets both bounds once \code{n_runs > 2}, so this interval is
+conservative relative to the bootstrap alone and widens only, never
+narrows. The chance-corrected interval is the plain item bootstrap.
+
+\code{runs} holds labels in source-row order. Because every run is graded
+under a fresh shuffled key, \code{judge_item_ids} is an integer matrix parallel
+to \code{runs} whose entry \verb{[i, r]} is the \code{.item_id} the judge saw for source
+row \code{i} in run \code{r}; join judge-side logs on that key, never on the row
+number.
 }
 \description{
 Re-grades the same items and reports chance-corrected agreement plus mean

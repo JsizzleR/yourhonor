@@ -1,69 +1,134 @@
-check_count <- function(x, arg, minimum = 1L) {
+# Numerical tolerance used when deciding whether an estimate or interval sits
+# exactly on the [0, 1] boundary. A bootstrap that never leaves a boundary is a
+# finite-sample artefact, not evidence of population-perfect agreement.
+boundary_tolerance <- sqrt(.Machine$double.eps)
+
+# Minimum number of finite bootstrap draws before an interval is trusted at all.
+min_reliable_boot_draws <- 30L
+
+# Fraction of requested resamples that must be finite before an interval is
+# considered reliable; lower yields mean the statistic was often undefined.
+min_effective_boot_fraction <- 0.8
+
+check_count <- function(x,
+                        arg = rlang::caller_arg(x),
+                        minimum = 1L,
+                        call = rlang::caller_env()) {
   if (length(x) != 1L || is.na(x) || !is.numeric(x) ||
       !is.finite(x) || x != as.integer(x) || x < minimum) {
     cli::cli_abort(
-      "{.arg {arg}} must be a whole number greater than or equal to {minimum}."
+      "{.arg {arg}} must be a whole number greater than or equal to {minimum}.",
+      call = call
     )
   }
   as.integer(x)
 }
 
-check_probability <- function(x, arg, open = FALSE) {
+check_probability <- function(x,
+                              arg = rlang::caller_arg(x),
+                              open = FALSE,
+                              call = rlang::caller_env()) {
   ok <- length(x) == 1L && !is.na(x) && is.numeric(x) && is.finite(x)
   if (ok) {
     ok <- if (open) x > 0 && x < 1 else x >= 0 && x <= 1
   }
   if (!ok) {
     bounds <- if (open) "strictly between 0 and 1" else "between 0 and 1"
-    cli::cli_abort("{.arg {arg}} must be {bounds}.")
+    cli::cli_abort("{.arg {arg}} must be {bounds}.", call = call)
   }
   as.numeric(x)
 }
 
-check_audit_id <- function(x, arg = "audit_id", allow_null = TRUE) {
+check_audit_id <- function(x,
+                           arg = rlang::caller_arg(x),
+                           allow_null = TRUE,
+                           call = rlang::caller_env()) {
   if (is.null(x) && allow_null) return(NULL)
   if (!is.character(x) || length(x) != 1L || is.na(x) || !nzchar(x)) {
-    cli::cli_abort("{.arg {arg}} must be one non-empty character string.")
-  }
-  x
-}
-
-check_column_names <- function(x, arg, minimum = 1L) {
-  if (!is.character(x) || length(x) < minimum || anyNA(x) ||
-      any(!nzchar(x)) || anyDuplicated(x)) {
     cli::cli_abort(
-      "{.arg {arg}} must contain at least {minimum} unique, non-empty column name{?s}."
+      "{.arg {arg}} must be one non-empty character string.",
+      call = call
     )
   }
   x
 }
 
-check_column_name <- function(x, arg) {
-  if (!is.character(x) || length(x) != 1L || is.na(x) || !nzchar(x)) {
-    cli::cli_abort("{.arg {arg}} must be one non-empty column name.")
+check_column_names <- function(x,
+                               arg = rlang::caller_arg(x),
+                               minimum = 1L,
+                               call = rlang::caller_env()) {
+  if (!is.character(x) || length(x) < minimum || anyNA(x) ||
+      any(!nzchar(x)) || anyDuplicated(x)) {
+    cli::cli_abort(
+      paste0(
+        "{.arg {arg}} must contain at least {minimum} unique, non-empty ",
+        "column name{?s}."
+      ),
+      call = call
+    )
   }
   x
 }
 
+check_column_name <- function(x,
+                              arg = rlang::caller_arg(x),
+                              call = rlang::caller_env()) {
+  if (!is.character(x) || length(x) != 1L || is.na(x) || !nzchar(x)) {
+    cli::cli_abort(
+      "{.arg {arg}} must be one non-empty column name.",
+      call = call
+    )
+  }
+  x
+}
+
+# Ensure every name in `cols` is a column of `data`; report the user's argument
+# name (`arg`) and the user's data argument (`data_arg`) rather than internals.
+check_columns_present <- function(data,
+                                  cols,
+                                  arg,
+                                  data_arg = "x",
+                                  call = rlang::caller_env()) {
+  absent <- setdiff(cols, names(data))
+  if (length(absent) > 0L) {
+    cli::cli_abort(
+      paste0(
+        "{.arg {arg}} names column{?s} not in {.arg {data_arg}}: ",
+        "{.field {absent}}."
+      ),
+      call = call
+    )
+  }
+  invisible(cols)
+}
+
+# `arg` names the user-facing source of `ratings` (a data argument or column)
+# and is reported when those ratings hold blank labels; `levels_arg` names the
+# caller's own label-universe argument, which differs between entry points
+# (`label_levels`, `ordered_levels`, `choice_levels`).
 resolve_label_levels <- function(ratings,
                                  label_levels = NULL,
                                  allow_single = FALSE,
-                                 arg = "ratings") {
+                                 arg = "ratings",
+                                 levels_arg = "label_levels",
+                                 call = rlang::caller_env()) {
   observed <- unique(stats::na.omit(unlist(lapply(ratings, as.character), use.names = FALSE)))
-  check_labels_nonblank(observed, arg)
+  check_labels_nonblank(observed, arg, call = call)
   if (!is.null(label_levels)) {
     label_levels <- as.character(label_levels)
     if ((!allow_single && length(label_levels) < 2L) || length(label_levels) < 1L ||
         anyNA(label_levels) || anyDuplicated(label_levels)) {
       cli::cli_abort(
-        "{.arg label_levels} must contain at least two unique, non-missing labels."
+        "{.arg {levels_arg}} must contain at least two unique, non-missing labels.",
+        call = call
       )
     }
-    check_labels_nonblank(label_levels, "label_levels")
+    check_labels_nonblank(label_levels, levels_arg, call = call)
     unknown <- setdiff(observed, label_levels)
     if (length(unknown) > 0L) {
       cli::cli_abort(
-        "Observed label{?s} not present in {.arg label_levels}: {.val {unknown}}."
+        "Observed label{?s} not present in {.arg {levels_arg}}: {.val {unknown}}.",
+        call = call
       )
     }
     return(label_levels)
@@ -82,12 +147,23 @@ resolve_label_levels <- function(ratings,
   observed
 }
 
-validate_labels <- function(labels, label_levels, arg = "judge") {
+# `arg` names the producer of `labels` (a judge or a column); `levels_arg` names
+# the caller's own label-universe argument, which differs between entry points
+# (`label_levels`, `ordered_levels`, `choice_levels`).
+validate_labels <- function(labels,
+                            label_levels,
+                            arg = "judge",
+                            levels_arg = "label_levels",
+                            call = rlang::caller_env()) {
   labels <- as.character(labels)
   unknown <- setdiff(unique(stats::na.omit(labels)), label_levels)
   if (length(unknown) > 0L) {
     cli::cli_abort(
-      "{.arg {arg}} returned label{?s} outside {.arg label_levels}: {.val {unknown}}."
+      paste0(
+        "{.arg {arg}} returned label{?s} outside {.arg {levels_arg}}: ",
+        "{.val {unknown}}."
+      ),
+      call = call
     )
   }
   labels
@@ -108,12 +184,15 @@ is_blank_label <- function(labels) {
   !is.na(labels) & !nzchar(trimws(labels, whitespace = "[\\h\\v]"))
 }
 
-check_labels_nonblank <- function(labels, arg) {
+check_labels_nonblank <- function(labels, arg, call = rlang::caller_env()) {
   if (any(is_blank_label(labels))) {
-    cli::cli_abort(c(
-      "{.arg {arg}} contains empty or whitespace-only labels.",
-      i = "Represent a missing or failed judgement as {.code NA}, not {.val {''}}."
-    ))
+    cli::cli_abort(
+      c(
+        "{.arg {arg}} contains empty or whitespace-only labels.",
+        i = "Represent a missing or failed judgement as {.code NA}, not {.val {''}}."
+      ),
+      call = call
+    )
   }
   invisible(labels)
 }
@@ -157,6 +236,25 @@ bootstrap_quantiles <- function(stat, conf_level) {
     conf_high = qs[[2]],
     se = stats::sd(stat),
     n_effective = length(stat),
-    ci_reliable = length(stat) >= 30L
+    ci_reliable = length(stat) >= min_reliable_boot_draws
   )
+}
+
+# A perfect finite sample gives a zero-width bootstrap pinned at 1. That is a
+# property of the sample, not proof of population-perfect agreement, so it is
+# flagged rather than reported as a reliable interval.
+is_boundary_degenerate <- function(status, estimate, ci) {
+  identical(status, "ok") && is.finite(estimate) &&
+    estimate >= 1 - boundary_tolerance &&
+    is.finite(ci$se) && abs(ci$se) <= boundary_tolerance &&
+    is.finite(ci$conf_low) && is.finite(ci$conf_high) &&
+    abs(ci$conf_high - ci$conf_low) <= boundary_tolerance
+}
+
+# An interval is reliable when enough draws were finite, most of the requested
+# resamples produced a defined statistic, and the interval is not degenerate.
+ci_is_reliable <- function(ci, n_boot, boundary_degenerate = FALSE) {
+  isTRUE(ci$ci_reliable) &&
+    ci$n_effective >= ceiling(min_effective_boot_fraction * n_boot) &&
+    !isTRUE(boundary_degenerate)
 }
