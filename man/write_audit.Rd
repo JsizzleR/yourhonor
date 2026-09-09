@@ -10,13 +10,15 @@ write_audit(
   bias = NULL,
   stability = NULL,
   policy = NULL,
-  format = c("json", "md")
+  format = c("json", "md"),
+  overwrite = FALSE
 )
 }
 \arguments{
 \item{x}{A \code{yourhonor_calibration} object.}
 
-\item{path}{Output path.}
+\item{path}{Output file path. An existing file is never replaced unless
+\code{overwrite = TRUE}, so a re-run cannot silently clobber an earlier audit.}
 
 \item{bias}{Optional bias evidence.}
 
@@ -25,6 +27,8 @@ write_audit(
 \item{policy}{Optional acceptance policy.}
 
 \item{format}{\code{"json"} or \code{"md"}.}
+
+\item{overwrite}{Replace an existing file at \code{path}? Defaults to \code{FALSE}.}
 }
 \value{
 \code{path}, invisibly.
@@ -39,5 +43,42 @@ aggregate evidence, policy checks, and provenance.
 Calibration item rows are omitted from JSON. Caller-supplied \code{provenance} is
 serialized verbatim, however, so do not place secrets or raw item content in
 provenance fields.
+}
+
+\section{JSON schema (\code{yourhonor.audit.v1})}{
+
+The JSON artifact is written at full numeric precision (no rounding), and
+every absent value is \code{null}: an \code{NA} and an R \code{NULL} are indistinguishable
+to a reader, but neither ever appears as \code{{}} or is dropped. Fields that are
+vectors by contract are always JSON arrays, even when they hold one value.
+Top-level members:
+\itemize{
+\item \code{schema_version}: \code{"yourhonor.audit.v1"}.
+\item \code{created_at}: UTC timestamp in RFC 3339 form, e.g.
+\code{"2026-01-31T12:00:00Z"}.
+\item \code{decision}: the overall assessment (\code{PASS}, \code{FAIL}, \code{INDETERMINATE},
+or \code{NOT_ASSESSED}).
+\item \code{audit_id}: string or \code{null}.
+\item \code{policy}: \code{null}, or an object with one member per
+\code{\link[=acceptance_policy]{acceptance_policy()}} argument. \code{required_probes} is an array;
+\code{min_recall} and \code{min_precision} are a number when global or an object
+keyed by class name when class-specific; unset thresholds are \code{null}.
+\item \code{checks}: array of objects with \code{check}, \code{status}, \code{value}, \code{threshold},
+and \code{reason}, one per policy check.
+\item \code{calibration}: \code{n_input}, \code{n_items}, \code{n_excluded}, \code{n_consensus_ties},
+\code{scale}, \code{weights}, \code{conf_level}, \code{n_boot}, \code{seed} (scalars);
+\code{label_levels} and \code{coefficients} (arrays); \code{agreement},
+\code{confusion_metrics}, and \code{human_reliability} (arrays of row objects
+mirroring the tibble columns, \code{human_reliability} \code{null} for a single
+rater).
+\item \code{bias}: \code{null}, or \code{audit_id} plus \code{results}, an array of row objects
+with the columns of the bias tibble.
+\item \code{stability}: \code{null}, or the scalar summary fields of a
+\code{yourhonor_stability} object (\code{n_items}, \code{n_items_scored}, \code{n_runs},
+\verb{pairwise_disagreement*}, \verb{gwet_*}, \code{missing_rate}, \verb{*_ci_reliable}),
+\code{label_levels} (array), and \code{provenance}.
+\item \code{provenance}: the calibration provenance; adapter fields \code{input_cols},
+\code{human_cols}, and \code{label_levels} are arrays.
+}
 }
 
