@@ -21,7 +21,9 @@ probe_bias(
 )
 }
 \arguments{
-\item{data}{A data frame with an \code{input} column.}
+\item{data}{A data frame with a character \code{input} column. Missing inputs are
+an error: a pasted \code{NA} would otherwise be graded as a real answer and hide
+abstention from the missingness gate.}
 
 \item{judge}{A judge function.}
 
@@ -39,11 +41,16 @@ exposed to the judge unless explicitly included in \code{input_cols}.}
 
 \item{seed}{Optional R random seed.}
 
-\item{flip_threshold}{Minimum directional flip rate used for a \code{"BIAS"} flag.}
+\item{flip_threshold}{Practical-significance floor for a \code{"BIAS"} verdict:
+the net \code{directional_rate} (see \emph{Result columns}) must exceed it in
+addition to \code{p_value_adj < alpha}. A large but balanced \code{flip_rate} is
+reported yet never flagged.}
 
 \item{alpha}{Significance level.}
 
-\item{p_adjust}{Multiple-comparison correction.}
+\item{p_adjust}{Multiple-comparison correction applied across the requested
+probes. Probes with no label movement enter the family with \code{p_value = 1};
+only \code{"insufficient_data"} probes are excluded.}
 
 \item{conf_level}{Confidence level for the exact flip-rate interval.}
 
@@ -51,14 +58,79 @@ exposed to the judge unless explicitly included in \code{input_cols}.}
 the related calibration and stability run.}
 }
 \value{
-A \code{yourhonor_bias} tibble. \code{"no_signal"} means the probe did not
-detect directional bias; it is not proof that the judge is unbiased.
+A \code{yourhonor_bias} tibble with one row per probe (see \emph{Result
+columns}) and the attributes \code{audit_id}, \code{evidence}, and \code{item_evidence}.
+The two evidence attributes are lists named by probe; pointwise probes
+contribute no entries. \code{"no_signal"} means the probe did not detect
+directional bias; it is not proof that the judge is unbiased.
 }
 \description{
 Grades length-matched control/treatment pairs in one randomized batch and
 measures directional label movement. Position bias is intentionally handled
 by \code{\link[=probe_position]{probe_position()}}, which uses structured candidates and stable identities.
 }
+\section{Result columns}{
+
+\code{\link[=probe_bias]{probe_bias()}}, \code{\link[=probe_position]{probe_position()}}, and \code{\link[=combine_bias]{combine_bias()}} return one row per
+probe with the same columns. "Items" are rows of \code{data}; "judgments" are
+individual judge outputs. Columns that apply only to the position probe are
+\code{NA} for pointwise probes.
+\itemize{
+\item \code{probe}: probe name.
+\item \code{flip_rate}: any-direction change rate, \code{n_discordant / n_scored}, with
+its exact (Clopper-Pearson) interval \code{conf_low}/\code{conf_high} at
+\code{conf_level}. \code{NA} when nothing was scored.
+\item \code{direction}: pointwise \code{"favors_perturbed"}, \code{"favors_original"},
+\code{"balanced"}, or \code{"none"} (no movement); position \code{"favors_first"},
+\code{"favors_second"}, or \code{"balanced"}.
+\item \code{directional_rate}: net movement over scored items. Pointwise:
+\verb{|improved - worsened| / n_scored}. Position: \verb{|first - second| / n_scored}, where \code{first}/\code{second} count items whose canonical choice
+moved with the display order towards one slot. \code{NA} when nothing was
+scored. \code{directional_conf_low}/\code{directional_conf_high} is a Bonferroni
+combination of exact marginal intervals for that difference
+(conservative). Its upper bound is capped at \code{conf_high}, because the
+net rate can never exceed the any-direction flip rate over the same
+denominator.
+\item \code{position_preference}, \code{position_conf_low}, \code{position_conf_high}:
+position only. Share of directional items favouring the first display
+slot (\code{statistic / n_directional_items}) with its exact interval.
+\item \code{display_first_rate}: position only. Mean per-item share of decided
+judgments that chose the first display slot.
+\item \code{statistic}: sign-test successes (\code{improved} pointwise; items favouring
+the first slot for position).
+\item \code{n_discordant}: scored items whose label (pointwise) or canonical choice
+(position) changed between conditions.
+\item \code{n_scored}: items with a decided judgment in both conditions. For the
+position probe a condition's judgment is the mode across \code{repeats}, so a
+within-condition tie leaves the item unscored.
+\item \code{n_directional_items}: items entering the sign test. Equals
+\code{n_discordant} for both probes: a position item is directional only when
+it was decided in both display orders and its canonical choice moved
+with the order (a tie commits to neither slot).
+\item \code{n_input}: items supplied, after any sampling.
+\item \code{n_unscored}, \code{unscored_rate}: \code{n_input - n_scored} and its share of
+\code{n_input}. Includes position items lost to within-condition ties, so it
+can exceed \code{n_items_missing}.
+\item \code{n_items_missing}: items with at least one \code{NA} judgment.
+\item \code{n_judgments}, \code{n_judgments_missing}, \code{missing_rate}: individual judge
+outputs, how many were \code{NA}, and their share. \code{missing_rate} is the
+quantity gated by \code{\link[=acceptance_policy]{acceptance_policy()}}.
+\item \code{n_comparisons}: condition pairs judged (\code{n_input} pointwise;
+\code{n_input * repeats} position).
+\item \code{p_value}: exact sign-test p-value over \code{n_directional_items}; \code{1} when
+no item moved, \code{NA} only when \code{status} is \code{"insufficient_data"}.
+\item \code{p_value_adj}: \code{p_value} corrected with \code{p_adjust_method} across the rows
+of the object; \code{NA} p-values are excluded from the family.
+\item \code{verdict}: \code{"BIAS"} when \code{p_value_adj < alpha} and \code{directional_rate}
+exceeds \code{flip_threshold} (the position probe has no effect floor, shown
+as \code{flip_threshold = NA}); \code{"no_signal"} otherwise; \code{"INCONCLUSIVE"} when
+nothing was scored.
+\item \code{status}: \code{"ok"} or \code{"insufficient_data"} (\code{n_scored == 0}).
+\item \code{conf_level}, \code{alpha}, \code{flip_threshold}, \code{p_adjust_method}: the settings
+in force for that row.
+}
+}
+
 \examples{
 length_judge <- function(d) ifelse(nchar(d$input) > 40, "C", "P")
 data <- tibble::tibble(input = paste("answer", 1:20))

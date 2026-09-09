@@ -10,14 +10,79 @@ combine_bias(..., p_adjust = c("holm", "none", "BH", "bonferroni"))
 \item{...}{Two or more \code{yourhonor_bias} objects.}
 
 \item{p_adjust}{Multiple-comparison correction applied across all combined
-probes. This replaces the within-call adjusted p-values.}
+probes. This replaces the within-call adjusted p-values, and verdicts are
+recomputed from the new \code{p_value_adj} with each row's own \code{alpha} and
+\code{flip_threshold}.}
 }
 \value{
-One \code{yourhonor_bias} object with one row per unique probe. Item-level
-evidence is retained in list attributes.
+One \code{yourhonor_bias} object with one row per unique probe. The
+\code{evidence} and \code{item_evidence} attributes are the constituents' lists,
+concatenated and still named by probe.
 }
 \description{
 Combines pointwise and position results while preserving and validating their
 shared \code{audit_id}. Use this when an acceptance policy requires probes from
 both \code{\link[=probe_bias]{probe_bias()}} and \code{\link[=probe_position]{probe_position()}}.
 }
+\section{Result columns}{
+
+\code{\link[=probe_bias]{probe_bias()}}, \code{\link[=probe_position]{probe_position()}}, and \code{\link[=combine_bias]{combine_bias()}} return one row per
+probe with the same columns. "Items" are rows of \code{data}; "judgments" are
+individual judge outputs. Columns that apply only to the position probe are
+\code{NA} for pointwise probes.
+\itemize{
+\item \code{probe}: probe name.
+\item \code{flip_rate}: any-direction change rate, \code{n_discordant / n_scored}, with
+its exact (Clopper-Pearson) interval \code{conf_low}/\code{conf_high} at
+\code{conf_level}. \code{NA} when nothing was scored.
+\item \code{direction}: pointwise \code{"favors_perturbed"}, \code{"favors_original"},
+\code{"balanced"}, or \code{"none"} (no movement); position \code{"favors_first"},
+\code{"favors_second"}, or \code{"balanced"}.
+\item \code{directional_rate}: net movement over scored items. Pointwise:
+\verb{|improved - worsened| / n_scored}. Position: \verb{|first - second| / n_scored}, where \code{first}/\code{second} count items whose canonical choice
+moved with the display order towards one slot. \code{NA} when nothing was
+scored. \code{directional_conf_low}/\code{directional_conf_high} is a Bonferroni
+combination of exact marginal intervals for that difference
+(conservative). Its upper bound is capped at \code{conf_high}, because the
+net rate can never exceed the any-direction flip rate over the same
+denominator.
+\item \code{position_preference}, \code{position_conf_low}, \code{position_conf_high}:
+position only. Share of directional items favouring the first display
+slot (\code{statistic / n_directional_items}) with its exact interval.
+\item \code{display_first_rate}: position only. Mean per-item share of decided
+judgments that chose the first display slot.
+\item \code{statistic}: sign-test successes (\code{improved} pointwise; items favouring
+the first slot for position).
+\item \code{n_discordant}: scored items whose label (pointwise) or canonical choice
+(position) changed between conditions.
+\item \code{n_scored}: items with a decided judgment in both conditions. For the
+position probe a condition's judgment is the mode across \code{repeats}, so a
+within-condition tie leaves the item unscored.
+\item \code{n_directional_items}: items entering the sign test. Equals
+\code{n_discordant} for both probes: a position item is directional only when
+it was decided in both display orders and its canonical choice moved
+with the order (a tie commits to neither slot).
+\item \code{n_input}: items supplied, after any sampling.
+\item \code{n_unscored}, \code{unscored_rate}: \code{n_input - n_scored} and its share of
+\code{n_input}. Includes position items lost to within-condition ties, so it
+can exceed \code{n_items_missing}.
+\item \code{n_items_missing}: items with at least one \code{NA} judgment.
+\item \code{n_judgments}, \code{n_judgments_missing}, \code{missing_rate}: individual judge
+outputs, how many were \code{NA}, and their share. \code{missing_rate} is the
+quantity gated by \code{\link[=acceptance_policy]{acceptance_policy()}}.
+\item \code{n_comparisons}: condition pairs judged (\code{n_input} pointwise;
+\code{n_input * repeats} position).
+\item \code{p_value}: exact sign-test p-value over \code{n_directional_items}; \code{1} when
+no item moved, \code{NA} only when \code{status} is \code{"insufficient_data"}.
+\item \code{p_value_adj}: \code{p_value} corrected with \code{p_adjust_method} across the rows
+of the object; \code{NA} p-values are excluded from the family.
+\item \code{verdict}: \code{"BIAS"} when \code{p_value_adj < alpha} and \code{directional_rate}
+exceeds \code{flip_threshold} (the position probe has no effect floor, shown
+as \code{flip_threshold = NA}); \code{"no_signal"} otherwise; \code{"INCONCLUSIVE"} when
+nothing was scored.
+\item \code{status}: \code{"ok"} or \code{"insufficient_data"} (\code{n_scored == 0}).
+\item \code{conf_level}, \code{alpha}, \code{flip_threshold}, \code{p_adjust_method}: the settings
+in force for that row.
+}
+}
+

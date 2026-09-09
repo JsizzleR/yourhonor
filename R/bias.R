@@ -4,7 +4,9 @@
 #' measures directional label movement. Position bias is intentionally handled
 #' by [probe_position()], which uses structured candidates and stable identities.
 #'
-#' @param data A data frame with an `input` column.
+#' @param data A data frame with a character `input` column. Missing inputs are
+#'   an error: a pasted `NA` would otherwise be graded as a real answer and hide
+#'   abstention from the missingness gate.
 #' @param judge A judge function.
 #' @param input_cols Columns visible to `judge`. The default exposes only
 #'   `input`; all other columns are redacted.
@@ -14,15 +16,83 @@
 #' @param ordered_levels Label scale from worst to best.
 #' @param n Optional positive number of sampled items.
 #' @param seed Optional R random seed.
-#' @param flip_threshold Minimum directional flip rate used for a `"BIAS"` flag.
+#' @param flip_threshold Practical-significance floor for a `"BIAS"` verdict:
+#'   the net `directional_rate` (see *Result columns*) must exceed it in
+#'   addition to `p_value_adj < alpha`. A large but balanced `flip_rate` is
+#'   reported yet never flagged.
 #' @param alpha Significance level.
-#' @param p_adjust Multiple-comparison correction.
+#' @param p_adjust Multiple-comparison correction applied across the requested
+#'   probes. Probes with no label movement enter the family with `p_value = 1`;
+#'   only `"insufficient_data"` probes are excluded.
 #' @param conf_level Confidence level for the exact flip-rate interval.
 #' @param audit_id Optional evidence-bundle identifier. Use the same value as
 #'   the related calibration and stability run.
 #'
-#' @return A `yourhonor_bias` tibble. `"no_signal"` means the probe did not
-#'   detect directional bias; it is not proof that the judge is unbiased.
+#' @section Result columns:
+#' [probe_bias()], [probe_position()], and [combine_bias()] return one row per
+#' probe with the same columns. "Items" are rows of `data`; "judgments" are
+#' individual judge outputs. Columns that apply only to the position probe are
+#' `NA` for pointwise probes.
+#'
+#' * `probe`: probe name.
+#' * `flip_rate`: any-direction change rate, `n_discordant / n_scored`, with
+#'   its exact (Clopper-Pearson) interval `conf_low`/`conf_high` at
+#'   `conf_level`. `NA` when nothing was scored.
+#' * `direction`: pointwise `"favors_perturbed"`, `"favors_original"`,
+#'   `"balanced"`, or `"none"` (no movement); position `"favors_first"`,
+#'   `"favors_second"`, or `"balanced"`.
+#' * `directional_rate`: net movement over scored items. Pointwise:
+#'   `|improved - worsened| / n_scored`. Position: `|first - second| /
+#'   n_scored`, where `first`/`second` count items whose canonical choice
+#'   moved with the display order towards one slot. `NA` when nothing was
+#'   scored. `directional_conf_low`/`directional_conf_high` is a Bonferroni
+#'   combination of exact marginal intervals for that difference
+#'   (conservative). Its upper bound is capped at `conf_high`, because the
+#'   net rate can never exceed the any-direction flip rate over the same
+#'   denominator.
+#' * `position_preference`, `position_conf_low`, `position_conf_high`:
+#'   position only. Share of directional items favouring the first display
+#'   slot (`statistic / n_directional_items`) with its exact interval.
+#' * `display_first_rate`: position only. Mean per-item share of decided
+#'   judgments that chose the first display slot.
+#' * `statistic`: sign-test successes (`improved` pointwise; items favouring
+#'   the first slot for position).
+#' * `n_discordant`: scored items whose label (pointwise) or canonical choice
+#'   (position) changed between conditions.
+#' * `n_scored`: items with a decided judgment in both conditions. For the
+#'   position probe a condition's judgment is the mode across `repeats`, so a
+#'   within-condition tie leaves the item unscored.
+#' * `n_directional_items`: items entering the sign test. Equals
+#'   `n_discordant` for both probes: a position item is directional only when
+#'   it was decided in both display orders and its canonical choice moved
+#'   with the order (a tie commits to neither slot).
+#' * `n_input`: items supplied, after any sampling.
+#' * `n_unscored`, `unscored_rate`: `n_input - n_scored` and its share of
+#'   `n_input`. Includes position items lost to within-condition ties, so it
+#'   can exceed `n_items_missing`.
+#' * `n_items_missing`: items with at least one `NA` judgment.
+#' * `n_judgments`, `n_judgments_missing`, `missing_rate`: individual judge
+#'   outputs, how many were `NA`, and their share. `missing_rate` is the
+#'   quantity gated by [acceptance_policy()].
+#' * `n_comparisons`: condition pairs judged (`n_input` pointwise;
+#'   `n_input * repeats` position).
+#' * `p_value`: exact sign-test p-value over `n_directional_items`; `1` when
+#'   no item moved, `NA` only when `status` is `"insufficient_data"`.
+#' * `p_value_adj`: `p_value` corrected with `p_adjust_method` across the rows
+#'   of the object; `NA` p-values are excluded from the family.
+#' * `verdict`: `"BIAS"` when `p_value_adj < alpha` and `directional_rate`
+#'   exceeds `flip_threshold` (the position probe has no effect floor, shown
+#'   as `flip_threshold = NA`); `"no_signal"` otherwise; `"INCONCLUSIVE"` when
+#'   nothing was scored.
+#' * `status`: `"ok"` or `"insufficient_data"` (`n_scored == 0`).
+#' * `conf_level`, `alpha`, `flip_threshold`, `p_adjust_method`: the settings
+#'   in force for that row.
+#'
+#' @return A `yourhonor_bias` tibble with one row per probe (see *Result
+#'   columns*) and the attributes `audit_id`, `evidence`, and `item_evidence`.
+#'   The two evidence attributes are lists named by probe; pointwise probes
+#'   contribute no entries. `"no_signal"` means the probe did not detect
+#'   directional bias; it is not proof that the judge is unbiased.
 #' @export
 #' @examples
 #' length_judge <- function(d) ifelse(nchar(d$input) > 40, "C", "P")
@@ -69,9 +139,7 @@ probe_bias <- function(data,
   check_labels_nonblank(ordered_levels, "ordered_levels")
 
   data <- tibble::as_tibble(data)
-  if (!"input" %in% names(data)) {
-    cli::cli_abort("{.arg data} must contain an {.field input} column to perturb.")
-  }
+  check_probe_input(data)
   if (nrow(data) < 1L) cli::cli_abort("{.arg data} must contain at least one item.")
   if (!is.null(seed)) withr::local_seed(seed)
   if (!is.null(n)) {
@@ -89,7 +157,7 @@ probe_bias <- function(data,
     cli::cli_abort("{.arg input_cols} must include {.field input} for pointwise probes.")
   }
 
-  raw <- lapply(probes, function(probe) {
+  rows <- lapply(probes, function(probe) {
     pair <- probe_pair(data$input, probe)
     control <- set_input(judge_base, pair$control)
     treatment <- set_input(judge_base, pair$treatment)
@@ -97,58 +165,14 @@ probe_bias <- function(data,
     scored <- grade_blind(judge, stacked, ordered_levels)$label
     before <- to_ordinal(scored[seq_len(nrow(data))], ordered_levels)
     after <- to_ordinal(scored[nrow(data) + seq_len(nrow(data))], ordered_levels)
-    c(list(probe = probe), paired_flip_test(before, after, conf_level))
-  })
-
-  p_value <- vapply(raw, function(r) r$p_value, numeric(1))
-  p_value_adj <- p_value
-  scored_p <- is.finite(p_value)
-  if (p_adjust != "none" && any(scored_p)) {
-    p_value_adj[scored_p] <- stats::p.adjust(p_value[scored_p], method = p_adjust)
-  }
-
-  rows <- lapply(seq_along(raw), function(i) {
-    r <- raw[[i]]
-    padj <- p_value_adj[[i]]
-    verdict <- if (r$n_scored == 0L) {
-      "INCONCLUSIVE"
-    } else if (is.finite(padj) && padj < alpha && r$flip_rate > flip_threshold) {
-      "BIAS"
-    } else {
-      "no_signal"
-    }
-    tibble::tibble(
-      probe = r$probe,
-      flip_rate = r$flip_rate,
-      conf_low = r$conf_low,
-      conf_high = r$conf_high,
-      direction = r$direction,
-      directional_rate = r$directional_rate,
-      directional_conf_low = r$directional_conf_low,
-      directional_conf_high = r$directional_conf_high,
-      statistic = r$statistic,
-      n_discordant = r$n_discordant,
-      n_scored = r$n_scored,
-      n_input = r$n_input,
-      n_missing = r$n_missing_pairs,
-      pair_missing_rate = r$n_missing_pairs / r$n_input,
-      n_judgments = 2L * r$n_input,
-      n_judgments_missing = r$n_judgments_missing,
-      missing_rate = r$n_judgments_missing / (2L * r$n_input),
-      p_value = r$p_value,
-      p_value_adj = padj,
-      verdict = verdict,
-      status = if (r$n_scored == 0L) "insufficient_data" else "ok",
-      conf_level = conf_level,
-      alpha = alpha,
-      flip_threshold = flip_threshold,
-      p_adjust_method = p_adjust
+    test <- paired_flip_test(before, after, conf_level)
+    bias_result_row(
+      probe, pointwise_stats(test),
+      conf_level = conf_level, alpha = alpha, flip_threshold = flip_threshold
     )
   })
-
-  out <- do.call(vctrs::vec_rbind, rows)
-  attr(out, "audit_id") <- audit_id
-  structure(out, class = c("yourhonor_bias", class(out)))
+  rows <- finalize_bias_rows(do.call(vctrs::vec_rbind, rows), p_adjust)
+  new_yourhonor_bias(rows, audit_id = audit_id)
 }
 
 #' Probe a pairwise judge for position bias
@@ -176,8 +200,14 @@ probe_bias <- function(data,
 #' @param audit_id Optional evidence-bundle identifier. Use the same value as
 #'   the related calibration and stability run.
 #'
-#' @return A one-row `yourhonor_bias` tibble with item-level evidence attached as
-#'   the `"evidence"` attribute.
+#' @inheritSection probe_bias Result columns
+#'
+#' @return A one-row `yourhonor_bias` tibble (see *Result columns*) with the
+#'   attributes `audit_id`, `evidence`, and `item_evidence`. Both evidence
+#'   attributes are lists with one `"position"` element: `evidence` holds one
+#'   row per judgment (condition, repeat, display and canonical choice);
+#'   `item_evidence` holds one row per item (modal choice per condition,
+#'   `flipped`, `display_first_rate`, `position_direction`).
 #' @export
 probe_position <- function(data,
                            judge,
@@ -257,86 +287,18 @@ probe_position <- function(data,
   )
 
   item_evidence <- position_item_evidence(ev, choice_levels)
-  scored <- !is.na(item_evidence$flipped)
-  n_scored <- sum(scored)
-  n_flips <- sum(item_evidence$flipped[scored])
-  flip_rate <- if (n_scored > 0L) n_flips / n_scored else NA_real_
-  flip_ci <- exact_binom_interval(n_flips, n_scored, conf_level)
-
-  directional <- !is.na(item_evidence$position_direction) &
-    item_evidence$position_direction != 0L
-  n_directional <- sum(directional)
-  first_count <- sum(item_evidence$position_direction[directional] > 0L)
-  first_rate <- if (n_directional > 0L) first_count / n_directional else NA_real_
-  first_ci <- exact_binom_interval(first_count, n_directional, conf_level)
-  directional_ci <- directional_magnitude_interval(
-    first_count, n_directional - first_count, n_scored, conf_level
+  row <- bias_result_row(
+    "position", position_stats(item_evidence, ev, conf_level),
+    conf_level = conf_level, alpha = alpha, flip_threshold = NA_real_
   )
-  p <- if (n_directional > 0L) {
-    stats::binom.test(first_count, n_directional, 0.5)$p.value
-  } else {
-    NA_real_
-  }
-  display_first_rate <- mean(item_evidence$display_first_rate, na.rm = TRUE)
-  if (!is.finite(display_first_rate)) display_first_rate <- NA_real_
-  direction <- if (is.na(first_rate)) {
-    "balanced"
-  } else if (first_rate > 0.5) {
-    "favors_first"
-  } else if (first_rate < 0.5) {
-    "favors_second"
-  } else {
-    "balanced"
-  }
-  verdict <- if (n_scored == 0L) {
-    "INCONCLUSIVE"
-  } else if (is.finite(p) && p < alpha) {
-    "BIAS"
-  } else {
-    "no_signal"
-  }
-
-  out <- tibble::tibble(
-    probe = "position",
-    flip_rate = flip_rate,
-    conf_low = flip_ci[[1]],
-    conf_high = flip_ci[[2]],
-    direction = direction,
-    directional_rate = if (n_scored > 0L) {
-      abs(2L * first_count - n_directional) / n_scored
-    } else {
-      NA_real_
-    },
-    directional_conf_low = directional_ci[[1]],
-    directional_conf_high = directional_ci[[2]],
-    position_preference = first_rate,
-    display_first_rate = display_first_rate,
-    position_conf_low = first_ci[[1]],
-    position_conf_high = first_ci[[2]],
-    statistic = first_count,
-    n_discordant = n_flips,
-    n_scored = n_scored,
-    n_input = nrow(data),
-    n_missing = nrow(data) - n_scored,
-    pair_missing_rate = (nrow(data) - n_scored) / nrow(data),
-    n_judgments = nrow(ev),
-    n_judgments_missing = sum(is.na(ev$display_choice)),
-    missing_rate = mean(is.na(ev$display_choice)),
-    n_comparisons = nrow(ev) / 2L,
-    n_directional_items = n_directional,
-    p_value = p,
-    p_value_adj = p,
-    verdict = verdict,
-    status = if (verdict == "INCONCLUSIVE") "insufficient_data" else "ok",
-    conf_level = conf_level,
-    alpha = alpha,
-    flip_threshold = NA_real_,
-    p_adjust_method = "none"
+  # A single probe has no family to correct over; combine_bias() re-adjusts.
+  rows <- finalize_bias_rows(row, "none")
+  new_yourhonor_bias(
+    rows,
+    audit_id = audit_id,
+    evidence = list(position = tibble::as_tibble(ev)),
+    item_evidence = list(position = item_evidence)
   )
-  attr(out, "evidence") <- tibble::as_tibble(ev)
-  attr(out, "item_evidence") <- item_evidence
-  attr(out, "audit_id") <- audit_id
-  structure(out, class = c("yourhonor_bias", class(out)))
 }
 
 #' @export
@@ -353,9 +315,15 @@ print.yourhonor_bias <- function(x, ...) {
 #'
 #' @param ... Two or more `yourhonor_bias` objects.
 #' @param p_adjust Multiple-comparison correction applied across all combined
-#'   probes. This replaces the within-call adjusted p-values.
-#' @return One `yourhonor_bias` object with one row per unique probe. Item-level
-#'   evidence is retained in list attributes.
+#'   probes. This replaces the within-call adjusted p-values, and verdicts are
+#'   recomputed from the new `p_value_adj` with each row's own `alpha` and
+#'   `flip_threshold`.
+#'
+#' @inheritSection probe_bias Result columns
+#'
+#' @return One `yourhonor_bias` object with one row per unique probe. The
+#'   `evidence` and `item_evidence` attributes are the constituents' lists,
+#'   concatenated and still named by probe.
 #' @export
 combine_bias <- function(...,
                          p_adjust = c("holm", "none", "BH", "bonferroni")) {
@@ -369,40 +337,262 @@ combine_bias <- function(...,
   if (any(has_id) && (!all(has_id) || length(unique(unlist(ids))) != 1L)) {
     cli::cli_abort("All bias evidence must share the same non-missing {.arg audit_id}.")
   }
-  rows <- lapply(probes, function(x) tibble::as_tibble(as.data.frame(x)))
-  out <- do.call(vctrs::vec_rbind, rows)
-  if (anyDuplicated(out$probe)) {
+  rows <- do.call(vctrs::vec_rbind, lapply(probes, bias_rows))
+  if (anyDuplicated(rows$probe)) {
     cli::cli_abort("Combined bias evidence must contain each probe exactly once.")
   }
-  if (length(unique(out$conf_level)) != 1L) {
+  if (length(unique(rows$conf_level)) != 1L) {
     cli::cli_abort("Combined bias evidence must use one shared {.arg conf_level}.")
   }
-  if (length(unique(out$alpha)) != 1L) {
+  if (length(unique(rows$alpha)) != 1L) {
     cli::cli_abort("Combined bias evidence must use one shared {.arg alpha}.")
   }
-  scored_p <- is.finite(out$p_value)
-  out$p_value_adj <- out$p_value
-  if (any(scored_p) && p_adjust != "none") {
-    out$p_value_adj[scored_p] <- stats::p.adjust(
-      out$p_value[scored_p], method = p_adjust
+  rows <- finalize_bias_rows(rows, p_adjust)
+  new_yourhonor_bias(
+    rows,
+    audit_id = if (all(has_id)) ids[[1]] else NULL,
+    evidence = collect_bias_attr(probes, "evidence"),
+    item_evidence = collect_bias_attr(probes, "item_evidence")
+  )
+}
+
+# Constructor and row schema -------------------------------------------------
+
+new_yourhonor_bias <- function(rows,
+                               audit_id = NULL,
+                               evidence = list(),
+                               item_evidence = list()) {
+  rows <- bias_rows(rows)
+  out <- tibble::new_tibble(
+    rows,
+    nrow = nrow(rows),
+    class = "yourhonor_bias",
+    evidence = probe_named_list(evidence, rows$probe),
+    item_evidence = probe_named_list(item_evidence, rows$probe)
+  )
+  # NULL leaves the attribute absent, which evidence_audit_id() treats as
+  # "unbound".
+  attr(out, "audit_id") <- audit_id
+  out
+}
+
+# Strip the class and attributes so rows can be bound and rebuilt.
+bias_rows <- function(x) {
+  columns <- lapply(names(x), function(col) x[[col]])
+  columns <- rlang::set_names(columns, names(x))
+  tibble::new_tibble(columns, nrow = nrow(x))
+}
+
+probe_named_list <- function(x, probes) {
+  x <- x[!vapply(x, is.null, logical(1))]
+  if (length(x) == 0L) return(rlang::set_names(list(), character(0)))
+  if (is.null(names(x)) || !all(names(x) %in% probes)) {
+    cli::cli_abort(
+      "Internal error: bias evidence must be a list named by probe."
     )
   }
-  enough_effect <- out$probe == "position" |
-    (is.finite(out$flip_threshold) & out$flip_rate > out$flip_threshold)
-  out$verdict <- ifelse(
-    out$status != "ok", "INCONCLUSIVE",
-    ifelse(
-      is.finite(out$p_value_adj) & out$p_value_adj < out$alpha & enough_effect,
-      "BIAS", "no_signal"
+  x
+}
+
+collect_bias_attr <- function(probes, which) {
+  do.call(c, lapply(probes, attr, which = which, exact = TRUE))
+}
+
+# One row of the shared bias schema. `stats` supplies the probe-specific
+# measurements; anything it omits stays NA, so pointwise and position rows
+# always have identical columns.
+bias_result_row <- function(probe, stats, conf_level, alpha, flip_threshold) {
+  row <- tibble::tibble(
+    probe = probe,
+    flip_rate = NA_real_,
+    conf_low = NA_real_,
+    conf_high = NA_real_,
+    direction = NA_character_,
+    directional_rate = NA_real_,
+    directional_conf_low = NA_real_,
+    directional_conf_high = NA_real_,
+    position_preference = NA_real_,
+    display_first_rate = NA_real_,
+    position_conf_low = NA_real_,
+    position_conf_high = NA_real_,
+    statistic = NA_integer_,
+    n_discordant = NA_integer_,
+    n_scored = NA_integer_,
+    n_directional_items = NA_integer_,
+    n_input = NA_integer_,
+    n_unscored = NA_integer_,
+    unscored_rate = NA_real_,
+    n_items_missing = NA_integer_,
+    n_judgments = NA_integer_,
+    n_judgments_missing = NA_integer_,
+    missing_rate = NA_real_,
+    n_comparisons = NA_integer_,
+    p_value = NA_real_,
+    p_value_adj = NA_real_,
+    verdict = NA_character_,
+    status = NA_character_,
+    conf_level = conf_level,
+    alpha = alpha,
+    flip_threshold = flip_threshold,
+    p_adjust_method = NA_character_
+  )
+  unknown <- setdiff(names(stats), names(row))
+  if (length(unknown) > 0L) {
+    cli::cli_abort(
+      "Internal error: unknown bias column{?s} {.field {unknown}}."
+    )
+  }
+  for (col in names(stats)) {
+    row[[col]] <- vctrs::vec_cast(stats[[col]], row[[col]])
+  }
+  row$unscored_rate <- row$n_unscored / row$n_input
+  row$missing_rate <- row$n_judgments_missing / row$n_judgments
+  row$status <- if (row$n_scored > 0L) "ok" else "insufficient_data"
+  # NA marks "no test possible"; every scored probe carries a real p-value.
+  if (row$status != "ok") row$p_value <- NA_real_
+  row
+}
+
+pointwise_stats <- function(test) {
+  c(
+    as.list(test),
+    list(
+      n_directional_items = test$n_discordant,
+      # Every unscored pointwise item is one with a missing judgment.
+      n_items_missing = test$n_unscored,
+      n_judgments = 2L * test$n_input,
+      n_comparisons = test$n_input
     )
   )
-  out$p_adjust_method <- p_adjust
-  attr(out, "audit_id") <- if (all(has_id)) ids[[1]] else NULL
-  attr(out, "evidence") <- lapply(probes, attr, which = "evidence", exact = TRUE)
-  attr(out, "item_evidence") <- lapply(
-    probes, attr, which = "item_evidence", exact = TRUE
+}
+
+position_stats <- function(item_evidence, ev, conf_level) {
+  n_input <- nrow(item_evidence)
+  scored <- !is.na(item_evidence$flipped)
+  n_scored <- sum(scored)
+  n_flips <- sum(item_evidence$flipped[scored])
+  flip_ci <- exact_binom_interval(n_flips, n_scored, conf_level)
+
+  # position_direction is NA for items that were not decided in both display
+  # orders; only scored items can be directional.
+  directional <- !is.na(item_evidence$position_direction) &
+    item_evidence$position_direction != 0L
+  n_directional <- sum(directional)
+  first_count <- sum(item_evidence$position_direction[directional] > 0L)
+  first_rate <- if (n_directional > 0L) {
+    first_count / n_directional
+  } else {
+    NA_real_
+  }
+  first_ci <- exact_binom_interval(first_count, n_directional, conf_level)
+  # Every flipped item is directional (a tie commits to neither slot, so a
+  # flip always moves towards one slot), so the pointwise cap applies here too.
+  directional_ci <- directional_magnitude_interval(
+    first_count, n_directional - first_count, n_scored, conf_level,
+    upper_cap = flip_ci[[2]]
   )
-  structure(out, class = c("yourhonor_bias", class(out)))
+  display_first_rate <- mean(item_evidence$display_first_rate, na.rm = TRUE)
+  if (!is.finite(display_first_rate)) display_first_rate <- NA_real_
+  missing_judgment <- is.na(ev$display_choice)
+
+  list(
+    flip_rate = if (n_scored > 0L) n_flips / n_scored else NA_real_,
+    conf_low = flip_ci[[1]],
+    conf_high = flip_ci[[2]],
+    direction = position_direction_label(first_rate),
+    directional_rate = if (n_scored > 0L) {
+      abs(2L * first_count - n_directional) / n_scored
+    } else {
+      NA_real_
+    },
+    directional_conf_low = directional_ci[[1]],
+    directional_conf_high = directional_ci[[2]],
+    position_preference = first_rate,
+    display_first_rate = display_first_rate,
+    position_conf_low = first_ci[[1]],
+    position_conf_high = first_ci[[2]],
+    statistic = first_count,
+    n_discordant = n_flips,
+    n_scored = n_scored,
+    n_directional_items = n_directional,
+    n_input = n_input,
+    n_unscored = n_input - n_scored,
+    n_items_missing = length(unique(ev$.item_id[missing_judgment])),
+    n_judgments = nrow(ev),
+    n_judgments_missing = sum(missing_judgment),
+    n_comparisons = nrow(ev) %/% 2L,
+    p_value = sign_test_p_value(first_count, n_directional, n_scored)
+  )
+}
+
+position_direction_label <- function(first_rate) {
+  if (is.na(first_rate) || first_rate == 0.5) {
+    "balanced"
+  } else if (first_rate > 0.5) {
+    "favors_first"
+  } else {
+    "favors_second"
+  }
+}
+
+# Apply the family correction and the verdict rule to a set of rows. Shared by
+# probe_bias(), probe_position(), and combine_bias() so the three cannot drift.
+finalize_bias_rows <- function(rows, p_adjust) {
+  rows$p_value_adj <- adjust_p_values(rows$p_value, p_adjust)
+  rows$p_adjust_method <- p_adjust
+  rows$verdict <- bias_verdict(
+    rows$status, rows$p_value_adj, rows$alpha,
+    rows$directional_rate, rows$flip_threshold
+  )
+  rows
+}
+
+adjust_p_values <- function(p, method) {
+  if (method == "none") return(p)
+  # p.adjust() sizes the family by the non-NA entries, so zero-movement probes
+  # (p = 1) count and only insufficient_data probes drop out.
+  stats::p.adjust(p, method = method)
+}
+
+bias_verdict <- function(status,
+                         p_value_adj,
+                         alpha,
+                         directional_rate,
+                         flip_threshold) {
+  significant <- is.finite(p_value_adj) & p_value_adj < alpha
+  # An NA threshold means the probe declares no effect-size floor.
+  enough_effect <- is.na(flip_threshold) |
+    (is.finite(directional_rate) & directional_rate > flip_threshold)
+  ifelse(
+    status != "ok", "INCONCLUSIVE",
+    ifelse(significant & enough_effect, "BIAS", "no_signal")
+  )
+}
+
+# Pointwise helpers ------------------------------------------------------------
+
+check_probe_input <- function(data) {
+  if (!"input" %in% names(data)) {
+    cli::cli_abort(
+      "{.arg data} must contain an {.field input} column to perturb."
+    )
+  }
+  if (!is.character(data$input)) {
+    cli::cli_abort(paste0(
+      "{.field input} must be a character column, ",
+      "not {.cls {class(data$input)}}."
+    ))
+  }
+  n_na <- sum(is.na(data$input))
+  if (n_na > 0L) {
+    # paste0() would turn NA into the literal text "NA", which the judge then
+    # grades as a real answer with missing_rate 0.
+    cli::cli_abort(paste0(
+      "{.field input} contains {n_na} missing value{?s}; ",
+      "drop or fill them before probing."
+    ))
+  }
+  invisible(data)
 }
 
 set_input <- function(data, input) {
@@ -454,56 +644,66 @@ paired_flip_test <- function(before, after, conf_level = 0.95) {
   n_input <- length(before)
   n_judgments_missing <- sum(is.na(before)) + sum(is.na(after))
   keep <- !is.na(before) & !is.na(after)
-  n_missing_pairs <- sum(!keep)
-  before <- before[keep]
-  after <- after[keep]
-  d <- after - before
+  d <- after[keep] - before[keep]
   improved <- sum(d > 0)
   worsened <- sum(d < 0)
   discordant <- improved + worsened
   n_scored <- length(d)
+  # With nothing scored the rates are undefined (0/0), not zero.
   flip_rate <- if (n_scored > 0L) discordant / n_scored else NA_real_
+  directional_rate <- if (n_scored > 0L) {
+    abs(improved - worsened) / n_scored
+  } else {
+    NA_real_
+  }
   ci <- exact_binom_interval(discordant, n_scored, conf_level)
   directional_ci <- directional_magnitude_interval(
-    improved, worsened, n_scored, conf_level
+    improved, worsened, n_scored, conf_level, upper_cap = ci[[2]]
   )
+  tibble::tibble(
+    flip_rate = flip_rate,
+    conf_low = ci[[1]],
+    conf_high = ci[[2]],
+    direction = flip_direction(improved, worsened),
+    directional_rate = directional_rate,
+    directional_conf_low = directional_ci[[1]],
+    directional_conf_high = directional_ci[[2]],
+    statistic = improved,
+    n_discordant = discordant,
+    n_scored = n_scored,
+    n_input = n_input,
+    n_unscored = n_input - n_scored,
+    n_judgments_missing = n_judgments_missing,
+    p_value = sign_test_p_value(improved, discordant, n_scored)
+  )
+}
 
-  if (discordant == 0L) {
-    return(list(
-      flip_rate = flip_rate, conf_low = ci[[1]], conf_high = ci[[2]],
-      direction = "none", statistic = 0L, n_discordant = 0L,
-      n_scored = n_scored, n_input = n_input,
-      n_missing_pairs = n_missing_pairs,
-      n_judgments_missing = n_judgments_missing,
-      directional_rate = 0,
-      directional_conf_low = directional_ci[[1]],
-      directional_conf_high = directional_ci[[2]], p_value = NA_real_
-    ))
-  }
-  p <- stats::binom.test(improved, discordant, 0.5)$p.value
-  direction <- if (improved > worsened) {
+flip_direction <- function(improved, worsened) {
+  if (improved + worsened == 0L) {
+    "none"
+  } else if (improved > worsened) {
     "favors_perturbed"
   } else if (worsened > improved) {
     "favors_original"
   } else {
     "balanced"
   }
-  list(
-    flip_rate = flip_rate, conf_low = ci[[1]], conf_high = ci[[2]],
-    direction = direction, statistic = improved, n_discordant = discordant,
-    n_scored = n_scored, n_input = n_input,
-    n_missing_pairs = n_missing_pairs,
-    n_judgments_missing = n_judgments_missing,
-    directional_rate = abs(improved - worsened) / n_scored,
-    directional_conf_low = directional_ci[[1]],
-    directional_conf_high = directional_ci[[2]], p_value = p
-  )
+}
+
+sign_test_p_value <- function(successes, trials, n_scored) {
+  if (n_scored == 0L) return(NA_real_)
+  # No movement at all is the strongest null outcome the probe can produce, so
+  # it stays in the multiple-comparison family as p = 1 instead of vanishing
+  # as NA and shrinking the family for the other probes.
+  if (trials == 0L) return(1)
+  stats::binom.test(successes, trials, 0.5)$p.value
 }
 
 directional_magnitude_interval <- function(positive,
                                            negative,
                                            n,
-                                           conf_level) {
+                                           conf_level,
+                                           upper_cap = 1) {
   if (n < 1L) return(c(NA_real_, NA_real_))
   # Bonferroni-combine exact marginal intervals for the two multinomial cells.
   # The resulting interval for their signed difference is conservative.
@@ -519,8 +719,12 @@ directional_magnitude_interval <- function(positive,
   } else {
     min(abs(signed))
   }
-  c(low, min(1, max(abs(signed))))
+  # |p+ - p-| <= p+ + p-, so a bound on the any-direction rate over the same
+  # denominator is also a valid, usually tighter, bound on the net rate.
+  c(low, min(1, max(abs(signed)), upper_cap))
 }
+
+# Position helpers -------------------------------------------------------------
 
 build_position_evidence <- function(data,
                                     candidate_a_col,
@@ -561,7 +765,7 @@ build_position_evidence <- function(data,
   judge_data <- displayed
   names(judge_data)[names(judge_data) == candidate_a_col] <- ".candidate_1"
   names(judge_data)[names(judge_data) == candidate_b_col] <- ".candidate_2"
-  list(judge_data = judge_data, internal = internal, key = key)
+  list(judge_data = judge_data, internal = internal)
 }
 
 map_canonical_choice <- function(choice, condition, choice_levels, tie_label) {
@@ -629,11 +833,4 @@ position_item_evidence <- function(evidence, choice_levels) {
     )
   })
   do.call(vctrs::vec_rbind, rows)
-}
-
-grade_position <- function(judge, data, choice_levels) {
-  grade_blind(
-    judge, data, label_levels = choice_levels,
-    context = "Structured position output"
-  )$label
 }
