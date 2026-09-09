@@ -34,10 +34,25 @@ audit_vitals <- function(task,
   if (anyDuplicated(c(id_col, human_col, score_col))) {
     cli::cli_abort("{.arg id_col}, {.arg human_col}, and {.arg score_col} must be distinct.")
   }
+  if (!is.list(provenance) ||
+      (length(provenance) > 0L && is.null(names(provenance)))) {
+    cli::cli_abort(
+      "{.arg provenance} must be a named list (an empty list is allowed)."
+    )
+  }
   samples <- extract_vitals_samples(task)
   missing_cols <- setdiff(c(id_col, score_col), names(samples))
   if (length(missing_cols) > 0L) {
     cli::cli_abort("Vitals samples are missing: {.field {missing_cols}}.")
+  }
+  # Human labels are joined onto the samples under `human_col`, so an existing
+  # column of that name (for example a vitals `target`) would be replaced
+  # silently and the audit would compare the judge against the wrong labels.
+  if (human_col %in% names(samples)) {
+    cli::cli_abort(paste0(
+      "Vitals samples already contain a {.field {human_col}} column; ",
+      "choose a {.arg human_col} that is not present in the samples."
+    ))
   }
   if (anyNA(samples[[id_col]])) {
     cli::cli_abort("Vitals sample IDs must be non-missing.")
@@ -72,15 +87,12 @@ audit_vitals <- function(task,
     labels <- human_labels
   }
 
-  judge_labels <- samples[[score_col]]
-  judge_col <- ".yourhonor_judge_label"
+  # The vitals score column *is* the judge-label column. Reusing its name keeps
+  # `cal$judge_col`, `cal$items`, and the JSON provenance free of internal
+  # sentinel names; `score_col != human_col` is already guaranteed above.
   check_labels_nonblank(as.character(labels), "human_labels")
-  check_labels_nonblank(as.character(judge_labels), "score_col")
+  check_labels_nonblank(as.character(samples[[score_col]]), "score_col")
   samples[[human_col]] <- labels
-  samples[[judge_col]] <- judge_labels
-  if (!is.list(provenance) || (length(provenance) > 0L && is.null(names(provenance)))) {
-    cli::cli_abort("{.arg provenance} must be a named list (an empty list is allowed).")
-  }
   adapter_provenance <- utils::modifyList(
     provenance,
     list(source = "vitals", score_col = score_col)
@@ -90,7 +102,7 @@ audit_vitals <- function(task,
     judge = NULL,
     id_col = id_col,
     human_cols = human_col,
-    judge_col = judge_col,
+    judge_col = score_col,
     provenance = adapter_provenance,
     ...
   )
@@ -112,7 +124,9 @@ audit_vitals <- function(task,
 #'   `target`, and `result`). Values must be invariant within item ID; otherwise
 #'   epochs measure changing evaluation outcomes, not judge test-retest
 #'   reliability. Identifier, epoch, and score columns are not content columns.
-#' @param label_levels Optional complete label universe.
+#' @param label_levels Optional complete label universe. When `NULL` and
+#'   `score_col` is a factor, its levels are used so declared-but-unobserved
+#'   labels still count toward chance agreement.
 #' @param weights Agreement weights passed to Gwet's coefficient.
 #' @param conf_level Bootstrap confidence level.
 #' @param n_boot Number of item-bootstrap resamples.
@@ -169,6 +183,11 @@ stability_vitals <- function(task,
   if (length(missing_cols) > 0L) {
     cli::cli_abort("Vitals samples are missing: {.field {missing_cols}}.")
   }
+  # The rating matrix below is character, so factor levels would be lost
+  # before `resolve_label_levels()` could infer the label universe from them.
+  if (is.null(label_levels) && is.factor(samples[[score_col]])) {
+    label_levels <- levels(samples[[score_col]])
+  }
   key <- samples[c(id_col, epoch_col)]
   if (anyNA(key)) {
     cli::cli_abort("Vitals item and epoch identifiers must be non-missing.")
@@ -215,14 +234,23 @@ stability_vitals <- function(task,
 
 extract_vitals_samples <- function(task) {
   if (is.data.frame(task)) {
-    tibble::as_tibble(task)
-  } else if (!is.null(task$get_samples) && is.function(task$get_samples)) {
-    tibble::as_tibble(task$get_samples())
-  } else {
-    cli::cli_abort(
-      "{.arg task} must be a samples data frame or expose a callable {.fn get_samples}."
-    )
+    return(tibble::as_tibble(task))
   }
+  # `$` on an atomic vector is an R error, not a validation failure, so only
+  # look for the method on objects that can carry one (R6 tasks are
+  # environments).
+  get_samples <- if (is.list(task) || is.environment(task)) task$get_samples
+  if (!is.function(get_samples)) {
+    cli::cli_abort(paste0(
+      "{.arg task} must be a samples data frame or expose a callable ",
+      "{.fn get_samples}."
+    ))
+  }
+  samples <- get_samples()
+  if (!is.data.frame(samples)) {
+    cli::cli_abort("{.fn get_samples} must return a samples data frame.")
+  }
+  tibble::as_tibble(samples)
 }
 
 #' Write a portable judge audit artifact
@@ -232,31 +260,64 @@ extract_vitals_samples <- function(task) {
 #' aggregate evidence, policy checks, and provenance.
 #'
 #' @param x A `yourhonor_calibration` object.
-#' @param path Output path.
+#' @param path Output file path. An existing file is never replaced unless
+#'   `overwrite = TRUE`, so a re-run cannot silently clobber an earlier audit.
 #' @param bias Optional bias evidence.
 #' @param stability Optional stability evidence.
 #' @param policy Optional acceptance policy.
 #' @param format `"json"` or `"md"`.
+#' @param overwrite Replace an existing file at `path`? Defaults to `FALSE`.
 #' @return `path`, invisibly.
 #' @section Privacy:
 #' Calibration item rows are omitted from JSON. Caller-supplied `provenance` is
 #' serialized verbatim, however, so do not place secrets or raw item content in
 #' provenance fields.
+#' @section JSON schema (`yourhonor.audit.v1`):
+#' The JSON artifact is written at full numeric precision (no rounding), and
+#' every absent value is `null`: an `NA` and an R `NULL` are indistinguishable
+#' to a reader, but neither ever appears as `{}` or is dropped. Fields that are
+#' vectors by contract are always JSON arrays, even when they hold one value.
+#' Top-level members:
+#' * `schema_version`: `"yourhonor.audit.v1"`.
+#' * `created_at`: UTC timestamp in RFC 3339 form, e.g.
+#'   `"2026-01-31T12:00:00Z"`.
+#' * `decision`: the overall assessment (`PASS`, `FAIL`, `INDETERMINATE`,
+#'   or `NOT_ASSESSED`).
+#' * `audit_id`: string or `null`.
+#' * `policy`: `null`, or an object with one member per
+#'   [acceptance_policy()] argument. `required_probes` is an array;
+#'   `min_recall` and `min_precision` are a number when global or an object
+#'   keyed by class name when class-specific; unset thresholds are `null`.
+#' * `checks`: array of objects with `check`, `status`, `value`, `threshold`,
+#'   and `reason`, one per policy check.
+#' * `calibration`: `n_input`, `n_items`, `n_excluded`, `n_consensus_ties`,
+#'   `scale`, `weights`, `conf_level`, `n_boot`, `seed` (scalars);
+#'   `label_levels` and `coefficients` (arrays); `agreement`,
+#'   `confusion_metrics`, and `human_reliability` (arrays of row objects
+#'   mirroring the tibble columns, `human_reliability` `null` for a single
+#'   rater).
+#' * `bias`: `null`, or `audit_id` plus `results`, an array of row objects
+#'   with the columns of the bias tibble.
+#' * `stability`: `null`, or the scalar summary fields of a
+#'   `yourhonor_stability` object (`n_items`, `n_items_scored`, `n_runs`,
+#'   `pairwise_disagreement*`, `gwet_*`, `missing_rate`, `*_ci_reliable`),
+#'   `label_levels` (array), and `provenance`.
+#' * `provenance`: the calibration provenance; adapter fields `input_cols`,
+#'   `human_cols`, and `label_levels` are arrays.
 #' @export
 write_audit <- function(x,
                         path,
                         bias = NULL,
                         stability = NULL,
                         policy = NULL,
-                        format = c("json", "md")) {
+                        format = c("json", "md"),
+                        overwrite = FALSE) {
   if (!inherits(x, "yourhonor_calibration")) {
     cli::cli_abort("{.arg x} must be a {.cls yourhonor_calibration} object.")
   }
   validate_report_evidence(x, bias, stability)
   format <- rlang::arg_match(format)
-  if (length(path) != 1L || is.na(path) || !nzchar(path)) {
-    cli::cli_abort("{.arg path} must be one non-empty path.")
-  }
+  path <- check_audit_path(path, overwrite)
   if (format == "md") {
     md <- report(x, bias = bias, stability = stability, policy = policy, output = "md")
     writeLines(as.character(md), path, useBytes = TRUE)
@@ -273,59 +334,140 @@ write_audit <- function(x,
   assessment <- assess_calibration(x, bias, stability, policy)
   payload <- list(
     schema_version = "yourhonor.audit.v1",
-    created_at = format(Sys.time(), tz = "UTC", usetz = TRUE),
+    created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
     decision = assessment$decision,
     audit_id = x$audit_id,
-    policy = if (is.null(policy)) NULL else unclass(policy),
+    policy = json_policy(policy),
     checks = as.data.frame(assessment$checks),
-    calibration = list(
-      n_input = x$n_input,
-      n_items = x$n_items,
-      n_excluded = x$n_excluded,
-      n_consensus_ties = x$n_consensus_ties,
-      label_levels = x$label_levels,
-      scale = x$scale,
-      weights = x$weights,
-      conf_level = x$conf_level,
-      n_boot = x$n_boot,
-      seed = x$seed,
-      coefficients = x$coefficients,
-      agreement = as.data.frame(x$agreement),
-      confusion_metrics = as.data.frame(x$confusion_metrics),
-      human_reliability = if (is.null(x$human_reliability)) NULL else
-        as.data.frame(x$human_reliability)
-    ),
-    bias = if (is.null(bias)) NULL else list(
-      audit_id = evidence_audit_id(bias),
-      results = as.data.frame(bias)
-    ),
-    stability = if (is.null(stability)) NULL else list(
-      audit_id = stability$audit_id,
-      n_items = stability$n_items,
-      n_items_scored = stability$n_items_scored,
-      n_runs = stability$n_runs,
-      label_levels = stability$label_levels,
-      weights = stability$weights,
-      conf_level = stability$conf_level,
-      n_boot = stability$n_boot,
-      pairwise_n_boot_effective = stability$pairwise_n_boot_effective,
-      stability_n_boot_effective = stability$stability_n_boot_effective,
-      pairwise_disagreement = stability$pairwise_disagreement,
-      pairwise_disagreement_conf_low = stability$pairwise_disagreement_conf_low,
-      pairwise_disagreement_conf_high = stability$pairwise_disagreement_conf_high,
-      gwet_agreement = stability$stability,
-      gwet_coefficient = stability$stability_coefficient,
-      gwet_conf_low = stability$stability_conf_low,
-      gwet_conf_high = stability$stability_conf_high,
-      gwet_status = stability$stability_status,
-      gwet_boundary_degenerate = stability$stability_boundary_degenerate,
-      missing_rate = stability$missing_rate,
-      pairwise_ci_reliable = stability$pairwise_ci_reliable,
-      stability_ci_reliable = stability$stability_ci_reliable,
-      provenance = stability$provenance
-    ),
-    provenance = x$provenance
+    calibration = json_calibration(x),
+    bias = json_bias(bias),
+    stability = json_stability(stability),
+    provenance = json_provenance(x$provenance)
   )
-  jsonlite::write_json(payload, path, auto_unbox = TRUE, pretty = TRUE, na = "null")
+  # The JSON file is the only precise artifact (the Markdown report rounds to
+  # two decimals), so numbers are written at full precision and an R NULL is
+  # spelled `null` like an NA rather than jsonlite's default `{}`.
+  jsonlite::write_json(
+    payload, path,
+    auto_unbox = TRUE, pretty = TRUE, digits = NA, na = "null", null = "null"
+  )
   invisible(path)
+}
+
+check_audit_path <- function(path, overwrite) {
+  if (!is.character(path) || length(path) != 1L || is.na(path) ||
+      !nzchar(path)) {
+    cli::cli_abort("{.arg path} must be one non-empty file path.")
+  }
+  if (!rlang::is_bool(overwrite)) {
+    cli::cli_abort("{.arg overwrite} must be TRUE or FALSE.")
+  }
+  if (file.exists(path) && !overwrite) {
+    cli::cli_abort(paste0(
+      "{.path {path}} already exists; set {.code overwrite = TRUE} ",
+      "to replace it."
+    ))
+  }
+  path
+}
+
+# `auto_unbox = TRUE` turns every length-one vector into a JSON scalar, so a
+# reader could not tell "one coefficient" from "a coefficient". Fields that
+# are vectors by contract are wrapped so they always serialize as arrays.
+json_array <- function(x) {
+  if (is.null(x)) return(NULL)
+  I(x)
+}
+
+# A class-specific threshold keeps its names only as a list; `unclass()` alone
+# yields a bare numeric array whose positions mean nothing to a reader.
+json_threshold <- function(x) {
+  if (is.null(names(x))) return(x)
+  as.list(x)
+}
+
+json_policy <- function(policy) {
+  if (is.null(policy)) return(NULL)
+  fields <- unclass(policy)
+  # `lapply()` keeps NULL-valued members, whereas `fields[[name]] <- NULL`
+  # would delete them and the artifact would no longer list every threshold.
+  lapply(rlang::set_names(names(fields)), function(field) {
+    value <- fields[[field]]
+    switch(
+      field,
+      required_probes = json_array(value),
+      min_recall = ,
+      min_precision = json_threshold(value),
+      value
+    )
+  })
+}
+
+json_calibration <- function(x) {
+  list(
+    n_input = x$n_input,
+    n_items = x$n_items,
+    n_excluded = x$n_excluded,
+    n_consensus_ties = x$n_consensus_ties,
+    label_levels = json_array(x$label_levels),
+    scale = x$scale,
+    weights = x$weights,
+    conf_level = x$conf_level,
+    n_boot = x$n_boot,
+    seed = x$seed,
+    coefficients = json_array(x$coefficients),
+    agreement = as.data.frame(x$agreement),
+    confusion_metrics = as.data.frame(x$confusion_metrics),
+    human_reliability = if (is.null(x$human_reliability)) NULL else
+      as.data.frame(x$human_reliability)
+  )
+}
+
+json_bias <- function(bias) {
+  if (is.null(bias)) return(NULL)
+  list(
+    audit_id = evidence_audit_id(bias),
+    results = as.data.frame(bias)
+  )
+}
+
+json_stability <- function(stability) {
+  if (is.null(stability)) return(NULL)
+  list(
+    audit_id = evidence_audit_id(stability),
+    n_items = stability$n_items,
+    n_items_scored = stability$n_items_scored,
+    n_runs = stability$n_runs,
+    label_levels = json_array(stability$label_levels),
+    weights = stability$weights,
+    conf_level = stability$conf_level,
+    n_boot = stability$n_boot,
+    pairwise_n_boot_effective = stability$pairwise_n_boot_effective,
+    stability_n_boot_effective = stability$stability_n_boot_effective,
+    pairwise_disagreement = stability$pairwise_disagreement,
+    pairwise_disagreement_conf_low = stability$pairwise_disagreement_conf_low,
+    pairwise_disagreement_conf_high = stability$pairwise_disagreement_conf_high,
+    gwet_agreement = stability$stability,
+    gwet_coefficient = stability$stability_coefficient,
+    gwet_conf_low = stability$stability_conf_low,
+    gwet_conf_high = stability$stability_conf_high,
+    gwet_status = stability$stability_status,
+    gwet_boundary_degenerate = stability$stability_boundary_degenerate,
+    missing_rate = stability$missing_rate,
+    pairwise_ci_reliable = stability$pairwise_ci_reliable,
+    stability_ci_reliable = stability$stability_ci_reliable,
+    provenance = json_provenance(stability$provenance)
+  )
+}
+
+# Only the adapter-written provenance fields are known to be vectors; caller
+# supplied provenance is serialized verbatim, as documented.
+json_provenance <- function(provenance) {
+  if (is.null(provenance)) return(NULL)
+  array_fields <- c("input_cols", "human_cols", "label_levels", "content_cols")
+  for (field in intersect(array_fields, names(provenance))) {
+    # `[<-` with a list keeps a NULL member; `[[<-` NULL would delete it.
+    provenance[field] <- list(json_array(provenance[[field]]))
+  }
+  provenance
 }
