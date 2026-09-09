@@ -81,19 +81,21 @@ acceptance_policy <- function(min_agreement_lower,
   rlang::check_required(max_missing_rate)
   rlang::check_required(max_pairwise_disagreement)
   coefficient <- rlang::arg_match(coefficient)
-  conf_level <- check_probability(conf_level, open = TRUE)
+  # Every validation error below carries `policy_error`, so a caller can
+  # catch a malformed policy as one condition class.
+  conf_level <- check_probability(conf_level, open = TRUE, class = policy_error)
   min_agreement_lower <- check_numeric_threshold(min_agreement_lower)
-  min_n <- check_count(min_n, minimum = 2L)
-  min_class_n <- check_count(min_class_n)
+  min_n <- check_count(min_n, minimum = 2L, class = policy_error)
+  min_class_n <- check_count(min_class_n, class = policy_error)
   min_recall <- check_metric_threshold(min_recall)
-  max_missing_rate <- check_probability(max_missing_rate)
+  max_missing_rate <- check_probability(max_missing_rate, class = policy_error)
   min_precision <- check_optional(min_precision, check_metric_threshold)
   min_human_reliability_lower <- check_optional(
     min_human_reliability_lower, check_numeric_threshold
   )
 
   max_pairwise_disagreement <- check_optional(
-    max_pairwise_disagreement, check_probability
+    max_pairwise_disagreement, check_probability, class = policy_error
   )
   check_dependent_thresholds(
     list(
@@ -103,14 +105,17 @@ acceptance_policy <- function(min_agreement_lower,
     ),
     gate_on = !is.null(max_pairwise_disagreement),
     gate = "max_pairwise_disagreement",
-    gate_state = "is not NULL"
+    gate_on_state = "is not NULL",
+    gate_off_state = "is NULL"
   )
-  min_stability_n <- check_optional(min_stability_n, check_count)
+  min_stability_n <- check_optional(
+    min_stability_n, check_count, class = policy_error
+  )
   min_stability_runs <- check_optional(
-    min_stability_runs, check_count, minimum = 2L
+    min_stability_runs, check_count, minimum = 2L, class = policy_error
   )
   max_stability_missing_rate <- check_optional(
-    max_stability_missing_rate, check_probability
+    max_stability_missing_rate, check_probability, class = policy_error
   )
 
   required_probes <- check_required_probes(required_probes)
@@ -123,15 +128,18 @@ acceptance_policy <- function(min_agreement_lower,
     ),
     gate_on = length(required_probes) > 0L,
     gate = "required_probes",
-    gate_state = "is non-empty"
+    gate_on_state = "is non-empty",
+    gate_off_state = "is empty"
   )
-  min_probe_n <- check_optional(min_probe_n, check_count)
-  max_probe_flip_rate <- check_optional(max_probe_flip_rate, check_probability)
+  min_probe_n <- check_optional(min_probe_n, check_count, class = policy_error)
+  max_probe_flip_rate <- check_optional(
+    max_probe_flip_rate, check_probability, class = policy_error
+  )
   max_probe_directional_rate <- check_optional(
-    max_probe_directional_rate, check_probability
+    max_probe_directional_rate, check_probability, class = policy_error
   )
   max_probe_missing_rate <- check_optional(
-    max_probe_missing_rate, check_probability
+    max_probe_missing_rate, check_probability, class = policy_error
   )
 
   structure(
@@ -163,13 +171,16 @@ acceptance_policy <- function(min_agreement_lower,
 # probe implementations cannot drift apart silently.
 bias_probe_names <- c("verbosity", "self_preference", "bandwagon", "position")
 
+# Condition class shared by every error acceptance_policy() raises.
+policy_error <- "yourhonor_policy_error"
+
 check_required_probes <- function(x,
                                   arg = rlang::caller_arg(x),
                                   call = rlang::caller_env()) {
   if (!is.character(x) || anyNA(x) || any(!nzchar(x))) {
     cli::cli_abort(
       "{.arg {arg}} must be a character vector of probe names.",
-      class = "yourhonor_policy_error", call = call
+      class = policy_error, call = call
     )
   }
   unknown <- setdiff(x, bias_probe_names)
@@ -179,7 +190,7 @@ check_required_probes <- function(x,
         "Unknown {.arg {arg}}: {.val {unknown}}.",
         i = "Known probes: {.val {bias_probe_names}}."
       ),
-      class = "yourhonor_policy_error", call = call
+      class = policy_error, call = call
     )
   }
   if (anyDuplicated(x)) {
@@ -188,7 +199,7 @@ check_required_probes <- function(x,
         "{.arg {arg}} must not repeat a probe: ",
         "{.val {unique(x[duplicated(x)])}}."
       ),
-      class = "yourhonor_policy_error", call = call
+      class = policy_error, call = call
     )
   }
   x
@@ -212,7 +223,8 @@ check_optional <- function(x,
 check_dependent_thresholds <- function(thresholds,
                                        gate_on,
                                        gate,
-                                       gate_state,
+                                       gate_on_state,
+                                       gate_off_state,
                                        call = rlang::caller_env()) {
   supplied <- !vapply(thresholds, is.null, logical(1))
   args <- names(thresholds)
@@ -220,22 +232,31 @@ check_dependent_thresholds <- function(thresholds,
     cli::cli_abort(
       paste0(
         "{.arg {args[!supplied]}} {?is/are} required when ",
-        "{.arg {gate}} {gate_state}."
+        "{.arg {gate}} {gate_on_state}."
       ),
-      class = "yourhonor_policy_error", call = call
+      class = policy_error, call = call
     )
   }
   if (!gate_on && any(supplied)) {
+    # `qty()` restores the count after `{gate}` (length one) has reset cli's
+    # pluralisation quantity.
     cli::cli_abort(
       c(
         paste0(
           "{.arg {args[supplied]}} {?was/were} supplied but ",
-          "{.arg {gate}} {gate_state} only when that gate is in the policy."
+          "{.arg {gate}} {gate_off_state}."
         ),
-        i = "A threshold behind an inactive gate is never assessed.",
-        i = "Either drop {?it/them} or supply {.arg {gate}}."
+        i = paste0(
+          "{cli::qty(sum(supplied))}{?This threshold is/These thresholds ",
+          "are} read only when {.arg {gate}} {gate_on_state}; a threshold ",
+          "behind an inactive gate is never assessed."
+        ),
+        i = paste0(
+          "Either drop {cli::qty(sum(supplied))}{?it/them} or supply ",
+          "{.arg {gate}}."
+        )
       ),
-      class = "yourhonor_policy_error", call = call
+      class = policy_error, call = call
     )
   }
   invisible(NULL)
@@ -244,11 +265,11 @@ check_dependent_thresholds <- function(thresholds,
 check_numeric_threshold <- function(x,
                                     arg = rlang::caller_arg(x),
                                     call = rlang::caller_env()) {
-  if (length(x) != 1L || is.na(x) || !is.numeric(x) || !is.finite(x) ||
+  if (!is.numeric(x) || length(x) != 1L || is.na(x) || !is.finite(x) ||
       x < -1 || x > 1) {
     cli::cli_abort(
       "{.arg {arg}} must be one finite number between -1 and 1.",
-      call = call
+      class = policy_error, call = call
     )
   }
   as.numeric(x)
@@ -267,7 +288,7 @@ check_metric_threshold <- function(x,
         "{.arg {arg}} must be a scalar or fully named numeric vector ",
         "between 0 and 1."
       ),
-      call = call
+      class = policy_error, call = call
     )
   }
   x
@@ -277,7 +298,10 @@ check_metric_threshold <- function(x,
 
 # Every check row carries the comparison it encodes (`op` and a numeric
 # `threshold`) next to the observed `value`, so renderers and the JSON
-# artifact can show a failure's magnitude without parsing prose.
+# artifact can show a failure's magnitude without parsing prose. `value` is
+# always the quantity `op` compares (a count, a rate, or the interval bound
+# named by `op`) and is `NA` whenever that quantity is unavailable or not
+# trusted, so a rendered line never shows a number the check did not use.
 assess_calibration <- function(x, bias, stability, policy) {
   if (is.null(policy)) {
     return(list(
@@ -292,10 +316,13 @@ assess_calibration <- function(x, bias, stability, policy) {
   if (!inherits(policy, "yourhonor_policy")) {
     cli::cli_abort("{.arg policy} must come from {.fn acceptance_policy}.")
   }
+  # Interval checks are only meaningful at the policy's confidence level;
+  # counts and rates do not depend on it and are assessed regardless.
+  level_ok <- same_confidence_level(x$conf_level, policy$conf_level)
   rows <- c(
-    calibration_checks(x, policy),
-    human_reliability_checks(x, policy),
-    class_metric_checks(x, policy),
+    calibration_checks(x, policy, level_ok),
+    human_reliability_checks(x, policy, level_ok),
+    class_metric_checks(x, policy, level_ok),
     probe_checks(x, bias, policy),
     stability_checks(x, stability, policy)
   )
@@ -303,7 +330,12 @@ assess_calibration <- function(x, bias, stability, policy) {
   list(decision = overall_assessment(checks$status), checks = checks)
 }
 
-calibration_checks <- function(x, policy) {
+level_mismatch_reason <- paste(
+  "Calibration confidence level does not match the policy;",
+  "the interval was not assessed."
+)
+
+calibration_checks <- function(x, policy, level_ok) {
   rows <- list(
     compare_min_count("usable_items", x$n_items, policy$min_n),
     confidence_level_check(
@@ -313,29 +345,18 @@ calibration_checks <- function(x, policy) {
       "calibration_missing_rate", x$n_excluded / x$n_input,
       policy$max_missing_rate,
       "Too many rows lacked a usable judge-consensus pair."
+    ),
+    coefficient_interval_check(
+      paste0("agreement_", policy$coefficient), x$agreement,
+      policy$coefficient, policy$min_agreement_lower, level_ok,
+      absent = "Required coefficient was not computed.",
+      what = "Agreement"
     )
   )
-  check <- paste0("agreement_", policy$coefficient)
-  threshold <- policy$min_agreement_lower
-  ag <- x$agreement[x$agreement$coefficient == policy$coefficient, , drop = FALSE]
-  agreement_row <- if (nrow(ag) == 0L) {
-    assessment_row(
-      check, "NOT_ASSESSED", NA_real_, "lower >=", threshold,
-      "Required coefficient was not computed."
-    )
-  } else if (ag$status[[1]] != "ok" || !isTRUE(ag$ci_reliable[[1]]) ||
-             !is.finite(ag$conf_low[[1]]) || !is.finite(ag$conf_high[[1]])) {
-    assessment_row(
-      check, "INDETERMINATE", ag$estimate[[1]], "lower >=", threshold,
-      paste("Agreement evidence is not reliable:", ag$status[[1]])
-    )
-  } else {
-    interval_min_check(check, ag$conf_low[[1]], ag$conf_high[[1]], threshold)
-  }
-  c(rows, list(agreement_row))
+  rows
 }
 
-human_reliability_checks <- function(x, policy) {
+human_reliability_checks <- function(x, policy, level_ok) {
   threshold <- policy$min_human_reliability_lower
   if (is.null(threshold)) return(list())
   coefficient <- if (identical(x$weights, "unweighted")) {
@@ -343,29 +364,89 @@ human_reliability_checks <- function(x, policy) {
   } else {
     "gwet_ac2"
   }
-  hr <- x$human_reliability
-  row <- if (is.null(hr)) NULL else
-    hr[hr$coefficient == coefficient, , drop = FALSE]
-  check <- "human_reliability"
-  if (is.null(row) || nrow(row) == 0L) {
-    return(list(assessment_row(
-      check, "NOT_ASSESSED", NA_real_, "lower >=", threshold,
-      "The policy requires multiple-human reliability evidence."
-    )))
-  }
-  if (row$status[[1]] != "ok" || !isTRUE(row$ci_reliable[[1]])) {
-    return(list(assessment_row(
-      check, "INDETERMINATE", row$estimate[[1]], "lower >=", threshold,
-      "Human-reliability evidence is unavailable or unreliable."
-    )))
-  }
-  list(interval_min_check(
-    check, row$conf_low[[1]], row$conf_high[[1]], threshold
+  list(coefficient_interval_check(
+    "human_reliability", x$human_reliability, coefficient, threshold,
+    level_ok,
+    absent = "The policy requires multiple-human reliability evidence.",
+    what = "Human-reliability"
   ))
 }
 
-class_metric_checks <- function(x, policy) {
+# One `lower >=` check on a coefficient row of an agreement table. The row
+# must exist exactly once and carry a trusted interval at the policy's
+# confidence level before its lower bound is compared.
+coefficient_interval_check <- function(check,
+                                       table,
+                                       coefficient,
+                                       threshold,
+                                       level_ok,
+                                       absent,
+                                       what) {
+  op <- "lower >="
+  row <- if (is.null(table)) {
+    NULL
+  } else {
+    table[table$coefficient == coefficient, , drop = FALSE]
+  }
+  if (is.null(row) || nrow(row) == 0L) {
+    return(assessment_row(
+      check, "NOT_ASSESSED", NA_real_, op, threshold, absent
+    ))
+  }
+  if (nrow(row) > 1L) {
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_, op, threshold,
+      paste0("Multiple rows were supplied for coefficient ", coefficient, ".")
+    ))
+  }
+  if (!level_ok) {
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_, op, threshold, level_mismatch_reason
+    ))
+  }
+  unreliable <- interval_unreliable_reason(row, what)
+  if (!is.null(unreliable)) {
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_, op, threshold, unreliable
+    ))
+  }
+  interval_min_check(check, row$conf_low[[1]], row$conf_high[[1]], threshold)
+}
+
+# NULL when an agreement row's interval can be compared with a threshold;
+# otherwise the specific reason it cannot, so the reader learns the cause
+# rather than an echo of `status = "ok"`.
+interval_unreliable_reason <- function(row, what) {
+  status <- row$status[[1]]
+  if (!identical(status, "ok")) {
+    return(paste0(what, " is not estimable: ", status, "."))
+  }
+  if (isTRUE(row$boundary_degenerate[[1]])) {
+    return(paste0(
+      what, " bootstrap interval is degenerate at the boundary and is not ",
+      "trusted."
+    ))
+  }
+  if (!isTRUE(row$ci_reliable[[1]])) {
+    return(paste0(
+      what, " bootstrap interval is unreliable: too few finite resamples."
+    ))
+  }
+  if (!is.finite(row$conf_low[[1]]) || !is.finite(row$conf_high[[1]])) {
+    return(paste0(what, " interval is unavailable."))
+  }
+  NULL
+}
+
+class_metric_checks <- function(x, policy, level_ok) {
   metrics <- x$confusion_metrics
+  if (is.null(metrics) || nrow(metrics) == 0L) {
+    # `min()` over no support would be `Inf` and read as a pass.
+    return(list(assessment_row(
+      "class_support", "NOT_ASSESSED", NA_real_, ">=", policy$min_class_n,
+      "No per-class metrics are available."
+    )))
+  }
   weak_support <- metrics$label[metrics$support < policy$min_class_n]
   support_row <- if (length(weak_support) > 0L) {
     assessment_row(
@@ -384,20 +465,24 @@ class_metric_checks <- function(x, policy) {
   }
   rows <- list(
     support_row,
-    class_interval_checks(metrics, policy$min_recall, "recall")
+    class_interval_checks(metrics, policy$min_recall, "recall", level_ok)
   )
   if (!is.null(policy$min_precision)) {
-    rows <- c(rows, list(
-      class_interval_checks(metrics, policy$min_precision, "precision")
-    ))
+    rows <- c(rows, list(class_interval_checks(
+      metrics, policy$min_precision, "precision", level_ok
+    )))
   }
   rows
 }
 
 # One required probe yields up to four checks: `bias_<probe>` (flip-rate
 # interval), `bias_<probe>_direction`, `bias_<probe>_missing_rate`, and
-# `bias_<probe>_n`. Prerequisite failures are reported under `bias_<probe>`
-# with the flip-rate threshold so the check name keeps one meaning.
+# `bias_<probe>_n`. The missingness, status, and sample-size gates are
+# prerequisites for the two interval checks: when one stops the assessment
+# the outcome is reported under `bias_<probe>` with the flip-rate threshold
+# so that check name keeps one meaning. A probe at another confidence level
+# reports `bias_<probe>_confidence_level` in place of the interval checks
+# while its rate and count checks are still assessed.
 probe_checks <- function(x, bias, policy) {
   unlist(
     lapply(policy$required_probes, function(probe) {
@@ -431,12 +516,6 @@ single_probe_checks <- function(probe, x, bias, policy) {
       "Multiple rows were supplied for the required bias probe."
     ))
   }
-  if (!same_confidence_level(row$conf_level[[1]], policy$conf_level)) {
-    return(list(confidence_level_check(
-      paste0(check, "_confidence_level"), row$conf_level[[1]],
-      policy$conf_level
-    )))
-  }
   rows <- list(compare_max_value(
     paste0(check, "_missing_rate"), row$missing_rate[[1]],
     policy$max_probe_missing_rate,
@@ -448,10 +527,28 @@ single_probe_checks <- function(probe, x, bias, policy) {
       paste0("Bias probe did not yield usable evidence: ", row$status[[1]], ".")
     )))
   }
+  n_row <- compare_min_count(
+    paste0(check, "_n"), row$n_scored[[1]], policy$min_probe_n
+  )
+  rows <- c(rows, list(n_row))
+  if (!same_confidence_level(row$conf_level[[1]], policy$conf_level)) {
+    return(c(rows, list(confidence_level_check(
+      paste0(check, "_confidence_level"), row$conf_level[[1]],
+      policy$conf_level
+    ))))
+  }
+  if (!identical(n_row$status, "PASS")) {
+    # `min_probe_n` is the policy author's floor on what counts as evidence,
+    # so a smaller probe cannot fail (or pass) the interval gates.
+    return(c(rows, prerequisite(
+      "INDETERMINATE",
+      paste(
+        "Sample size is below the declared minimum;",
+        "the flip-rate interval was not assessed."
+      )
+    )))
+  }
   c(rows, list(
-    compare_min_count(
-      paste0(check, "_n"), row$n_scored[[1]], policy$min_probe_n
-    ),
     interval_max_check(
       paste0(check, "_direction"),
       row$directional_conf_low[[1]], row$directional_conf_high[[1]],
@@ -490,8 +587,8 @@ stability_checks <- function(x, stability, policy) {
              !is.finite(stability$pairwise_disagreement_conf_low) ||
              !is.finite(stability$pairwise_disagreement_conf_high)) {
     assessment_row(
-      check, "INDETERMINATE", stability$pairwise_disagreement, "upper <=",
-      threshold, "Stability interval is unavailable or unreliable."
+      check, "INDETERMINATE", NA_real_, "upper <=", threshold,
+      "Stability interval is unavailable or unreliable."
     )
   } else {
     interval_max_check(
@@ -578,11 +675,21 @@ assessment_row <- function(check, status, value, op, threshold, reason) {
   tibble::tibble(
     check = check,
     status = status,
-    value = as.numeric(value),
+    value = scalar_number(value),
     op = as.character(op),
-    threshold = as.numeric(threshold),
+    threshold = scalar_number(threshold),
     reason = reason
   )
+}
+
+# A NULL or NA measurement is one missing number, never a zero-length column
+# that would silently drop the whole row from the checks table.
+scalar_number <- function(x) {
+  if (is.null(x) || length(x) == 0L) return(NA_real_)
+  if (length(x) != 1L) {
+    cli::cli_abort("Internal error: a check value must be a single number.")
+  }
+  as.numeric(x)
 }
 
 compare_min_count <- function(check, value, threshold) {
@@ -606,12 +713,20 @@ compare_max_value <- function(check, value, threshold, fail_reason) {
   }
 }
 
+# NULL when `[low, high]` is a usable interval; otherwise why it is not. A
+# reversed interval is malformed evidence, not a narrow one.
+interval_unusable_reason <- function(low, high) {
+  if (!is.finite(low) || !is.finite(high)) return("Interval is unavailable.")
+  if (low > high) return("Interval bounds are reversed.")
+  NULL
+}
+
 interval_min_check <- function(check, low, high, threshold) {
   op <- "lower >="
-  if (!is.finite(low) || !is.finite(high)) {
+  unusable <- interval_unusable_reason(low, high)
+  if (!is.null(unusable)) {
     return(assessment_row(
-      check, "INDETERMINATE", NA_real_, op, threshold,
-      "Interval is unavailable."
+      check, "INDETERMINATE", NA_real_, op, threshold, unusable
     ))
   }
   if (low >= threshold) {
@@ -632,10 +747,10 @@ interval_min_check <- function(check, low, high, threshold) {
 
 interval_max_check <- function(check, low, high, threshold) {
   op <- "upper <="
-  if (!is.finite(low) || !is.finite(high)) {
+  unusable <- interval_unusable_reason(low, high)
+  if (!is.null(unusable)) {
     return(assessment_row(
-      check, "INDETERMINATE", NA_real_, op, threshold,
-      "Interval is unavailable."
+      check, "INDETERMINATE", NA_real_, op, threshold, unusable
     ))
   }
   if (high <= threshold) {
@@ -654,7 +769,7 @@ interval_max_check <- function(check, low, high, threshold) {
   }
 }
 
-class_interval_checks <- function(metrics, threshold, metric) {
+class_interval_checks <- function(metrics, threshold, metric, level_ok) {
   labels <- metrics$label
   if (length(threshold) == 1L && is.null(names(threshold))) {
     thresholds <- rep(threshold, length(labels))
@@ -662,21 +777,27 @@ class_interval_checks <- function(metrics, threshold, metric) {
   } else {
     thresholds <- threshold
   }
+  op <- "lower >="
   rows <- lapply(names(thresholds), function(label) {
     i <- match(label, labels)
     check <- paste0(metric, "_", label)
     bound <- thresholds[[label]]
     if (is.na(i)) {
       return(assessment_row(
-        check, "NOT_ASSESSED", NA_real_, "lower >=", bound,
+        check, "NOT_ASSESSED", NA_real_, op, bound,
         "Policy names a class absent from the calibration label universe."
+      ))
+    }
+    if (!level_ok) {
+      return(assessment_row(
+        check, "INDETERMINATE", NA_real_, op, bound, level_mismatch_reason
       ))
     }
     low <- metrics[[paste0(metric, "_conf_low")]][[i]]
     high <- metrics[[paste0(metric, "_conf_high")]][[i]]
     if (!is.finite(low) || !is.finite(high)) {
       return(assessment_row(
-        check, "INDETERMINATE", metrics[[metric]][[i]], "lower >=", bound,
+        check, "INDETERMINATE", NA_real_, op, bound,
         "Class interval is undefined."
       ))
     }

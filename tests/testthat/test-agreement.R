@@ -341,3 +341,119 @@ test_that("factor levels are unioned with labels observed in character columns",
   expect_true(all(ag$status == "ok"))
   expect_equal(ag$n_items, rep(4L, nrow(ag)))
 })
+
+test_that("unknown observed labels are named from every entry point", {
+  ratings <- data.frame(
+    human = c("A", "B", "A", "B"), judge = c("A", "C", "D", "B")
+  )
+  expect_error(
+    agreement(ratings, label_levels = c("A", "B"), n_boot = 10),
+    'Observed labels not present in `label_levels`: "C" and "D"',
+    fixed = TRUE
+  )
+  expect_error(
+    confusion(ratings, label_levels = c("A", "B", "C")),
+    'Observed label not present in `label_levels`: "D"',
+    fixed = TRUE
+  )
+  gold <- data.frame(
+    human_label = c("A", "B", "A", "C"), judge_label = c("A", "B", "A", "B")
+  )
+  expect_error(
+    calibrate_judge(gold, label_levels = c("A", "B"), n_boot = 10),
+    'Observed label not present in `label_levels`: "C"',
+    fixed = TRUE
+  )
+  expect_error(
+    summarize_stability_runs(
+      as.matrix(ratings), label_levels = c("A", "B"), n_boot = 10
+    ),
+    "Observed labels not present"
+  )
+})
+
+test_that("label universe minimums are stated per entry point", {
+  ratings <- data.frame(human = c("A", "B"), judge = c("A", "B"))
+  expect_error(
+    agreement(ratings, label_levels = character(0), n_boot = 10),
+    "at least 1 unique, non-missing label\\."
+  )
+  gold <- data.frame(human_label = c("A", "B"), judge_label = c("A", "B"))
+  expect_error(
+    calibrate_judge(gold, label_levels = "A", n_boot = 10),
+    "at least 2 unique, non-missing labels\\."
+  )
+})
+
+test_that("absent explicit columns are pluralised", {
+  ratings <- data.frame(human = "A", judge = "B")
+  expect_error(
+    agreement(ratings, rater_cols = c("human", "x", "y")),
+    "names columns not in `x`: x and y"
+  )
+  expect_error(
+    agreement(ratings, rater_cols = c("human", "x")),
+    "names column not in `x`: x"
+  )
+})
+
+test_that("duplicated column names are rejected before selection", {
+  ratings <- data.frame(c("A", "B"), c("A", "B"), c("B", "B"))
+  names(ratings) <- c("human", "judge", "human")
+  expect_error(
+    agreement(ratings, rater_cols = c("human", "judge"), n_boot = 10),
+    "duplicated column name: human"
+  )
+  expect_error(agreement(ratings, n_boot = 10), "duplicated column name")
+})
+
+test_that("inherited coefficients follow an overridden weights argument", {
+  gold <- data.frame(
+    human = c("I", "P", "C", "C", "P", "I", "C", "C", "P", "I", "C", "P"),
+    judge = c("I", "P", "C", "P", "P", "I", "C", "C", "C", "I", "C", "P")
+  )
+  ordinal <- calibrate_judge(
+    gold, judge_col = "judge", human_cols = "human",
+    label_levels = c("I", "P", "C"), scale = "ordinal", n_boot = 30, seed = 1
+  )
+  nominal <- calibrate_judge(
+    gold, judge_col = "judge", human_cols = "human",
+    label_levels = c("I", "P", "C"), n_boot = 30, seed = 1
+  )
+  expect_identical(
+    agreement(ordinal, weights = "unweighted")$coefficient,
+    c("cohen_kappa", "krippendorff_alpha", "gwet_ac1")
+  )
+  expect_identical(
+    agreement(nominal, weights = "linear")$coefficient,
+    c("cohen_kappa", "krippendorff_alpha", "gwet_ac2")
+  )
+  # An explicit request is still validated against the inherited weights.
+  expect_error(
+    agreement(ordinal, coefficients = "gwet_ac1"), "AC2, not AC1.*weights"
+  )
+  expect_error(
+    agreement(nominal, coefficients = "gwet_ac2"), "Set `weights`"
+  )
+})
+
+test_that("count and probability validators reject odd numeric input cleanly", {
+  expect_error(check_count(3e9), "whole number")
+  expect_error(check_count(-3e9), "whole number")
+  expect_error(check_count(1 + 0i), "whole number")
+  expect_error(check_count(list(1)), "whole number")
+  expect_error(check_probability(1i), "between 0 and 1")
+  expect_error(check_probability(list(0.5)), "between 0 and 1")
+  expect_identical(check_count(2), 2L)
+})
+
+test_that("no bootstrap is drawn when nothing is estimable", {
+  ratings <- data.frame(human = rep("C", 6), judge = rep("C", 6))
+  set.seed(4)
+  before <- runif(1)
+  set.seed(4)
+  out <- agreement(ratings, n_boot = 50)
+  after <- runif(1)
+  expect_true(all(out$status == "insufficient_variation"))
+  expect_identical(before, after)
+})

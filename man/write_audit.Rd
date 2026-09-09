@@ -47,11 +47,12 @@ provenance fields.
 
 \section{JSON schema (\code{yourhonor.audit.v1})}{
 
-The JSON artifact is written at full numeric precision (no rounding), and
-every absent value is \code{null}: an \code{NA} and an R \code{NULL} are indistinguishable
-to a reader, but neither ever appears as \code{{}} or is dropped. Fields that are
-vectors by contract are always JSON arrays, even when they hold one value.
-Top-level members:
+The JSON artifact is written at full numeric precision: doubles carry 17
+significant digits, so every value round-trips exactly (a reader may see
+\code{0.94999999999999996} for \code{0.95}). Every absent value is \code{null}: an \code{NA}
+and an R \code{NULL} are indistinguishable to a reader, but neither ever appears
+as \code{{}} or is dropped. Fields that are vectors by contract are always JSON
+arrays, even when they hold one value. Top-level members:
 \itemize{
 \item \code{schema_version}: \code{"yourhonor.audit.v1"}.
 \item \code{created_at}: UTC timestamp in RFC 3339 form, e.g.
@@ -80,8 +81,11 @@ with the columns of the bias tibble.
 \code{yourhonor_stability} object (\code{n_items}, \code{n_items_scored}, \code{n_runs},
 \verb{pairwise_disagreement*}, \verb{gwet_*}, \code{missing_rate}, \verb{*_ci_reliable}),
 \code{label_levels} (array), and \code{provenance}.
-\item \code{provenance}: the calibration provenance; adapter fields \code{input_cols},
-\code{human_cols}, and \code{label_levels} are arrays.
+\item \code{provenance}: the calibration provenance. The keys \code{input_cols},
+\code{human_cols}, \code{label_levels}, and \code{content_cols} are always arrays, even
+when they were supplied by the caller and hold one value; \code{created_at}
+is RFC 3339 UTC like the top-level field, and adapter fields left \code{NULL}
+(\code{id_col}, \code{audit_id}) are present as \code{null}.
 }
 }
 

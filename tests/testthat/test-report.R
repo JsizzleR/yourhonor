@@ -876,3 +876,218 @@ test_that("dependent threshold values are validated under their gate", {
     "max_probe_flip_rate"
   )
 })
+
+test_that("a rendered value never equals the threshold it failed", {
+  checks <- vctrs::vec_rbind(
+    assessment_row(
+      "calibration_missing_rate", "FAIL", 0.1004975, "<=", 0.1, "x"
+    ),
+    assessment_row("agreement_gwet_ac1", "FAIL", 0.8996, "lower >=", 0.9, "y"),
+    assessment_row("usable_items", "PASS", 300, ">=", 50, "z"),
+    assessment_row("bias_verbosity", "PASS", 0.3, "upper <=", 0.3, "w")
+  )
+  md <- format_check_lines(checks, style = "md")
+  expect_match(md[[1]], "= 0.1005 \\(<= 0.1\\)")
+  expect_match(md[[2]], "= 0.8996 \\(lower >= 0.9\\)")
+  expect_match(md[[3]], "= 300 \\(>= 50\\)")
+  expect_match(md[[4]], "= 0.3 \\(upper <= 0.3\\)")
+  console <- format_check_lines(checks, style = "console")
+  expect_match(
+    console[[1]], "FAIL: calibration_missing_rate = 0.1005 \\(<= 0.1\\)"
+  )
+})
+
+test_that("an untrusted interval reports NA and its cause, not the estimate", {
+  labels <- rep(c("I", "P", "C"), each = 100)
+  cal <- calibrate_judge(
+    tibble::tibble(human_label = labels, judge_label = labels),
+    label_levels = c("I", "P", "C"), coefficients = "gwet_ac1",
+    n_boot = 50, seed = 1
+  )
+  rep <- report(cal, policy = make_policy(), output = "md")
+  row <- rep$checks[rep$checks$check == "agreement_gwet_ac1", ]
+  expect_identical(row$status, "INDETERMINATE")
+  expect_true(is.na(row$value))
+  expect_match(row$reason, "degenerate at the boundary")
+  expect_false(grepl("not reliable: ok", row$reason, fixed = TRUE))
+  expect_match(
+    paste(format(rep), collapse = "\n"),
+    "`agreement_gwet_ac1` = NA \\(lower >= 0.9\\)"
+  )
+})
+
+test_that("an undersized required probe is a prerequisite failure", {
+  bias <- probe_bias(
+    tibble::tibble(input = paste("answer", 1:3)), length_judge,
+    probes = "verbosity", seed = 1, audit_id = "test-bundle"
+  )
+  expect_identical(bias$flip_rate, 1)
+  rep <- report(
+    make_cal(), bias = bias,
+    policy = make_policy(required_probes = "verbosity"), output = "md"
+  )
+  expect_identical(rep$decision, "INDETERMINATE")
+  expect_identical(check_status(rep, "bias_verbosity_n"), "INDETERMINATE")
+  row <- rep$checks[rep$checks$check == "bias_verbosity", ]
+  expect_identical(row$status, "INDETERMINATE")
+  expect_true(is.na(row$value))
+  expect_match(row$reason, "below the declared minimum.*not assessed")
+  expect_false("bias_verbosity_direction" %in% rep$checks$check)
+  expect_false(any(rep$checks$status == "FAIL"))
+})
+
+test_that("a probe at another confidence level keeps rate and count checks", {
+  bias <- probe_bias(
+    tibble::tibble(input = paste("answer", 1:60)), flat_judge,
+    probes = "verbosity", seed = 1, conf_level = 0.9,
+    audit_id = "test-bundle"
+  )
+  rep <- report(
+    make_cal(), bias = bias,
+    policy = make_policy(required_probes = "verbosity"), output = "md"
+  )
+  expect_identical(check_status(rep, "bias_verbosity_missing_rate"), "PASS")
+  expect_identical(check_status(rep, "bias_verbosity_n"), "PASS")
+  expect_identical(
+    check_status(rep, "bias_verbosity_confidence_level"), "INDETERMINATE"
+  )
+  expect_false("bias_verbosity" %in% rep$checks$check)
+  expect_false("bias_verbosity_direction" %in% rep$checks$check)
+})
+
+test_that("a calibration at another confidence level withholds intervals", {
+  base <- rep(c("I", "P", "C"), each = 100)
+  cal <- calibrate_judge(
+    tibble::tibble(h1 = base, h2 = base, h3 = base, judge_label = base),
+    human_cols = c("h1", "h2", "h3"), label_levels = c("I", "P", "C"),
+    coefficients = "gwet_ac1", n_boot = 100, seed = 1, conf_level = 0.9,
+    audit_id = "test-bundle"
+  )
+  rep <- report(
+    cal,
+    policy = make_policy(
+      min_human_reliability_lower = 0.9, min_precision = 0.5
+    ),
+    output = "md"
+  )
+  expect_identical(rep$decision, "INDETERMINATE")
+  interval_checks <- c(
+    "agreement_gwet_ac1", "human_reliability", "recall_I", "recall_P",
+    "recall_C", "precision_I", "precision_P", "precision_C"
+  )
+  rows <- rep$checks[rep$checks$check %in% interval_checks, ]
+  expect_identical(nrow(rows), length(interval_checks))
+  expect_true(all(rows$status == "INDETERMINATE"))
+  expect_true(all(is.na(rows$value)))
+  expect_true(all(grepl("confidence level does not match", rows$reason)))
+  expect_identical(check_status(rep, "usable_items"), "PASS")
+  expect_identical(check_status(rep, "calibration_missing_rate"), "PASS")
+  expect_identical(check_status(rep, "class_support"), "PASS")
+  expect_false(any(rep$checks$status == "FAIL"))
+})
+
+test_that("malformed evidence tables are indeterminate or not assessed", {
+  cal <- make_cal()
+  doubled <- cal
+  doubled$agreement <- vctrs::vec_rbind(cal$agreement, cal$agreement)
+  rep <- report(doubled, policy = make_policy(), output = "md")
+  row <- rep$checks[rep$checks$check == "agreement_gwet_ac1", ]
+  expect_identical(row$status, "INDETERMINATE")
+  expect_match(row$reason, "Multiple rows")
+
+  empty <- cal
+  empty$confusion_metrics <- cal$confusion_metrics[0, ]
+  rep <- report(empty, policy = make_policy(), output = "md")
+  expect_identical(check_status(rep, "class_support"), "NOT_ASSESSED")
+  expect_identical(rep$decision, "NOT_ASSESSED")
+  expect_false(any(startsWith(rep$checks$check, "recall_")))
+
+  reversed <- interval_min_check("x", 0.9, 0.5, 0.8)
+  expect_identical(reversed$status, "INDETERMINATE")
+  expect_match(reversed$reason, "reversed")
+  expect_true(is.na(reversed$value))
+  expect_match(
+    interval_max_check("x", 0.9, 0.5, 0.8)$reason, "reversed"
+  )
+})
+
+test_that("assessment rows are always one row with scalar numbers", {
+  row <- assessment_row("x", "INDETERMINATE", NULL, ">=", 1, "r")
+  expect_identical(nrow(row), 1L)
+  expect_true(is.na(row$value))
+  row <- assessment_row("x", "INDETERMINATE", NA, ">=", NULL, "r")
+  expect_true(is.na(row$threshold))
+  expect_error(assessment_row("x", "PASS", c(1, 2), ">=", 1, "r"), "single")
+})
+
+test_that("console reports list every class and the usable item count", {
+  gold <- tibble::tibble(
+    human_label = c(rep("C", 90), rep("I", 10)),
+    judge_label = c(rep("C", 90), rep("C", 6), rep("I", 4))
+  )
+  cal <- calibrate_judge(
+    gold, label_levels = c("I", "C"), coefficients = "gwet_ac1",
+    n_boot = 50, seed = 1
+  )
+  out <- paste(format(report(cal), output = "console"), collapse = "\n")
+  expect_match(out, "Judge evidence: n = 100 of 100")
+  expect_match(out, "\"I\": support 10, precision 1.00, recall 0.40")
+  expect_match(out, "\"C\": support 90, precision 0.94, recall 1.00")
+  expect_false(grepl("Worst class", out))
+})
+
+test_that("an inconclusive probe outside the policy is mentioned", {
+  judge <- function(d) ifelse(grepl("reviewers", d$input), NA, "C")
+  bias <- make_bias(judge, probes = c("verbosity", "bandwagon"))
+  expect_identical(bias$verdict[bias$probe == "bandwagon"], "INCONCLUSIVE")
+  rep <- report(
+    make_cal(), bias = bias,
+    policy = make_policy(required_probes = "verbosity"), output = "md"
+  )
+  md <- paste(format(rep), collapse = "\n")
+  expect_match(md, "Required bias probes cleared the declared policy gates")
+  expect_match(md, "Outside the policy, bandwagon was INCONCLUSIVE")
+})
+
+test_that("orphan thresholds are rejected with a readable sentence", {
+  expect_error(
+    acceptance_policy(.8, 50, 10, .8, 0, NULL, min_stability_n = 10),
+    "`min_stability_n` was supplied but `max_pairwise_disagreement` is NULL\\.",
+    class = "yourhonor_policy_error"
+  )
+  expect_error(
+    acceptance_policy(
+      .8, 50, 10, .8, 0, NULL, min_probe_n = 10, max_probe_flip_rate = 0.1
+    ),
+    "were supplied but `required_probes` is empty\\.",
+    class = "yourhonor_policy_error"
+  )
+  expect_error(
+    acceptance_policy(.8, 50, 10, .8, 0, NULL, min_probe_n = 10),
+    "This threshold is read only when `required_probes` is non-empty"
+  )
+})
+
+test_that("every acceptance_policy() validation error is classed", {
+  bad <- list(
+    quote(acceptance_policy(5, 50, 10, .8, 0, NULL)),
+    quote(acceptance_policy(.8, 1, 10, .8, 0, NULL)),
+    quote(acceptance_policy(.8, 50, 0, .8, 0, NULL)),
+    quote(acceptance_policy(.8, 50, 10, 2, 0, NULL)),
+    quote(acceptance_policy(.8, 50, 10, .8, 2, NULL)),
+    quote(acceptance_policy(.8, 50, 10, .8, 0, 2)),
+    quote(acceptance_policy(.8, 50, 10, .8, 0, NULL, min_precision = 2)),
+    quote(acceptance_policy(
+      .8, 50, 10, .8, 0, NULL, min_human_reliability_lower = 3
+    )),
+    quote(acceptance_policy(.8, 50, 10, .8, 0, NULL, conf_level = 1)),
+    quote(acceptance_policy(.8, 50, 10, .8, 0, NULL, required_probes = "x")),
+    quote(acceptance_policy(
+      .8, 50, 10, .8, 0, 0.1, min_stability_n = 0, min_stability_runs = 3,
+      max_stability_missing_rate = 0
+    ))
+  )
+  for (call in bad) {
+    expect_error(eval(call), class = "yourhonor_policy_error")
+  }
+})

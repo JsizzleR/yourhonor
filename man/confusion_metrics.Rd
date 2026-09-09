@@ -10,9 +10,13 @@ confusion_metrics(x, label_levels = NULL, human_col = NULL, judge_col = NULL)
 \item{x}{A \code{yourhonor_calibration} object, a confusion tibble returned by
 \code{\link[=confusion]{confusion()}}, or a ratings data frame.}
 
-\item{label_levels}{Optional complete label universe in display order.}
+\item{label_levels}{Optional complete label universe in display order. For
+a calibration object or a confusion tibble it must contain every label
+observed there; the stored per-class rows are returned in that order,
+with zero-support rows for labels not seen.}
 
-\item{human_col, judge_col}{Passed to \code{\link[=confusion]{confusion()}} for a ratings data frame.}
+\item{human_col, judge_col}{Passed to \code{\link[=confusion]{confusion()}} for a ratings data frame.
+Cannot be combined with a calibration object or a confusion tibble.}
 }
 \value{
 A tibble with one row per label.

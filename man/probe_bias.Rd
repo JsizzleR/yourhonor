@@ -65,9 +65,12 @@ contribute no entries. \code{"no_signal"} means the probe did not detect
 directional bias; it is not proof that the judge is unbiased.
 }
 \description{
-Grades length-matched control/treatment pairs in one randomized batch and
-measures directional label movement. Position bias is intentionally handled
-by \code{\link[=probe_position]{probe_position()}}, which uses structured candidates and stable identities.
+Grades each item under a control and a perturbed treatment condition in one
+randomized batch and measures directional label movement. The verbosity
+probe deliberately lengthens the treatment; the self-preference and
+bandwagon probes change only a framing prefix. Position bias is
+intentionally handled by \code{\link[=probe_position]{probe_position()}}, which uses structured
+candidates and stable identities.
 }
 \section{Result columns}{
 

@@ -172,3 +172,59 @@ User-visible changes made while addressing the pre-release code review.
   `min_precision` are objects keyed by class, `created_at` is RFC 3339 UTC
   (`2026-01-31T12:00:00Z`), and `checks` carries `value`, `op`, and
   `threshold`. The schema is documented in `?write_audit`.
+
+### Second review pass
+
+* Validation messages that name unknown labels (`agreement()`, `confusion()`,
+  `calibrate_judge()`, `test_retest()`, `stability_vitals()`) render again
+  instead of failing inside cli; absent explicit columns are pluralised, and
+  the label-universe minimum names the actual count (one for agreement and
+  confusion, two for calibration).
+* Printed check lines raise their precision until the value and threshold
+  differ, so a `FAIL` at `0.1005` against `0.1` no longer reads
+  `= 0.1 (<= 0.1)`. `checks$value` is always the quantity `op` compares and
+  is `NA` when the interval is untrusted; the reason then names the cause
+  (a boundary-degenerate bootstrap, too few finite resamples, an unavailable
+  or reversed interval) rather than echoing `status = "ok"`.
+* A required probe smaller than `min_probe_n` is again `INDETERMINATE` under
+  `bias_<probe>` with its interval unassessed, rather than a possible `FAIL`.
+  A probe or calibration at another confidence level withholds only its
+  interval checks (`bias_<probe>_missing_rate` and `_n`, `usable_items`,
+  `calibration_missing_rate`, and `class_support` are still assessed). A
+  duplicated coefficient row or an empty class-metrics table is reported as
+  `INDETERMINATE` or `NOT_ASSESSED` instead of being read silently.
+* `acceptance_policy()` rejects an orphan threshold with a readable sentence,
+  and every validation error it raises carries class
+  `yourhonor_policy_error`.
+* The console report prints every class line and the `n of N` judge-evidence
+  line that the Markdown report already had, and a non-required probe whose
+  verdict is `INCONCLUSIVE` is mentioned in the bias summary.
+* `agreement(<calibration>, weights = ...)` re-resolves the inherited
+  coefficients under the new weights instead of treating the stored Gwet
+  variant as an explicit, conflicting request. `confusion()` and
+  `confusion_metrics()` reject `human_col`/`judge_col` on a calibration
+  object as `agreement()` rejects `rater_cols`; `confusion_metrics()` applies
+  `label_levels` to a calibration's or confusion tibble's stored metrics;
+  frames with duplicated column names are refused; the positional-inference
+  hint names both selectors; and errors from `confusion_metrics()` name it.
+* The bootstrap draws one resample per iteration, shared by every requested
+  coefficient, instead of materialising an `n x n_boot` index matrix, and
+  draws nothing when no coefficient is estimable.
+* `combine_bias()` carries over only evidence for probes present in each
+  constituent's rows, so stale evidence left by row-subsetting cannot shadow
+  a newer run, and names given to `...` no longer prefix the evidence names.
+  `probe_position()` reserves `.judge_item_id`, `display_choice`, and
+  `canonical_choice`; `probe_bias()` validates `id_col` on the full data
+  before sampling.
+* Structured judge output returning a `.judge_item_id` column is rejected,
+  and `judge_output$label` is always character. `test_retest()` unions a
+  judge's factor levels with every label observed across runs, and an unused
+  blank factor level is dropped from inferred levels (`test_retest()`,
+  `stability_vitals()`). `stability_vitals()` documents that level inference
+  applies to unweighted runs only.
+* `write_audit()` writes doubles with 17 significant digits so they round-trip
+  exactly, refuses a directory as `path`, and the calibration provenance uses
+  the same RFC 3339 `created_at` as the top level with `NULL` adapter fields
+  (`id_col`, `audit_id`) present as `null`. `provenance` must have unique,
+  non-blank names. Any task whose `$get_samples` is callable is accepted by
+  the vitals adapters.

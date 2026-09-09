@@ -73,9 +73,10 @@
 #'     (the shuffled key the judge saw; `NA` when `judge = NULL`), the judge
 #'     label, `agree`, and for several raters `human_consensus`,
 #'     `n_human_observed`, and `consensus_tie`.
-#'   * `judge_output`: the judge's own returned rows in the order it saw them,
-#'     keyed by `.judge_item_id` with `.item_id` joined in; `NULL` when
-#'     `judge = NULL`.
+#'   * `judge_output`: the judge's own returned rows, in the order returned
+#'     by the judge, keyed by `.judge_item_id` with `.item_id` joined in and
+#'     `label` as character; `NULL` when `judge = NULL`. The judge must not
+#'     return a `.judge_item_id` column of its own.
 #'   * `blinding_map`: one row per item mapping `.judge_item_id` to
 #'     `.item_id`; `NULL` when `judge = NULL`.
 #'
@@ -235,20 +236,21 @@ calibrate_judge <- function(gold,
   items$agree <- ifelse(complete, ratings_full$human == ratings_full$judge, NA)
   items <- tibble::as_tibble(items)
 
-  provenance <- utils::modifyList(
-    provenance,
-    list(
-      created_at = format(Sys.time(), tz = "UTC", usetz = TRUE),
-      input_cols = if (is.null(judge)) character(0) else input_cols,
-      id_col = id_col,
-      judge_col = judge_col,
-      human_cols = human_cols,
-      label_levels = label_levels,
-      scale = scale,
-      weights = weights,
-      audit_id = audit_id
-    )
+  # `[<-` with a list keeps NULL members (`modifyList()` would delete them),
+  # so an absent `id_col` or `audit_id` is written to the artifact as `null`
+  # rather than vanishing from the provenance object.
+  adapter_fields <- list(
+    created_at = utc_timestamp(),
+    input_cols = if (is.null(judge)) character(0) else input_cols,
+    id_col = id_col,
+    judge_col = judge_col,
+    human_cols = human_cols,
+    label_levels = label_levels,
+    scale = scale,
+    weights = weights,
+    audit_id = audit_id
   )
+  provenance[names(adapter_fields)] <- adapter_fields
 
   structure(
     list(
@@ -358,8 +360,19 @@ calibration_blinding_map <- function(blinding_map, item_id) {
 
 # The judge's rows carry the key it saw as `.item_id`; rename it so the table
 # can be joined to `items` without confusing the two key spaces.
-judge_output_table <- function(visible_output, blinding_map) {
+judge_output_table <- function(visible_output,
+                               blinding_map,
+                               call = rlang::caller_env()) {
   if (is.null(visible_output)) return(NULL)
+  if (".judge_item_id" %in% names(visible_output)) {
+    cli::cli_abort(
+      paste0(
+        "Structured judge output must not contain the reserved column ",
+        "{.field .judge_item_id}; the judge's key column is {.field .item_id}."
+      ),
+      call = call
+    )
+  }
   out <- visible_output
   names(out)[names(out) == ".item_id"] <- ".judge_item_id"
   out$.item_id <- blinding_map$.item_id[
@@ -389,9 +402,7 @@ grade_calibration <- function(judge,
     labels <- validate_labels(
       gold[[judge_col]], label_levels, arg = judge_col, call = call
     )
-    return(list(
-      label = labels, output = NULL, visible_output = NULL, blinding_map = NULL
-    ))
+    return(list(label = labels, visible_output = NULL, blinding_map = NULL))
   }
   if (!is.function(judge)) {
     cli::cli_abort(
@@ -499,7 +510,6 @@ grade_blind <- function(judge,
   list(
     label = restored,
     label_levels = graded$label_levels,
-    output = tibble::tibble(.item_id = seq_len(nrow(data)), label = restored),
     visible_output = graded$output,
     blinding_map = tibble::tibble(
       .item_id = seq_len(nrow(data)), .source_row = permutation
@@ -593,6 +603,10 @@ grade_keyed <- function(judge,
       )
     }
     labels <- output$label[index]
+    # The visible table is what `judge_output` exposes; its label is stored
+    # as character so it matches the calibration items whatever the judge
+    # returned.
+    output$label <- as.character(output$label)
   } else {
     if (length(out) != nrow(data)) {
       cli::cli_abort(
@@ -612,7 +626,7 @@ grade_keyed <- function(judge,
   # declared-but-unobserved labels toward chance agreement, as
   # `stability_vitals()` does for a factor score column.
   inferred_levels <- if (is.null(label_levels) && is.factor(labels)) {
-    levels(labels)
+    inferred_factor_levels(labels)
   } else {
     NULL
   }
@@ -624,4 +638,13 @@ grade_keyed <- function(judge,
     )
   }
   list(label = labels, output = output, label_levels = inferred_levels)
+}
+
+# Levels a factor declares, minus blank ones. An unused blank level is not a
+# label (resolve_label_levels() drops it the same way for factor columns) and
+# must not reach a validator that would name an argument the caller never
+# supplied.
+inferred_factor_levels <- function(x) {
+  levels <- levels(x)
+  levels[!is_blank_label(levels)]
 }

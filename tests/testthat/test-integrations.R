@@ -254,7 +254,7 @@ test_that("audit_vitals validates samples, labels, and provenance", {
       vitals_samples(), human_labels = vitals_samples()$score,
       provenance = list("unnamed")
     ),
-    "named list"
+    "unique, non-empty names"
   )
   expect_error(
     audit_vitals(vitals_samples(), human_labels = tibble::tibble(id = 1)),
@@ -478,5 +478,88 @@ test_that("write_audit() validates path and refuses to overwrite by default", {
   )
   expect_match(
     paste(readLines(path, warn = FALSE), collapse = "\n"), "Judge evidence"
+  )
+})
+
+test_that("write_audit() refuses a directory path", {
+  cal <- bundled_cal()
+  dir <- withr::local_tempdir()
+  expect_error(write_audit(cal, dir), "is a directory")
+  expect_error(write_audit(cal, dir, overwrite = TRUE), "is a directory")
+})
+
+test_that("any object with a callable get_samples() is a task", {
+  setClass("yourhonorFakeTask", representation(n = "numeric"))
+  setMethod("$", "yourhonorFakeTask", function(x, name) {
+    if (name == "get_samples") vitals_samples else NULL
+  })
+  cal <- audit_vitals(
+    new("yourhonorFakeTask", n = 1),
+    human_labels = c("I", "P", "C", "C", "I", "I"),
+    label_levels = c("I", "P", "C"), coefficients = "gwet_ac1",
+    n_boot = 20, seed = 1
+  )
+  expect_s3_class(cal, "yourhonor_calibration")
+  expect_error(audit_vitals(42, human_labels = rep("C", 6)), "get_samples")
+  expect_error(
+    audit_vitals(NULL, human_labels = rep("C", 6)), "get_samples"
+  )
+})
+
+test_that("JSON numbers round-trip exactly and provenance keeps its shape", {
+  cal <- audit_vitals(
+    vitals_samples(),
+    human_labels = c("I", "P", "C", "C", "I", "I"),
+    label_levels = c("I", "P", "C"), coefficients = "gwet_ac1",
+    n_boot = 50, seed = 1, audit_id = "bundle-a",
+    provenance = list(temperature = 0.1 + 0.2, content_cols = "input")
+  )
+  bias <- probe_bias(
+    tibble::tibble(input = paste("answer", 1:30)),
+    function(d) ifelse(nchar(d$input) > 40, "C", "P"),
+    probes = "verbosity", seed = 1, audit_id = "bundle-a"
+  )
+  path <- withr::local_tempfile(fileext = ".json")
+  write_audit(cal, path, bias = bias, format = "json")
+  parsed <- jsonlite::fromJSON(path)
+  expect_identical(parsed$bias$results$p_value, bias$p_value)
+  expect_identical(parsed$provenance$temperature, 0.1 + 0.2)
+  expect_identical(parsed$calibration$conf_level, 0.95)
+  expect_identical(
+    parsed$calibration$agreement$conf_low, cal$agreement$conf_low
+  )
+  json_text <- paste(readLines(path, warn = FALSE), collapse = "\n")
+  # Caller-supplied vector-by-contract keys are arrays too.
+  expect_match(json_text, '"content_cols": ["input"]', fixed = TRUE)
+  expect_match(json_text, '"id_col": "id"', fixed = TRUE)
+  expect_identical(parsed$provenance$created_at, cal$provenance$created_at)
+  expect_match(
+    parsed$provenance$created_at,
+    "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+  )
+
+  unbundled <- bundled_cal(audit_id = NULL)
+  path <- withr::local_tempfile(fileext = ".json")
+  write_audit(unbundled, path, format = "json")
+  parsed <- jsonlite::fromJSON(path)
+  expect_true("audit_id" %in% names(parsed$provenance))
+  expect_null(parsed$provenance$audit_id)
+})
+
+test_that("vitals stability drops a blank unused factor level", {
+  samples <- vitals_samples()[rep(seq_len(6), each = 2), ]
+  samples$epoch <- rep(1:2, times = 6)
+  samples$score <- factor(
+    rep(vitals_samples()$score, each = 2), levels = c("I", "P", "C", " ")
+  )
+  st <- stability_vitals(
+    samples, content_cols = "input", n_boot = 20, seed = 1
+  )
+  expect_identical(st$label_levels, c("I", "P", "C"))
+  expect_error(
+    stability_vitals(
+      samples, content_cols = "input", weights = "ordinal", n_boot = 20
+    ),
+    "required for weighted stability"
   )
 })

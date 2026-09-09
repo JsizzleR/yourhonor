@@ -169,3 +169,91 @@ test_that("plot_confusion keeps the declared label order on both axes", {
   p_cal <- plot_confusion(cal)
   expect_identical(levels(p_cal$data$judge_label), c("I", "P", "C"))
 })
+
+test_that("explicit columns cannot be combined with a calibration", {
+  gold <- tibble::tibble(
+    human_label = c("C", "C", "P", "I", "C", "P", "I", "C"),
+    judge_label = c("C", "C", "C", "I", "C", "P", "P", "C")
+  )
+  cal <- calibrate_judge(
+    gold, label_levels = c("I", "P", "C"), n_boot = 20, seed = 1
+  )
+  expect_error(
+    confusion(cal, human_col = "zzz", judge_col = "yyy"),
+    "cannot be combined with a calibration"
+  )
+  expect_error(
+    confusion(cal, human_col = "human_label"),
+    "cannot be combined with a calibration"
+  )
+  expect_error(
+    confusion_metrics(cal, judge_col = "judge_label"),
+    "cannot be combined with a calibration"
+  )
+  expect_error(
+    confusion_metrics(confusion(cal), human_col = "a", judge_col = "b"),
+    "cannot be combined with a calibration"
+  )
+})
+
+test_that("confusion_metrics errors name confusion_metrics()", {
+  err <- rlang::catch_cnd(
+    confusion_metrics(data.frame(a = 1, b = 2, c = 3)), "error"
+  )
+  expect_identical(rlang::call_name(err$call), "confusion_metrics")
+  err <- rlang::catch_cnd(
+    suppressMessages(
+      confusion_metrics(data.frame(a = "x", b = "y"), label_levels = "x")
+    ),
+    "error"
+  )
+  expect_identical(rlang::call_name(err$call), "confusion_metrics")
+})
+
+test_that("positional inference asks for both selectors", {
+  expect_message(
+    confusion(data.frame(a = c("x", "y"), b = c("x", "y"))),
+    "Set `human_col` and `judge_col` to choose explicitly",
+    class = "yourhonor_inferred_columns"
+  )
+})
+
+test_that("confusion_metrics applies label_levels to cached metrics", {
+  ratings <- data.frame(
+    human = c("C", "C", "P", "I", "C", "P", "I", "C"),
+    judge = c("C", "C", "C", "I", "C", "P", "P", "C")
+  )
+  conf <- confusion(ratings, label_levels = c("I", "P", "C"))
+  reordered <- confusion_metrics(conf, label_levels = c("C", "P", "I", "X"))
+  expect_identical(reordered$label, c("C", "P", "I", "X"))
+  base <- confusion_metrics(conf)
+  expect_identical(
+    reordered[1:3, ], base[match(c("C", "P", "I"), base$label), ]
+  )
+  expect_identical(reordered$support[[4]], 0L)
+  expect_identical(reordered$predicted[[4]], 0L)
+  expect_true(is.na(reordered$recall[[4]]))
+  expect_error(
+    confusion_metrics(conf, label_levels = c("C", "P")),
+    'Observed label not present in `label_levels`: "I"',
+    fixed = TRUE
+  )
+  cal <- calibrate_judge(
+    tibble::tibble(human_label = ratings$human, judge_label = ratings$judge),
+    label_levels = c("I", "P", "C"), n_boot = 20, seed = 1
+  )
+  expect_identical(
+    confusion_metrics(cal, label_levels = c("P", "I", "C"))$label,
+    c("P", "I", "C")
+  )
+})
+
+test_that("duplicated column names are rejected before selection", {
+  ratings <- data.frame(c("A", "B"), c("A", "B"))
+  names(ratings) <- c("human", "human")
+  expect_error(
+    confusion(ratings, human_col = "human", judge_col = "judge"),
+    "duplicated column name: human"
+  )
+  expect_error(confusion(ratings), "duplicated column name: human")
+})

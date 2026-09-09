@@ -532,3 +532,64 @@ test_that("sanitising judge input keeps classed columns intact", {
   )
   expect_equal(cal$n_items, 4)
 })
+
+test_that("provenance keeps NULL adapter fields and one timestamp format", {
+  gold <- make_gold()
+  cal <- calibrate_judge(
+    gold, label_levels = c("I", "P", "C"), n_boot = 20, seed = 1,
+    provenance = list(model = "m")
+  )
+  expect_true(all(c("id_col", "audit_id") %in% names(cal$provenance)))
+  expect_null(cal$provenance$id_col)
+  expect_null(cal$provenance$audit_id)
+  expect_identical(cal$provenance$model, "m")
+  expect_match(
+    cal$provenance$created_at, "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+  )
+  expect_error(
+    calibrate_judge(gold, n_boot = 20, provenance = list(a = 1, a = 2)),
+    "unique, non-empty names"
+  )
+  expect_error(
+    calibrate_judge(gold, n_boot = 20, provenance = list(a = 1, 2)),
+    "unique, non-empty names"
+  )
+  expect_error(
+    calibrate_judge(gold, n_boot = 20, provenance = list(" " = 1)),
+    "unique, non-empty names"
+  )
+})
+
+test_that("structured output is character and cannot carry the judge key", {
+  gold <- make_gold()
+  gold$judge_label <- NULL
+  factor_judge <- function(d) {
+    tibble::tibble(
+      .item_id = d$.item_id,
+      label = factor(rep(c("C", "P"), length.out = nrow(d)))
+    )
+  }
+  cal <- calibrate_judge(
+    gold, factor_judge, input_cols = "input", label_levels = c("I", "P", "C"),
+    n_boot = 20, seed = 1
+  )
+  expect_type(cal$judge_output$label, "character")
+  output <- cal$judge_output
+  joined <- output[match(cal$items$.item_id, output$.item_id), ]
+  expect_identical(joined$label, cal$items$judge_label)
+
+  colliding <- function(d) {
+    tibble::tibble(.item_id = d$.item_id, .judge_item_id = 0L, label = "C")
+  }
+  expect_error(
+    calibrate_judge(
+      gold, colliding, input_cols = "input", label_levels = c("I", "P", "C"),
+      n_boot = 20, seed = 1
+    ),
+    "reserved column .judge_item_id"
+  )
+  graded <- grade_blind(function(d) rep("C", nrow(d)), gold["input"], "C")
+  expect_named(
+    graded, c("label", "label_levels", "visible_output", "blinding_map")
+  )
+})

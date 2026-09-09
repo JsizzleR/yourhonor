@@ -78,9 +78,10 @@ Item-level elements:
 (the shuffled key the judge saw; \code{NA} when \code{judge = NULL}), the judge
 label, \code{agree}, and for several raters \code{human_consensus},
 \code{n_human_observed}, and \code{consensus_tie}.
-\item \code{judge_output}: the judge's own returned rows in the order it saw them,
-keyed by \code{.judge_item_id} with \code{.item_id} joined in; \code{NULL} when
-\code{judge = NULL}.
+\item \code{judge_output}: the judge's own returned rows, in the order returned
+by the judge, keyed by \code{.judge_item_id} with \code{.item_id} joined in and
+\code{label} as character; \code{NULL} when \code{judge = NULL}. The judge must not
+return a \code{.judge_item_id} column of its own.
 \item \code{blinding_map}: one row per item mapping \code{.judge_item_id} to
 \code{.item_id}; \code{NULL} when \code{judge = NULL}.
 }

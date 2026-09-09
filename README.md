@@ -134,8 +134,12 @@ policy <- acceptance_policy(
 # Missing required probes or stability are shown as NOT_ASSESSED.
 report(cal, policy = policy, output = "console")
 #> ── yourhonor assessment: NOT_ASSESSED ──────────────────────────────────────────
+#> Judge evidence: n = 8 of 8.
 #> Agreement evidence: gwet_ac2 = 0.81 [0.56, 1.00] (almost perfect).
-#> Worst class recall: "I" = 0.50 (support 2).
+#> Per-class evidence:
+#> • "I": support 2, precision 1.00, recall 0.50
+#> • "P": support 2, precision 0.50, recall 0.50
+#> • "C": support 4, precision 0.80, recall 1.00
 #> Bias probes: NOT ASSESSED.
 #> Test-retest stability: NOT ASSESSED.
 #> 
@@ -293,8 +297,8 @@ rows measure end-to-end evaluation variation, not judge test-retest stability.
 JSON artifacts omit `cal$items`, but caller-supplied provenance is written
 verbatim. Do not place secrets or raw item content in provenance fields. The
 `yourhonor.audit.v1` schema is documented in `?write_audit`: numbers are
-written at full precision, absent values are `null`, and vector fields are
-always arrays.
+written at full precision (17 significant digits, so every double round-trips
+exactly), absent values are `null`, and vector fields are always arrays.
 
 ## Working with raw rating frames
 
@@ -313,7 +317,7 @@ ratings <- data.frame(
 confusion(ratings, label_levels = c("I", "P", "C"))
 #> ℹ Using human and judge as the rating columns.
 #> ℹ Ignoring column: id.
-#>   Set `human_col` to choose explicitly.
+#>   Set `human_col` and `judge_col` to choose explicitly.
 #> # A tibble: 9 × 4
 #>   human_label judge_label     n  prop
 #>   <chr>       <chr>       <int> <dbl>

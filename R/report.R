@@ -96,8 +96,9 @@ render_console_report <- function(report) {
   head <- headline_row(x, policy)
 
   cli::cli_h1("yourhonor assessment: {report$decision}")
+  cli::cli_text("Judge evidence: n = {x$n_items} of {x$n_input}.")
   print_agreement_line(head)
-  print_class_line(x$confusion_metrics)
+  print_class_lines(x$confusion_metrics)
   reliability <- human_reliability_gwet(x)
   if (!is.null(reliability)) {
     cli::cli_text(
@@ -138,13 +139,11 @@ render_console_report <- function(report) {
 # the evidence sat from its gate; the policy-less placeholder has neither.
 format_check_lines <- function(checks, style = c("console", "md")) {
   style <- rlang::arg_match(style)
+  pair <- fmt_check_pair(checks$value, checks$threshold)
   measure <- ifelse(
     is.na(checks$op),
     "",
-    paste0(
-      " = ", fmt_check_number(checks$value), " (", checks$op, " ",
-      fmt_check_number(checks$threshold), ")"
-    )
+    paste0(" = ", pair$value, " (", checks$op, " ", pair$threshold, ")")
   )
   if (style == "md") {
     sprintf(
@@ -161,10 +160,26 @@ format_check_lines <- function(checks, style = c("console", "md")) {
 
 # Counts print as integers and rates keep three significant digits, so a
 # missing rate of 0.003 is not rendered as the "0.00" of a two-decimal format.
-fmt_check_number <- function(x) {
-  vapply(x, function(v) {
-    if (is.na(v)) "NA" else format(v, digits = 3)
-  }, character(1))
+# A value and threshold that differ must also render differently, otherwise
+# a FAIL at 0.1005 against 0.1 would read as "0.1 (<= 0.1)"; the precision is
+# raised for that pair until the two strings part.
+fmt_check_pair <- function(value, threshold) {
+  rendered <- vapply(seq_along(value), function(i) {
+    v <- value[[i]]
+    t <- threshold[[i]]
+    digits <- 3L
+    repeat {
+      out <- c(fmt_check_number(v, digits), fmt_check_number(t, digits))
+      distinct <- is.na(v) || is.na(t) || v == t || out[[1]] != out[[2]]
+      if (distinct || digits >= 15L) return(out)
+      digits <- digits + 1L
+    }
+  }, character(2))
+  list(value = rendered[1, ], threshold = rendered[2, ])
+}
+
+fmt_check_number <- function(x, digits = 3L) {
+  if (is.na(x)) "NA" else format(x, digits = digits)
 }
 
 headline_row <- function(x, policy = NULL) {
@@ -239,6 +254,19 @@ bias_summary <- function(bias, checks, policy) {
     summary <- paste0(
       summary, " Outside the policy, descriptive probe settings flagged ",
       paste(outside, collapse = ", "), "."
+    )
+  }
+  # An unscored probe outside the policy is not a gate outcome, but hiding
+  # it would let the summary imply the extra probe produced evidence.
+  unscored <- bias$probe[
+    !bias$probe %in% required & !is.na(bias$verdict) &
+      bias$verdict == "INCONCLUSIVE"
+  ]
+  if (length(unscored) > 0L) {
+    verb <- if (length(unscored) == 1L) "was" else "were"
+    summary <- paste0(
+      summary, " Outside the policy, ", paste(unscored, collapse = ", "),
+      " ", verb, " INCONCLUSIVE."
     )
   }
   summary
@@ -317,17 +345,23 @@ print_agreement_line <- function(head) {
   }
 }
 
-print_class_line <- function(metrics) {
-  valid <- is.finite(metrics$recall)
-  if (!any(valid)) {
-    cli::cli_text("Per-class recall: not estimable.")
+# The console shows the same per-class facts as the Markdown report, so a
+# rare class with poor recall is never hidden behind a single summary line.
+print_class_lines <- function(metrics) {
+  if (nrow(metrics) == 0L) {
+    cli::cli_text("Per-class evidence: not available.")
     return(invisible(NULL))
   }
-  worst <- metrics[which.min(replace(metrics$recall, !valid, Inf)), ]
-  cli::cli_text(
-    "Worst class recall: {.val {worst$label}} = {fmt_num(worst$recall)} ",
-    "(support {worst$support})."
-  )
+  cli::cli_text("Per-class evidence:")
+  cli::cli_ul()
+  for (i in seq_len(nrow(metrics))) {
+    row <- metrics[i, ]
+    cli::cli_li(paste0(
+      "{.val {row$label}}: support {row$support}, precision ",
+      "{fmt_num(row$precision)}, recall {fmt_num(row$recall)}"
+    ))
+  }
+  cli::cli_end()
   invisible(NULL)
 }
 

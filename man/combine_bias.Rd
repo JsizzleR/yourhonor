@@ -17,7 +17,9 @@ recomputed from the new \code{p_value_adj} with each row's own \code{alpha} and
 \value{
 One \code{yourhonor_bias} object with one row per unique probe. The
 \code{evidence} and \code{item_evidence} attributes are the constituents' lists,
-concatenated and still named by probe.
+concatenated and still named by probe. Only entries for probes present
+in a constituent's rows are carried over, so evidence left behind by
+row-subsetting a result cannot shadow a newer run of the same probe.
 }
 \description{
 Combines pointwise and position results while preserving and validating their

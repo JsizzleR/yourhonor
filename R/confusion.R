@@ -14,8 +14,8 @@
 #'   named `human` and `judge` are used if present; otherwise a data frame with
 #'   exactly two columns is read as human then judge. A message (class
 #'   `yourhonor_inferred_columns`) reports the choice whenever inference
-#'   ignored columns or read them positionally. Ignored for calibration
-#'   objects.
+#'   ignored columns or read them positionally. Cannot be combined with a
+#'   calibration object, which carries its own pairing.
 #'
 #' @return A tibble with `human_label`, `judge_label`, `n`, and `prop`, in
 #'   `label_levels` order. The resolved level order is attached as the
@@ -35,16 +35,43 @@ confusion <- function(x,
                       conf_level = 0.95,
                       human_col = NULL,
                       judge_col = NULL) {
-  normalize <- rlang::arg_match(normalize)
-  conf_level <- check_probability(conf_level, open = TRUE)
+  build_confusion(
+    x, normalize, label_levels, conf_level, human_col, judge_col,
+    call = rlang::current_env()
+  )
+}
+
+confusion_normalizations <- c("none", "row", "col")
+
+# Shared by confusion() and confusion_metrics(); `call` names whichever public
+# function the user invoked so validation errors point at it.
+build_confusion <- function(x,
+                            normalize,
+                            label_levels,
+                            conf_level,
+                            human_col,
+                            judge_col,
+                            call = rlang::caller_env()) {
+  normalize <- rlang::arg_match(
+    normalize, confusion_normalizations, error_arg = "normalize",
+    error_call = call
+  )
+  conf_level <- check_probability(
+    conf_level, "conf_level", open = TRUE, call = call
+  )
   if (inherits(x, "yourhonor_calibration") && is.null(label_levels)) {
     label_levels <- x$label_levels
   }
-  ratings <- as_confusion_ratings(x, human_col, judge_col)
-  label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE, arg = "x")
+  ratings <- as_confusion_ratings(x, human_col, judge_col, call = call)
+  label_levels <- resolve_label_levels(
+    ratings, label_levels, allow_single = TRUE, arg = "x", call = call
+  )
   ratings <- ratings[stats::complete.cases(ratings), , drop = FALSE]
   if (nrow(ratings) == 0L) {
-    cli::cli_abort("No complete judge-human pairs are available for a confusion matrix.")
+    cli::cli_abort(
+      "No complete judge-human pairs are available for a confusion matrix.",
+      call = call
+    )
   }
 
   human <- factor(as.character(ratings[[1]]), levels = label_levels)
@@ -75,8 +102,12 @@ as_confusion_ratings <- function(x,
                                  human_col = NULL,
                                  judge_col = NULL,
                                  call = rlang::caller_env()) {
-  if (inherits(x, "yourhonor_calibration")) return(x$ratings)
+  if (inherits(x, "yourhonor_calibration")) {
+    check_no_column_selection(human_col, judge_col, call = call)
+    return(x$ratings)
+  }
   x <- as.data.frame(x, stringsAsFactors = FALSE)
+  check_unique_column_names(x, call = call)
   if (is.null(human_col) != is.null(judge_col)) {
     cli::cli_abort(
       "Supply both {.arg human_col} and {.arg judge_col}, or neither.",
@@ -100,8 +131,43 @@ as_confusion_ratings <- function(x,
   x[, cols, drop = FALSE]
 }
 
+# A calibration object carries its own pairing, so an explicit selection on
+# one would be silently ignored; agreement() refuses `rater_cols` the same way.
+check_no_column_selection <- function(human_col,
+                                      judge_col,
+                                      call = rlang::caller_env()) {
+  if (!is.null(human_col) || !is.null(judge_col)) {
+    cli::cli_abort(
+      paste0(
+        "{.arg human_col} and {.arg judge_col} cannot be combined with a ",
+        "calibration object."
+      ),
+      call = call
+    )
+  }
+  invisible(NULL)
+}
+
+# Name-based selection on a frame with repeated names would silently take the
+# first match, so such frames are refused before any column is chosen.
+check_unique_column_names <- function(x,
+                                      arg = "x",
+                                      call = rlang::caller_env()) {
+  repeated <- unique(names(x)[duplicated(names(x))])
+  if (length(repeated) > 0L) {
+    cli::cli_abort(
+      paste0(
+        "{.arg {arg}} has duplicated column name{?s}: {.field {repeated}}."
+      ),
+      call = call
+    )
+  }
+  invisible(x)
+}
+
 infer_confusion_cols <- function(x, call = rlang::caller_env()) {
   default_pair <- c("human", "judge")
+  selectors <- c("human_col", "judge_col")
   if (all(default_pair %in% names(x))) {
     ignored <- setdiff(names(x), default_pair)
     if (length(ignored) > 0L) {
@@ -110,7 +176,7 @@ infer_confusion_cols <- function(x, call = rlang::caller_env()) {
           "Using {.field human} and {.field judge} as the rating columns.",
           "Ignoring column{?s}: {.field {ignored}}."
         ),
-        "human_col"
+        selectors
       )
     }
     return(default_pair)
@@ -121,7 +187,7 @@ infer_confusion_cols <- function(x, call = rlang::caller_env()) {
         "Reading {.field {names(x)[[1]]}} as human and ",
         "{.field {names(x)[[2]]}} as judge."
       ),
-      "human_col"
+      selectors
     )
     return(names(x))
   }
@@ -145,23 +211,53 @@ infer_confusion_cols <- function(x, call = rlang::caller_env()) {
 #'
 #' @param x A `yourhonor_calibration` object, a confusion tibble returned by
 #'   [confusion()], or a ratings data frame.
-#' @param label_levels Optional complete label universe in display order.
+#' @param label_levels Optional complete label universe in display order. For
+#'   a calibration object or a confusion tibble it must contain every label
+#'   observed there; the stored per-class rows are returned in that order,
+#'   with zero-support rows for labels not seen.
 #' @param human_col,judge_col Passed to [confusion()] for a ratings data frame.
+#'   Cannot be combined with a calibration object or a confusion tibble.
 #' @return A tibble with one row per label.
 #' @export
 confusion_metrics <- function(x,
                               label_levels = NULL,
                               human_col = NULL,
                               judge_col = NULL) {
-  if (inherits(x, "yourhonor_calibration")) {
-    return(x$confusion_metrics)
+  call <- rlang::current_env()
+  cached <- if (inherits(x, "yourhonor_calibration")) {
+    x$confusion_metrics
+  } else {
+    attr(x, "metrics", exact = TRUE)
   }
-  metrics <- attr(x, "metrics", exact = TRUE)
-  if (!is.null(metrics)) return(metrics)
-  conf <- confusion(
-    x, label_levels = label_levels, human_col = human_col, judge_col = judge_col
+  if (!is.null(cached)) {
+    check_no_column_selection(human_col, judge_col, call = call)
+    return(reindex_class_metrics(cached, label_levels, call = call))
+  }
+  conf <- build_confusion(
+    x, "none", label_levels, 0.95, human_col, judge_col, call = call
   )
   attr(conf, "metrics", exact = TRUE)
+}
+
+# Per-class rows do not depend on the other classes (an unobserved label has
+# an all-zero row and column), so a requested universe only reorders the
+# cached rows, adds zero-support rows for labels never seen, and drops labels
+# that were declared but never observed.
+reindex_class_metrics <- function(metrics,
+                                  label_levels,
+                                  call = rlang::caller_env()) {
+  if (is.null(label_levels)) return(metrics)
+  observed <- metrics[metrics$support > 0L | metrics$predicted > 0L, ]
+  label_levels <- resolve_label_levels(
+    observed["label"], label_levels, allow_single = TRUE,
+    arg = "x", call = call
+  )
+  index <- match(label_levels, metrics$label)
+  out <- metrics[index, ]
+  out$label <- label_levels
+  out$support[is.na(index)] <- 0L
+  out$predicted[is.na(index)] <- 0L
+  out
 }
 
 class_metrics <- function(tab, conf_level = 0.95) {

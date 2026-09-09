@@ -10,15 +10,22 @@ min_reliable_boot_draws <- 30L
 # considered reliable; lower yields mean the statistic was often undefined.
 min_effective_boot_fraction <- 0.8
 
+# `class` lets a caller such as acceptance_policy() stamp every error it
+# raises with one condition class, whichever shared validator fires.
 check_count <- function(x,
                         arg = rlang::caller_arg(x),
                         minimum = 1L,
-                        call = rlang::caller_env()) {
-  if (length(x) != 1L || is.na(x) || !is.numeric(x) ||
-      !is.finite(x) || x != as.integer(x) || x < minimum) {
+                        call = rlang::caller_env(),
+                        class = NULL) {
+  # Type is tested first: `is.na()` and the comparisons below are not defined
+  # for complex or list input, and `as.integer()` warns above the integer
+  # range instead of failing.
+  ok <- is.numeric(x) && length(x) == 1L && !is.na(x) && is.finite(x) &&
+    x >= minimum && x <= .Machine$integer.max && x == as.integer(x)
+  if (!ok) {
     cli::cli_abort(
       "{.arg {arg}} must be a whole number greater than or equal to {minimum}.",
-      call = call
+      call = call, class = class
     )
   }
   as.integer(x)
@@ -27,14 +34,17 @@ check_count <- function(x,
 check_probability <- function(x,
                               arg = rlang::caller_arg(x),
                               open = FALSE,
-                              call = rlang::caller_env()) {
-  ok <- length(x) == 1L && !is.na(x) && is.numeric(x) && is.finite(x)
+                              call = rlang::caller_env(),
+                              class = NULL) {
+  ok <- is.numeric(x) && length(x) == 1L && !is.na(x) && is.finite(x)
   if (ok) {
     ok <- if (open) x > 0 && x < 1 else x >= 0 && x <= 1
   }
   if (!ok) {
     bounds <- if (open) "strictly between 0 and 1" else "between 0 and 1"
-    cli::cli_abort("{.arg {arg}} must be {bounds}.", call = call)
+    cli::cli_abort(
+      "{.arg {arg}} must be {bounds}.", call = call, class = class
+    )
   }
   as.numeric(x)
 }
@@ -59,9 +69,16 @@ check_audit_id <- function(x,
 check_provenance <- function(x,
                              arg = rlang::caller_arg(x),
                              call = rlang::caller_env()) {
-  if (!is.list(x) || (length(x) > 0L && is.null(names(x)))) {
+  names_ok <- length(x) == 0L || (
+    !is.null(names(x)) && !anyNA(names(x)) &&
+      all(nzchar(trimws(names(x)))) && !anyDuplicated(names(x))
+  )
+  if (!is.list(x) || is.data.frame(x) || !names_ok) {
     cli::cli_abort(
-      "{.arg {arg}} must be a named list (an empty list is allowed).",
+      paste0(
+        "{.arg {arg}} must be a list with unique, non-empty names ",
+        "(an empty list is allowed)."
+      ),
       call = call
     )
   }
@@ -106,10 +123,12 @@ check_columns_present <- function(data,
                                   call = rlang::caller_env()) {
   absent <- setdiff(cols, names(data))
   if (length(absent) > 0L) {
+    # cli pluralises on the nearest preceding value, which would be `arg`;
+    # `qty()` pins the count to the absent columns.
     cli::cli_abort(
       paste0(
-        "{.arg {arg}} names column{?s} not in {.arg {data_arg}}: ",
-        "{.field {absent}}."
+        "{.arg {arg}} names {cli::qty(length(absent))}column{?s} not in ",
+        "{.arg {data_arg}}: {.field {absent}}."
       ),
       call = call
     )
@@ -131,18 +150,27 @@ resolve_label_levels <- function(ratings,
   check_labels_nonblank(observed, arg, call = call)
   if (!is.null(label_levels)) {
     label_levels <- as.character(label_levels)
-    if ((!allow_single && length(label_levels) < 2L) || length(label_levels) < 1L ||
-        anyNA(label_levels) || anyDuplicated(label_levels)) {
+    minimum <- if (allow_single) 1L else 2L
+    if (length(label_levels) < minimum || anyNA(label_levels) ||
+        anyDuplicated(label_levels)) {
       cli::cli_abort(
-        "{.arg {levels_arg}} must contain at least two unique, non-missing labels.",
+        paste0(
+          "{.arg {levels_arg}} must contain at least {minimum} unique, ",
+          "non-missing label{?s}."
+        ),
         call = call
       )
     }
     check_labels_nonblank(label_levels, levels_arg, call = call)
     unknown <- setdiff(observed, label_levels)
     if (length(unknown) > 0L) {
+      # `qty()` gives the pluraliser its count; without it cli sees two
+      # later substitutions and aborts with its own error.
       cli::cli_abort(
-        "Observed label{?s} not present in {.arg {levels_arg}}: {.val {unknown}}.",
+        paste0(
+          "{cli::qty(length(unknown))}Observed label{?s} not present in ",
+          "{.arg {levels_arg}}: {.val {unknown}}."
+        ),
         call = call
       )
     }

@@ -33,9 +33,11 @@ samples data frame.}
 epochs measure changing evaluation outcomes, not judge test-retest
 reliability. Identifier, epoch, and score columns are not content columns.}
 
-\item{label_levels}{Optional complete label universe. When \code{NULL} and
-\code{score_col} is a factor, its levels are used so declared-but-unobserved
-labels still count toward chance agreement.}
+\item{label_levels}{Optional complete label universe. For unweighted runs
+left \code{NULL} with a factor \code{score_col}, the factor's non-blank levels are
+used so declared-but-unobserved labels still count toward chance
+agreement. Weighted runs always require it: a factor's level order is
+not taken as evidence of the ordinal order.}
 
 \item{weights}{Agreement weights passed to Gwet's coefficient.}
 

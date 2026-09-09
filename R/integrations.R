@@ -119,9 +119,11 @@ audit_vitals <- function(task,
 #'   `target`, and `result`). Values must be invariant within item ID; otherwise
 #'   epochs measure changing evaluation outcomes, not judge test-retest
 #'   reliability. Identifier, epoch, and score columns are not content columns.
-#' @param label_levels Optional complete label universe. When `NULL` and
-#'   `score_col` is a factor, its levels are used so declared-but-unobserved
-#'   labels still count toward chance agreement.
+#' @param label_levels Optional complete label universe. For unweighted runs
+#'   left `NULL` with a factor `score_col`, the factor's non-blank levels are
+#'   used so declared-but-unobserved labels still count toward chance
+#'   agreement. Weighted runs always require it: a factor's level order is
+#'   not taken as evidence of the ordinal order.
 #' @param weights Agreement weights passed to Gwet's coefficient.
 #' @param conf_level Bootstrap confidence level.
 #' @param n_boot Number of item-bootstrap resamples.
@@ -181,7 +183,7 @@ stability_vitals <- function(task,
   # The rating matrix below is character, so factor levels would be lost
   # before `resolve_label_levels()` could infer the label universe from them.
   if (is.null(label_levels) && is.factor(samples[[score_col]])) {
-    label_levels <- levels(samples[[score_col]])
+    label_levels <- inferred_factor_levels(samples[[score_col]])
   }
   key <- samples[c(id_col, epoch_col)]
   if (anyNA(key)) {
@@ -231,10 +233,11 @@ extract_vitals_samples <- function(task) {
   if (is.data.frame(task)) {
     return(tibble::as_tibble(task))
   }
-  # `$` on an atomic vector is an R error, not a validation failure, so only
-  # look for the method on objects that can carry one (R6 tasks are
-  # environments).
-  get_samples <- if (is.list(task) || is.environment(task)) task$get_samples
+  # Any object whose `$get_samples` is callable is accepted (R6 tasks are
+  # environments; an S4 task may define its own `$` method). `$` is an R
+  # error on atomic vectors, so a failed access is reported as invalid input
+  # rather than surfacing as an internal error.
+  get_samples <- tryCatch(task$get_samples, error = function(e) NULL)
   if (!is.function(get_samples)) {
     cli::cli_abort(paste0(
       "{.arg task} must be a samples data frame or expose a callable ",
@@ -268,11 +271,12 @@ extract_vitals_samples <- function(task) {
 #' serialized verbatim, however, so do not place secrets or raw item content in
 #' provenance fields.
 #' @section JSON schema (`yourhonor.audit.v1`):
-#' The JSON artifact is written at full numeric precision (no rounding), and
-#' every absent value is `null`: an `NA` and an R `NULL` are indistinguishable
-#' to a reader, but neither ever appears as `{}` or is dropped. Fields that are
-#' vectors by contract are always JSON arrays, even when they hold one value.
-#' Top-level members:
+#' The JSON artifact is written at full numeric precision: doubles carry 17
+#' significant digits, so every value round-trips exactly (a reader may see
+#' `0.94999999999999996` for `0.95`). Every absent value is `null`: an `NA`
+#' and an R `NULL` are indistinguishable to a reader, but neither ever appears
+#' as `{}` or is dropped. Fields that are vectors by contract are always JSON
+#' arrays, even when they hold one value. Top-level members:
 #' * `schema_version`: `"yourhonor.audit.v1"`.
 #' * `created_at`: UTC timestamp in RFC 3339 form, e.g.
 #'   `"2026-01-31T12:00:00Z"`.
@@ -300,8 +304,11 @@ extract_vitals_samples <- function(task) {
 #'   `yourhonor_stability` object (`n_items`, `n_items_scored`, `n_runs`,
 #'   `pairwise_disagreement*`, `gwet_*`, `missing_rate`, `*_ci_reliable`),
 #'   `label_levels` (array), and `provenance`.
-#' * `provenance`: the calibration provenance; adapter fields `input_cols`,
-#'   `human_cols`, and `label_levels` are arrays.
+#' * `provenance`: the calibration provenance. The keys `input_cols`,
+#'   `human_cols`, `label_levels`, and `content_cols` are always arrays, even
+#'   when they were supplied by the caller and hold one value; `created_at`
+#'   is RFC 3339 UTC like the top-level field, and adapter fields left `NULL`
+#'   (`id_col`, `audit_id`) are present as `null`.
 #' @export
 write_audit <- function(x,
                         path,
@@ -332,7 +339,7 @@ write_audit <- function(x,
   assessment <- assess_calibration(x, bias, stability, policy)
   payload <- list(
     schema_version = "yourhonor.audit.v1",
-    created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+    created_at = utc_timestamp(),
     decision = assessment$decision,
     audit_id = audit_id(x),
     policy = json_policy(policy),
@@ -343,13 +350,21 @@ write_audit <- function(x,
     provenance = json_provenance(x$provenance)
   )
   # The JSON file is the only precise artifact (the Markdown report rounds to
-  # two decimals), so numbers are written at full precision and an R NULL is
-  # spelled `null` like an NA rather than jsonlite's default `{}`.
+  # two decimals). `digits = I(17)` writes 17 significant digits, the count
+  # that makes every double round-trip exactly (`digits = NA` would round to
+  # 15), and an R NULL is spelled `null` like an NA rather than jsonlite's
+  # default `{}`.
   jsonlite::write_json(
     payload, path,
-    auto_unbox = TRUE, pretty = TRUE, digits = NA, na = "null", null = "null"
+    auto_unbox = TRUE, pretty = TRUE, digits = I(17), na = "null",
+    null = "null"
   )
   invisible(path)
+}
+
+# One timestamp format for every artifact field: RFC 3339 in UTC.
+utc_timestamp <- function(time = Sys.time()) {
+  format(time, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 }
 
 check_audit_path <- function(path, overwrite) {
@@ -359,6 +374,11 @@ check_audit_path <- function(path, overwrite) {
   }
   if (!rlang::is_bool(overwrite)) {
     cli::cli_abort("{.arg overwrite} must be TRUE or FALSE.")
+  }
+  # A directory would pass the existence test below and, with
+  # `overwrite = TRUE`, reach the writer as a target it cannot replace.
+  if (dir.exists(path)) {
+    cli::cli_abort("{.path {path}} is a directory, not a file path.")
   }
   if (file.exists(path) && !overwrite) {
     cli::cli_abort(paste0(

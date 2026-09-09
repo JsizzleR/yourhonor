@@ -29,8 +29,8 @@ data frame. Both must be given together. When both are \code{NULL}, columns
 named \code{human} and \code{judge} are used if present; otherwise a data frame with
 exactly two columns is read as human then judge. A message (class
 \code{yourhonor_inferred_columns}) reports the choice whenever inference
-ignored columns or read them positionally. Ignored for calibration
-objects.}
+ignored columns or read them positionally. Cannot be combined with a
+calibration object, which carries its own pairing.}
 }
 \value{
 A tibble with \code{human_label}, \code{judge_label}, \code{n}, and \code{prop}, in

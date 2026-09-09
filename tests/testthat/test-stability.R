@@ -306,3 +306,31 @@ test_that("stability printing shows both intervals", {
   )
   expect_snapshot(print(flat), cran = TRUE)
 })
+
+test_that("inferred factor levels are unioned with observed run labels", {
+  data <- tibble::tibble(input = paste("answer", 1:8))
+  run <- 0
+  judge <- function(d) {
+    run <<- run + 1
+    if (run == 1) {
+      factor(rep(c("A", "B"), 4), levels = c("A", "B"))
+    } else {
+      rep(c("A", "C"), 4)
+    }
+  }
+  st <- test_retest(
+    data, judge, input_cols = "input", n_runs = 2, n_boot = 20, seed = 1
+  )
+  expect_identical(st$label_levels, c("A", "B", "C"))
+})
+
+test_that("an unused blank factor level is dropped from inferred levels", {
+  data <- tibble::tibble(input = paste("answer", 1:6))
+  judge <- function(d) {
+    factor(rep(c("C", "P"), length.out = nrow(d)), levels = c("C", "P", " "))
+  }
+  st <- test_retest(
+    data, judge, input_cols = "input", n_runs = 2, n_boot = 20, seed = 1
+  )
+  expect_identical(st$label_levels, c("C", "P"))
+})

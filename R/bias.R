@@ -1,8 +1,11 @@
 #' Probe a pointwise judge for paired bias
 #'
-#' Grades length-matched control/treatment pairs in one randomized batch and
-#' measures directional label movement. Position bias is intentionally handled
-#' by [probe_position()], which uses structured candidates and stable identities.
+#' Grades each item under a control and a perturbed treatment condition in one
+#' randomized batch and measures directional label movement. The verbosity
+#' probe deliberately lengthens the treatment; the self-preference and
+#' bandwagon probes change only a framing prefix. Position bias is
+#' intentionally handled by [probe_position()], which uses structured
+#' candidates and stable identities.
 #'
 #' @param data A data frame with a character `input` column. Missing inputs are
 #'   an error: a pasted `NA` would otherwise be graded as a real answer and hide
@@ -141,6 +144,9 @@ probe_bias <- function(data,
   data <- tibble::as_tibble(data)
   check_probe_input(data)
   if (nrow(data) < 1L) cli::cli_abort("{.arg data} must contain at least one item.")
+  # Identifiers are validated on the full data: a subsample could hide a
+  # duplicate that the caller's audit trail would later trip over.
+  validate_source_ids(data, id_col, "data")
   if (!is.null(seed)) withr::local_seed(seed)
   if (!is.null(n)) {
     n <- check_count(n, "n")
@@ -235,11 +241,13 @@ probe_position <- function(data,
   if (anyDuplicated(visible_cols)) {
     cli::cli_abort("Candidate and context columns must be distinct.")
   }
+  # Every name the internal evidence table assigns is reserved, not only the
+  # judge-facing ones, so a caller's column is never overwritten in `ev`.
   reserved <- intersect(
     visible_cols,
     c(
-      ".item_id", ".condition", ".repeat", ".display_id",
-      ".candidate_1", ".candidate_2"
+      ".item_id", ".condition", ".repeat", ".display_id", ".judge_item_id",
+      ".candidate_1", ".candidate_2", "display_choice", "canonical_choice"
     )
   )
   if (length(reserved) > 0L) {
@@ -325,7 +333,9 @@ print.yourhonor_bias <- function(x, ...) {
 #'
 #' @return One `yourhonor_bias` object with one row per unique probe. The
 #'   `evidence` and `item_evidence` attributes are the constituents' lists,
-#'   concatenated and still named by probe.
+#'   concatenated and still named by probe. Only entries for probes present
+#'   in a constituent's rows are carried over, so evidence left behind by
+#'   row-subsetting a result cannot shadow a newer run of the same probe.
 #' @export
 combine_bias <- function(...,
                          p_adjust = c("holm", "none", "BH", "bonferroni")) {
@@ -388,16 +398,25 @@ bias_rows <- function(x) {
 probe_named_list <- function(x, probes) {
   x <- x[!vapply(x, is.null, logical(1))]
   if (length(x) == 0L) return(rlang::set_names(list(), character(0)))
-  if (is.null(names(x)) || !all(names(x) %in% probes)) {
+  if (is.null(names(x)) || !all(names(x) %in% probes) ||
+      anyDuplicated(names(x))) {
     cli::cli_abort(
-      "Internal error: bias evidence must be a list named by probe."
+      "Internal error: bias evidence must be a list named uniquely by probe."
     )
   }
   x
 }
 
+# Row-subsetting a result keeps its attributes, so a constituent can carry
+# evidence for probes it no longer has rows for; only entries matching its
+# own rows are kept. `unname()` stops names given to `...` from becoming
+# prefixes such as `position.position`.
 collect_bias_attr <- function(probes, which) {
-  do.call(c, lapply(probes, attr, which = which, exact = TRUE))
+  kept <- lapply(unname(probes), function(x) {
+    ev <- attr(x, which, exact = TRUE)
+    ev[names(ev) %in% x$probe]
+  })
+  do.call(c, kept)
 }
 
 # One row of the shared bias schema. `stats` supplies the probe-specific

@@ -619,3 +619,80 @@ test_that("bias objects print a heading and the probe table", {
   )
   expect_snapshot(print(res))
 })
+
+test_that("combine_bias keeps only evidence for each constituent's rows", {
+  pointwise <- probe_bias(
+    tibble::tibble(input = paste("answer", 1:20)),
+    function(d) rep("C", nrow(d)), probes = "verbosity",
+    audit_id = "bundle-1", seed = 1
+  )
+  pairs <- pair_data()[rep(1:2, 10), ]
+  always_first <- probe_position(
+    pairs, function(d) rep("A", nrow(d)),
+    "candidate_a", "candidate_b", context_cols = "context",
+    audit_id = "bundle-1", seed = 1
+  )
+  consistent <- probe_position(
+    pairs, function(d) ifelse(grepl("good", d$.candidate_1), "A", "B"),
+    "candidate_a", "candidate_b", context_cols = "context",
+    audit_id = "bundle-1", seed = 1
+  )
+  combined <- combine_bias(pointwise, always_first)
+  # Row-subsetting keeps the attributes, including stale position evidence.
+  kept <- combined[combined$probe != "position", ]
+  expect_named(attr(kept, "evidence"), "position")
+  again <- combine_bias(kept, consistent)
+  expect_identical(names(attr(again, "evidence")), "position")
+  expect_identical(names(attr(again, "item_evidence")), "position")
+  expect_setequal(
+    unique(attr(again, "evidence")$position$display_choice), c("A", "B")
+  )
+  expect_false(any(attr(again, "item_evidence")$position$flipped))
+  expect_identical(again$verdict[again$probe == "position"], "no_signal")
+
+  # Two row-subsets of one combined object recombine.
+  halves <- combine_bias(
+    combined[combined$probe == "verbosity", ],
+    combined[combined$probe == "position", ]
+  )
+  expect_setequal(halves$probe, c("verbosity", "position"))
+  expect_named(attr(halves, "evidence"), "position")
+
+  # Names given to `...` do not prefix the evidence names.
+  named <- combine_bias(pointwise = pointwise, position = consistent)
+  expect_named(attr(named, "evidence"), "position")
+  expect_error(
+    probe_named_list(list(position = 1, position = 2), "position"),
+    "named uniquely"
+  )
+})
+
+test_that("every internally assigned position column is reserved", {
+  judge <- function(d) rep("A", nrow(d))
+  for (name in c(".judge_item_id", "display_choice", "canonical_choice")) {
+    data <- pair_data()
+    data[[name]] <- "x"
+    expect_error(
+      probe_position(
+        data, judge, "candidate_a", "candidate_b", context_cols = name
+      ),
+      name, fixed = TRUE
+    )
+  }
+})
+
+test_that("probe_bias validates id_col on the full data before sampling", {
+  data <- tibble::tibble(
+    input = paste("answer", 1:6), id = c(1, 1, 2, 3, 4, 5)
+  )
+  judge <- function(d) rep("C", nrow(d))
+  expect_error(
+    probe_bias(data, judge, id_col = "id", n = 2, probes = "verbosity"),
+    "unique, non-missing IDs"
+  )
+  data$id <- 1:6
+  expect_s3_class(
+    probe_bias(data, judge, id_col = "id", n = 2, probes = "verbosity"),
+    "yourhonor_bias"
+  )
+})

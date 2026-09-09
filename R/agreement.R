@@ -123,7 +123,11 @@ agreement <- function(x,
     if (at_default[["weights"]] && !is.null(x$weights)) weights <- x$weights
   }
   weights <- rlang::arg_match(weights)
-  coefficients <- resolve_coefficients(coefficients, weights)
+  # Stored coefficients were resolved under the calibration's weights, so
+  # they are re-resolved automatically when only `weights` is overridden.
+  coefficients <- resolve_coefficients(
+    coefficients, weights, inherited = inherit && at_default[["coefficients"]]
+  )
   conf_level <- check_probability(conf_level, open = TRUE)
   n_boot <- check_count(n_boot)
 
@@ -141,9 +145,13 @@ agreement <- function(x,
 }
 
 # `NULL` means "the default set, adapted to the weights"; an explicit vector
-# is validated as given so callers never get a coefficient they did not ask for.
+# is validated as given so callers never get a coefficient they did not ask
+# for. A set `inherited` from a calibration is that object's already-resolved
+# choice, so its Gwet variant follows the weights in force rather than being
+# treated as an explicit, possibly conflicting, request.
 resolve_coefficients <- function(coefficients,
                                  weights,
+                                 inherited = FALSE,
                                  arg = "coefficients",
                                  call = rlang::caller_env()) {
   auto <- is.null(coefficients)
@@ -155,7 +163,12 @@ resolve_coefficients <- function(coefficients,
       error_arg = arg, error_call = call
     )
   }
-  resolve_gwet_coefficient(coefficients, weights, auto = auto, call = call)
+  if (inherited) {
+    coefficients[coefficients == "gwet_ac2"] <- "gwet_ac1"
+  }
+  resolve_gwet_coefficient(
+    coefficients, weights, auto = auto || inherited, call = call
+  )
 }
 
 compute_agreement <- function(ratings,
@@ -175,42 +188,45 @@ compute_agreement <- function(ratings,
   ratings[] <- lapply(ratings, as.character)
   if (!is.null(seed)) withr::local_seed(seed)
 
-  # Everything below is invariant across coefficients, including the bootstrap
-  # index set: sharing one draw keeps the coefficients' intervals comparable.
   usable <- ratings[rowSums(!is.na(ratings)) >= 2L, , drop = FALSE]
   n_items <- nrow(usable)
   n_missing <- sum(!stats::complete.cases(ratings))
   variation <- length(observed_categories(usable))
-  estimable <- n_items >= 2L && variation >= 2L
-  boot_index <- if (estimable) draw_bootstrap_index(usable, n_boot) else NULL
 
-  rows <- lapply(coefficients, function(co) {
-    status <- "ok"
-    estimate <- NA_real_
-    ci <- bootstrap_quantiles(numeric(0), conf_level)
-
+  # Status and point estimate come first; only coefficients with a defined
+  # estimate take part in the bootstrap, so nothing is drawn when none has.
+  status <- vapply(coefficients, function(co) {
     if (n_items < 2L) {
-      status <- "insufficient_items"
+      "insufficient_items"
     } else if (variation < 2L) {
-      status <- "insufficient_variation"
+      "insufficient_variation"
     } else if (co == "cohen_kappa" && ncol(usable) != 2L) {
-      status <- "invalid_rater_count"
+      "invalid_rater_count"
     } else {
-      estimate <- safe_coeff_point(usable, co, weights, label_levels)
-      if (is.na(estimate)) {
-        status <- "undefined"
-      } else {
-        ci <- boot_ci(
-          usable, co, boot_index, conf_level = conf_level,
-          weights = weights, label_levels = label_levels
-        )
-      }
+      "ok"
     }
-    boundary_degenerate <- is_boundary_degenerate(status, estimate, ci)
+  }, character(1))
+  estimate <- vapply(seq_along(coefficients), function(i) {
+    if (status[[i]] != "ok") return(NA_real_)
+    safe_coeff_point(usable, coefficients[[i]], weights, label_levels)
+  }, numeric(1))
+  status[status == "ok" & is.na(estimate)] <- "undefined"
+  draws <- bootstrap_coefficients(
+    usable, unique(coefficients[status == "ok"]), n_boot, weights,
+    label_levels
+  )
+
+  rows <- lapply(seq_along(coefficients), function(i) {
+    co <- coefficients[[i]]
+    co_status <- status[[i]]
+    co_estimate <- estimate[[i]]
+    stat <- if (co_status == "ok") draws[[co]] else numeric(0)
+    ci <- bootstrap_quantiles(stat, conf_level)
+    boundary_degenerate <- is_boundary_degenerate(co_status, co_estimate, ci)
 
     tibble::tibble(
       coefficient = co,
-      estimate = estimate,
+      estimate = co_estimate,
       conf_low = ci$conf_low,
       conf_high = ci$conf_high,
       se = ci$se,
@@ -222,16 +238,41 @@ compute_agreement <- function(ratings,
       n_boot_effective = ci$n_effective,
       boundary_degenerate = boundary_degenerate,
       ci_reliable = ci_is_reliable(ci, n_boot, boundary_degenerate),
-      status = status,
-      interpretation = interpret_agreement(estimate)
+      status = co_status,
+      interpretation = interpret_agreement(co_estimate)
     )
   })
   do.call(vctrs::vec_rbind, rows)
 }
 
+# One item resample per iteration, evaluated for every coefficient: sharing
+# the draw keeps the coefficients' intervals comparable, and drawing inside
+# the loop avoids holding an n-by-n_boot index matrix. A resample that
+# observes a single category is left NA for all of them.
+bootstrap_coefficients <- function(ratings,
+                                   coefficients,
+                                   n_boot,
+                                   weights,
+                                   label_levels) {
+  draws <- rlang::set_names(
+    lapply(coefficients, function(co) rep(NA_real_, n_boot)), coefficients
+  )
+  if (length(coefficients) == 0L) return(draws)
+  n <- nrow(ratings)
+  for (i in seq_len(n_boot)) {
+    samp <- ratings[sample.int(n, n, replace = TRUE), , drop = FALSE]
+    if (length(observed_categories(samp)) < 2L) next
+    for (co in coefficients) {
+      draws[[co]][[i]] <- safe_coeff_point(samp, co, weights, label_levels)
+    }
+  }
+  draws
+}
+
 as_ratings <- function(x, rater_cols = NULL, call = rlang::caller_env()) {
   if (inherits(x, "yourhonor_calibration")) return(x$ratings)
   x <- as.data.frame(x, stringsAsFactors = FALSE)
+  check_unique_column_names(x, call = call)
   if (is.null(rater_cols)) {
     rater_cols <- infer_rater_cols(x)
   } else {
@@ -328,7 +369,9 @@ coeff_point <- function(ratings,
   as.numeric(val)
 }
 
-# irrCAC warns and errors on degenerate resamples; treat both as "undefined".
+# irrCAC warns on some degenerate resamples and errors on others. A warning
+# still comes with a value, which is kept when finite; an error has none and
+# becomes NA, which the caller reports as "undefined".
 safe_coeff_point <- function(ratings, coefficient, weights, label_levels) {
   val <- tryCatch(
     suppressWarnings(coeff_point(ratings, coefficient, weights, label_levels)),
@@ -344,7 +387,14 @@ resolve_gwet_coefficient <- function(coefficients,
   if (weights == "unweighted") {
     if ("gwet_ac2" %in% coefficients) {
       cli::cli_abort(
-        "{.val gwet_ac2} requires non-default agreement weights.",
+        c(
+          "{.val gwet_ac2} requires non-default agreement weights.",
+          i = paste0(
+            "Set {.arg weights}, or request {.val gwet_ac1} or leave ",
+            "{.arg coefficients} as {.code NULL} for the unweighted ",
+            "coefficient."
+          )
+        ),
         call = call
       )
     }
@@ -356,7 +406,7 @@ resolve_gwet_coefficient <- function(coefficients,
         paste0(
           "Weighted Gwet agreement is AC2, not AC1. Request {.val gwet_ac2} ",
           "or leave {.arg coefficients} as {.code NULL} to select it ",
-          "automatically."
+          "automatically under {.arg weights}."
         ),
         call = call
       )
@@ -364,31 +414,6 @@ resolve_gwet_coefficient <- function(coefficients,
     coefficients[coefficients == "gwet_ac1"] <- "gwet_ac2"
   }
   coefficients
-}
-
-# One column per resample. Draws that observe a single category are marked so
-# each coefficient can skip them without re-scanning the labels.
-draw_bootstrap_index <- function(ratings, n_boot) {
-  n <- nrow(ratings)
-  index <- matrix(sample.int(n, n * n_boot, replace = TRUE), nrow = n)
-  varied <- vapply(seq_len(n_boot), function(i) {
-    length(observed_categories(ratings[index[, i], , drop = FALSE])) >= 2L
-  }, logical(1))
-  list(index = index, varied = varied)
-}
-
-boot_ci <- function(ratings,
-                    coefficient,
-                    boot_index,
-                    conf_level,
-                    weights = "unweighted",
-                    label_levels = NULL) {
-  stat <- vapply(seq_along(boot_index$varied), function(i) {
-    if (!boot_index$varied[[i]]) return(NA_real_)
-    samp <- ratings[boot_index$index[, i], , drop = FALSE]
-    safe_coeff_point(samp, coefficient, weights, label_levels)
-  }, numeric(1))
-  bootstrap_quantiles(stat, conf_level)
 }
 
 # Landis & Koch (1977) proposed these bands for kappa. They are applied to
