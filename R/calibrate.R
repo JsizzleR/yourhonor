@@ -115,9 +115,7 @@ calibrate_judge <- function(gold,
   conf_level <- check_probability(conf_level, open = TRUE)
   n_boot <- check_count(n_boot)
   audit_id <- check_audit_id(audit_id)
-  if (!is.list(provenance) || (length(provenance) > 0L && is.null(names(provenance)))) {
-    cli::cli_abort("{.arg provenance} must be a named list (an empty list is allowed).")
-  }
+  check_provenance(provenance)
 
   human_cols <- check_column_names(human_cols)
   judge_col <- check_column_name(judge_col)
@@ -500,6 +498,7 @@ grade_blind <- function(judge,
   restored[permutation] <- graded$label
   list(
     label = restored,
+    label_levels = graded$label_levels,
     output = tibble::tibble(.item_id = seq_len(nrow(data)), label = restored),
     visible_output = graded$output,
     blinding_map = tibble::tibble(
@@ -608,6 +607,15 @@ grade_keyed <- function(judge,
     output <- tibble::as_tibble(data[key_cols])
     output$label <- as.character(out)
   }
+  # A judge returning a factor has declared its own label universe. Keep those
+  # levels so a caller without `label_levels` (see `test_retest()`) counts
+  # declared-but-unobserved labels toward chance agreement, as
+  # `stability_vitals()` does for a factor score column.
+  inferred_levels <- if (is.null(label_levels) && is.factor(labels)) {
+    levels(labels)
+  } else {
+    NULL
+  }
   labels <- as.character(labels)
   check_labels_nonblank(labels, "judge", call = call)
   if (!is.null(label_levels)) {
@@ -615,5 +623,5 @@ grade_keyed <- function(judge,
       labels, label_levels, arg = "judge", levels_arg = levels_arg, call = call
     )
   }
-  list(label = labels, output = output)
+  list(label = labels, output = output, label_levels = inferred_levels)
 }

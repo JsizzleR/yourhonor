@@ -53,6 +53,21 @@ check_audit_id <- function(x,
   x
 }
 
+# Provenance is serialized verbatim into audit artifacts, so it must already
+# be a named list; `modifyList()` downstream would otherwise launder bad input
+# into something that merely looks well-formed.
+check_provenance <- function(x,
+                             arg = rlang::caller_arg(x),
+                             call = rlang::caller_env()) {
+  if (!is.list(x) || (length(x) > 0L && is.null(names(x)))) {
+    cli::cli_abort(
+      "{.arg {arg}} must be a named list (an empty list is allowed).",
+      call = call
+    )
+  }
+  invisible(x)
+}
+
 check_column_names <- function(x,
                                arg = rlang::caller_arg(x),
                                minimum = 1L,

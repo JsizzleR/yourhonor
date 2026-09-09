@@ -34,12 +34,7 @@ audit_vitals <- function(task,
   if (anyDuplicated(c(id_col, human_col, score_col))) {
     cli::cli_abort("{.arg id_col}, {.arg human_col}, and {.arg score_col} must be distinct.")
   }
-  if (!is.list(provenance) ||
-      (length(provenance) > 0L && is.null(names(provenance)))) {
-    cli::cli_abort(
-      "{.arg provenance} must be a named list (an empty list is allowed)."
-    )
-  }
+  check_provenance(provenance)
   samples <- extract_vitals_samples(task)
   missing_cols <- setdiff(c(id_col, score_col), names(samples))
   if (length(missing_cols) > 0L) {
@@ -288,8 +283,11 @@ extract_vitals_samples <- function(task) {
 #'   [acceptance_policy()] argument. `required_probes` is an array;
 #'   `min_recall` and `min_precision` are a number when global or an object
 #'   keyed by class name when class-specific; unset thresholds are `null`.
-#' * `checks`: array of objects with `check`, `status`, `value`, `threshold`,
-#'   and `reason`, one per policy check.
+#' * `checks`: array of objects, one per policy check, with `check`, `status`,
+#'   `value` (the observed number, `null` when unavailable), `op` (the
+#'   comparison the check encodes: `">="`, `"<="`, `"lower >="`,
+#'   `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without a
+#'   policy the single placeholder check has `null` `op` and `threshold`.
 #' * `calibration`: `n_input`, `n_items`, `n_excluded`, `n_consensus_ties`,
 #'   `scale`, `weights`, `conf_level`, `n_boot`, `seed` (scalars);
 #'   `label_levels` and `coefficients` (arrays); `agreement`,
@@ -319,8 +317,8 @@ write_audit <- function(x,
   format <- rlang::arg_match(format)
   path <- check_audit_path(path, overwrite)
   if (format == "md") {
-    md <- report(x, bias = bias, stability = stability, policy = policy, output = "md")
-    writeLines(as.character(md), path, useBytes = TRUE)
+    md <- report(x, bias = bias, stability = stability, policy = policy)
+    writeLines(format(md, output = "md"), path, useBytes = TRUE)
     return(invisible(path))
   }
   if (!supplied_evidence_is_bound(x, bias, stability)) {
@@ -336,7 +334,7 @@ write_audit <- function(x,
     schema_version = "yourhonor.audit.v1",
     created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
     decision = assessment$decision,
-    audit_id = x$audit_id,
+    audit_id = audit_id(x),
     policy = json_policy(policy),
     checks = as.data.frame(assessment$checks),
     calibration = json_calibration(x),
@@ -426,7 +424,7 @@ json_calibration <- function(x) {
 json_bias <- function(bias) {
   if (is.null(bias)) return(NULL)
   list(
-    audit_id = evidence_audit_id(bias),
+    audit_id = audit_id(bias),
     results = as.data.frame(bias)
   )
 }
@@ -434,7 +432,7 @@ json_bias <- function(bias) {
 json_stability <- function(stability) {
   if (is.null(stability)) return(NULL)
   list(
-    audit_id = evidence_audit_id(stability),
+    audit_id = audit_id(stability),
     n_items = stability$n_items,
     n_items_scored = stability$n_items_scored,
     n_runs = stability$n_runs,

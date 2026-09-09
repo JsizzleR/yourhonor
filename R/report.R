@@ -5,14 +5,25 @@
 #' evidence passed. With an [acceptance_policy()], every criterion is rendered as
 #' `PASS`, `FAIL`, `NOT_ASSESSED`, or `INDETERMINATE`.
 #'
+#' The result is the same object whichever `output` is chosen; `output` only
+#' sets how it prints by default. `print(x, output = "md")` or
+#' `format(x, output = "md")` render the Markdown form of any report, and
+#' `as.character()` always returns the Markdown lines.
+#'
 #' @param x A `yourhonor_calibration` object.
-#' @param bias Optional result from [probe_bias()] or [probe_position()].
+#' @param bias Optional result from [probe_bias()], [probe_position()], or
+#'   [combine_bias()].
 #' @param stability Optional result from [test_retest()].
 #' @param policy Optional policy from [acceptance_policy()].
-#' @param output `"console"` or `"md"`.
+#' @param output Default rendering when the report is printed: `"console"`
+#'   (styled cli output) or `"md"` (Markdown lines).
 #'
-#' @return For Markdown, a `yourhonor_report` character vector with `decision`
-#'   and `checks` attributes. Console output returns `x` invisibly.
+#' @return A `yourhonor_report` list with elements `decision` (one of `PASS`,
+#'   `FAIL`, `INDETERMINATE`, `NOT_ASSESSED`), `checks` (a tibble with one row
+#'   per policy check: `check`, `status`, `value`, `op`, `threshold`, and
+#'   `reason`), the supplied `calibration`, `bias`, `stability`, and `policy`,
+#'   and the default `output`. The report is returned visibly, so calling
+#'   `report()` at the console renders it.
 #' @export
 #' @examples
 #' gold <- tibble::tibble(
@@ -21,7 +32,9 @@
 #' )
 #' cal <- calibrate_judge(gold, label_levels = c("I", "P", "C"),
 #'                        n_boot = 200, seed = 1)
-#' report(cal, output = "md")
+#' rep <- report(cal, output = "md")
+#' rep$decision
+#' rep
 report <- function(x,
                    bias = NULL,
                    stability = NULL,
@@ -33,20 +46,56 @@ report <- function(x,
   validate_report_evidence(x, bias, stability)
   output <- rlang::arg_match(output)
   assessment <- assess_calibration(x, bias, stability, policy)
-  head <- headline_row(x, policy)
-  bundle_bound <- supplied_evidence_is_bound(x, bias, stability)
-
-  if (output == "md") {
-    md <- build_markdown(x, head, bias, stability, assessment)
-    return(invisible(structure(
-      md,
-      class = "yourhonor_report",
+  structure(
+    list(
       decision = assessment$decision,
-      checks = assessment$checks
-    )))
-  }
+      checks = assessment$checks,
+      calibration = x,
+      bias = bias,
+      stability = stability,
+      policy = policy,
+      output = output
+    ),
+    class = "yourhonor_report"
+  )
+}
 
-  cli::cli_h1("yourhonor assessment: {assessment$decision}")
+report_outputs <- c("console", "md")
+
+#' @export
+print.yourhonor_report <- function(x, output = x$output, ...) {
+  output <- rlang::arg_match(output, report_outputs)
+  if (output == "md") {
+    cat(format(x, output = "md"), sep = "\n")
+  } else {
+    render_console_report(x)
+  }
+  invisible(x)
+}
+
+#' @export
+format.yourhonor_report <- function(x, output = x$output, ...) {
+  output <- rlang::arg_match(output, report_outputs)
+  if (output == "md") {
+    build_markdown(x)
+  } else {
+    cli::cli_fmt(render_console_report(x))
+  }
+}
+
+#' @export
+as.character.yourhonor_report <- function(x, ...) {
+  format(x, output = "md")
+}
+
+render_console_report <- function(report) {
+  x <- report$calibration
+  bias <- report$bias
+  stability <- report$stability
+  policy <- report$policy
+  head <- headline_row(x, policy)
+
+  cli::cli_h1("yourhonor assessment: {report$decision}")
   print_agreement_line(head)
   print_class_line(x$confusion_metrics)
   reliability <- human_reliability_gwet(x)
@@ -59,7 +108,7 @@ report <- function(x,
   if (is.null(bias)) {
     cli::cli_text("Bias probes: NOT ASSESSED.")
   } else {
-    cli::cli_text("{bias_summary(bias, assessment)}")
+    cli::cli_text("{bias_summary(bias, report$checks, policy)}")
   }
   if (is.null(stability)) {
     cli::cli_text("Test-retest stability: NOT ASSESSED.")
@@ -74,23 +123,48 @@ report <- function(x,
     cli::cli_alert_info("Descriptive only: no acceptance policy was supplied.")
   } else {
     cli::cli_h2("policy checks")
-    for (i in seq_len(nrow(assessment$checks))) {
-      row <- assessment$checks[i, ]
-      cli::cli_text("{row$status}: {row$check} - {row$reason}")
-    }
+    lines <- format_check_lines(report$checks, style = "console")
+    for (line in lines) cli::cli_text("{line}")
   }
-  if (!bundle_bound) {
+  if (!supplied_evidence_is_bound(x, bias, stability)) {
     cli::cli_alert_warning(
       "Supplied secondary evidence is UNBOUND; use one audit_id across all runs."
     )
   }
-  invisible(x)
+  invisible(NULL)
 }
 
-#' @export
-print.yourhonor_report <- function(x, ...) {
-  cat(unclass(x), sep = "\n")
-  invisible(x)
+# Render `value (op threshold)` for every check so a FAIL line shows how far
+# the evidence sat from its gate; the policy-less placeholder has neither.
+format_check_lines <- function(checks, style = c("console", "md")) {
+  style <- rlang::arg_match(style)
+  measure <- ifelse(
+    is.na(checks$op),
+    "",
+    paste0(
+      " = ", fmt_check_number(checks$value), " (", checks$op, " ",
+      fmt_check_number(checks$threshold), ")"
+    )
+  )
+  if (style == "md") {
+    sprintf(
+      "- **%s** `%s`%s: %s",
+      checks$status, checks$check, measure, checks$reason
+    )
+  } else {
+    sprintf(
+      "%s: %s%s - %s",
+      checks$status, checks$check, measure, checks$reason
+    )
+  }
+}
+
+# Counts print as integers and rates keep three significant digits, so a
+# missing rate of 0.003 is not rendered as the "0.00" of a two-decimal format.
+fmt_check_number <- function(x) {
+  vapply(x, function(v) {
+    if (is.na(v)) "NA" else format(v, digits = 3)
+  }, character(1))
 }
 
 headline_row <- function(x, policy = NULL) {
@@ -118,40 +192,56 @@ detected_biases <- function(bias) {
   bias$probe[!is.na(bias$verdict) & bias$verdict == "BIAS"]
 }
 
-bias_summary <- function(bias, assessment) {
-  checks <- assessment$checks
-  policy_supplied <- !any(checks$check == "acceptance_policy")
-  if (policy_supplied) {
-    bias_checks <- checks[startsWith(checks$check, "bias_"), , drop = FALSE]
-    if (nrow(bias_checks) == 0L) {
-      biases <- detected_biases(bias)
-      state <- if (length(biases) > 0L) {
-        paste0("descriptive probe settings flagged ", paste(biases, collapse = ", "))
-      } else {
-        "descriptive probe settings did not flag a directional signal"
-      }
-      return(paste0("Bias probes were outside the policy; ", state, "."))
+# Policy checks exist only for `required_probes`, so a detected signal in any
+# other supplied probe is reported alongside the gate outcome rather than
+# hidden behind it.
+bias_summary <- function(bias, checks, policy) {
+  if (is.null(policy)) {
+    biases <- detected_biases(bias)
+    if (length(biases) > 0L) {
+      return(paste0(
+        "Descriptive probe settings detected bias: ",
+        paste(biases, collapse = ", "), "."
+      ))
     }
-    failed <- bias_checks$check[bias_checks$status == "FAIL"]
-    incomplete <- bias_checks$status %in% c("NOT_ASSESSED", "INDETERMINATE")
-    if (length(failed) > 0L) {
-      return(paste0("Policy-failing bias checks: ", paste(failed, collapse = ", "), "."))
+    if (any(bias$verdict == "INCONCLUSIVE")) {
+      return("At least one supplied bias probe was INCONCLUSIVE.")
     }
-    if (any(incomplete)) {
-      return("Bias policy evidence is incomplete or indeterminate.")
-    }
-    return("Supplied bias probes cleared the declared policy gates.")
+    return(paste0(
+      "Supplied bias probes found no directional signal; ",
+      "absence is not established."
+    ))
   }
-  biases <- detected_biases(bias)
-  if (length(biases) > 0L) {
-    paste0(
-      "Descriptive probe settings detected bias: ", paste(biases, collapse = ", "), "."
-    )
-  } else if (any(bias$verdict == "INCONCLUSIVE")) {
-    "At least one supplied bias probe was INCONCLUSIVE."
+
+  required <- policy$required_probes
+  outside <- detected_biases(bias[!bias$probe %in% required, , drop = FALSE])
+  if (length(required) == 0L) {
+    state <- if (length(outside) > 0L) {
+      paste0(
+        "descriptive probe settings flagged ", paste(outside, collapse = ", ")
+      )
+    } else {
+      "descriptive probe settings did not flag a directional signal"
+    }
+    return(paste0("Bias probes were outside the policy; ", state, "."))
+  }
+  bias_checks <- checks[startsWith(checks$check, "bias_"), , drop = FALSE]
+  failed <- bias_checks$check[bias_checks$status == "FAIL"]
+  incomplete <- bias_checks$status %in% c("NOT_ASSESSED", "INDETERMINATE")
+  summary <- if (length(failed) > 0L) {
+    paste0("Policy-failing bias checks: ", paste(failed, collapse = ", "), ".")
+  } else if (any(incomplete)) {
+    "Bias policy evidence is incomplete or indeterminate."
   } else {
-    "Supplied bias probes found no directional signal; absence is not established."
+    "Required bias probes cleared the declared policy gates."
   }
+  if (length(outside) > 0L) {
+    summary <- paste0(
+      summary, " Outside the policy, descriptive probe settings flagged ",
+      paste(outside, collapse = ", "), "."
+    )
+  }
+  summary
 }
 
 validate_report_evidence <- function(x, bias, stability) {
@@ -188,12 +278,8 @@ validate_report_evidence <- function(x, bias, stability) {
     }
   }
 
-  ids <- list(
-    calibration = x$audit_id,
-    bias = if (is.null(bias)) NULL else evidence_audit_id(bias),
-    stability = if (is.null(stability)) NULL else evidence_audit_id(stability)
-  )
-  present <- unlist(ids[!vapply(ids, is.null, logical(1))], use.names = FALSE)
+  ids <- lapply(Filter(Negate(is.null), list(x, bias, stability)), audit_id)
+  present <- unlist(Filter(is_binding_id, ids), use.names = FALSE)
   if (length(unique(present)) > 1L) {
     cli::cli_abort(
       "Calibration, bias, and stability {.arg audit_id} values do not match."
@@ -245,11 +331,16 @@ print_class_line <- function(metrics) {
   invisible(NULL)
 }
 
-build_markdown <- function(x, head, bias, stability, assessment) {
+build_markdown <- function(report) {
+  x <- report$calibration
+  bias <- report$bias
+  stability <- report$stability
+  policy <- report$policy
+  head <- headline_row(x, policy)
   lines <- c(
     sprintf("## Judge evidence (n = %d of %d)", x$n_items, x$n_input),
     "",
-    sprintf("Assessment: **%s**.", assessment$decision),
+    sprintf("Assessment: **%s**.", report$decision),
     ""
   )
   if (identical(head$status, "ok")) {
@@ -281,7 +372,7 @@ build_markdown <- function(x, head, bias, stability, assessment) {
   if (is.null(bias)) {
     lines <- c(lines, "", "Bias probes: **NOT ASSESSED**.")
   } else {
-    lines <- c(lines, "", bias_summary(bias, assessment))
+    lines <- c(lines, "", bias_summary(bias, report$checks, policy))
   }
   if (is.null(stability)) {
     lines <- c(lines, "Test-retest stability: **NOT ASSESSED**.")
@@ -301,11 +392,8 @@ build_markdown <- function(x, head, bias, stability, assessment) {
     )
   }
 
-  lines <- c(lines, "", "### Assessment checks", "")
-  checks <- assessment$checks
-  lines <- c(lines, sprintf(
-    "- **%s** `%s`: %s",
-    checks$status, checks$check, checks$reason
-  ))
-  lines
+  c(
+    lines, "", "### Assessment checks", "",
+    format_check_lines(report$checks, style = "md")
+  )
 }

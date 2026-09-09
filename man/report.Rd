@@ -15,23 +15,35 @@ report(
 \arguments{
 \item{x}{A \code{yourhonor_calibration} object.}
 
-\item{bias}{Optional result from \code{\link[=probe_bias]{probe_bias()}} or \code{\link[=probe_position]{probe_position()}}.}
+\item{bias}{Optional result from \code{\link[=probe_bias]{probe_bias()}}, \code{\link[=probe_position]{probe_position()}}, or
+\code{\link[=combine_bias]{combine_bias()}}.}
 
 \item{stability}{Optional result from \code{\link[=test_retest]{test_retest()}}.}
 
 \item{policy}{Optional policy from \code{\link[=acceptance_policy]{acceptance_policy()}}.}
 
-\item{output}{\code{"console"} or \code{"md"}.}
+\item{output}{Default rendering when the report is printed: \code{"console"}
+(styled cli output) or \code{"md"} (Markdown lines).}
 }
 \value{
-For Markdown, a \code{yourhonor_report} character vector with \code{decision}
-and \code{checks} attributes. Console output returns \code{x} invisibly.
+A \code{yourhonor_report} list with elements \code{decision} (one of \code{PASS},
+\code{FAIL}, \code{INDETERMINATE}, \code{NOT_ASSESSED}), \code{checks} (a tibble with one row
+per policy check: \code{check}, \code{status}, \code{value}, \code{op}, \code{threshold}, and
+\code{reason}), the supplied \code{calibration}, \code{bias}, \code{stability}, and \code{policy},
+and the default \code{output}. The report is returned visibly, so calling
+\code{report()} at the console renders it.
 }
 \description{
 Without \code{policy}, this function renders descriptive evidence and returns the
 decision \code{"NOT_ASSESSED"}. It never infers that missing bias or stability
 evidence passed. With an \code{\link[=acceptance_policy]{acceptance_policy()}}, every criterion is rendered as
 \code{PASS}, \code{FAIL}, \code{NOT_ASSESSED}, or \code{INDETERMINATE}.
+}
+\details{
+The result is the same object whichever \code{output} is chosen; \code{output} only
+sets how it prints by default. \code{print(x, output = "md")} or
+\code{format(x, output = "md")} render the Markdown form of any report, and
+\code{as.character()} always returns the Markdown lines.
 }
 \examples{
 gold <- tibble::tibble(
@@ -40,5 +52,7 @@ gold <- tibble::tibble(
 )
 cal <- calibrate_judge(gold, label_levels = c("I", "P", "C"),
                        n_boot = 200, seed = 1)
-report(cal, output = "md")
+rep <- report(cal, output = "md")
+rep$decision
+rep
 }

@@ -81,6 +81,13 @@ test_retest <- function(data,
   })
   runs <- vapply(graded, function(g) g$label, character(nrow(data)))
   runs <- matrix(runs, nrow = nrow(data), ncol = n_runs)
+  # The rating matrix is character, so a judge's factor levels would be lost
+  # before `resolve_label_levels()` could use them; every run's declared
+  # levels are kept, in first-seen order.
+  if (is.null(label_levels)) {
+    inferred <- unique(unlist(lapply(graded, `[[`, "label_levels")))
+    if (length(inferred) > 0L) label_levels <- inferred
+  }
   judge_item_ids <- vapply(graded, function(g) {
     source_judge_item_ids(g$blinding_map, nrow(data))
   }, integer(nrow(data)))

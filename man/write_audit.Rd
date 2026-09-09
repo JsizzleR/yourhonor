@@ -63,8 +63,11 @@ or \code{NOT_ASSESSED}).
 \code{\link[=acceptance_policy]{acceptance_policy()}} argument. \code{required_probes} is an array;
 \code{min_recall} and \code{min_precision} are a number when global or an object
 keyed by class name when class-specific; unset thresholds are \code{null}.
-\item \code{checks}: array of objects with \code{check}, \code{status}, \code{value}, \code{threshold},
-and \code{reason}, one per policy check.
+\item \code{checks}: array of objects, one per policy check, with \code{check}, \code{status},
+\code{value} (the observed number, \code{null} when unavailable), \code{op} (the
+comparison the check encodes: \code{">="}, \code{"<="}, \code{"lower >="},
+\code{"upper <="}, or \code{"="}), a numeric \code{threshold}, and \code{reason}. Without a
+policy the single placeholder check has \code{null} \code{op} and \code{threshold}.
 \item \code{calibration}: \code{n_input}, \code{n_items}, \code{n_excluded}, \code{n_consensus_ties},
 \code{scale}, \code{weights}, \code{conf_level}, \code{n_boot}, \code{seed} (scalars);
 \code{label_levels} and \code{coefficients} (arrays); \code{agreement},

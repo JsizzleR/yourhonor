@@ -162,7 +162,9 @@ probe_bias <- function(data,
     control <- set_input(judge_base, pair$control)
     treatment <- set_input(judge_base, pair$treatment)
     stacked <- vctrs::vec_rbind(control, treatment)
-    scored <- grade_blind(judge, stacked, ordered_levels)$label
+    scored <- grade_blind(
+      judge, stacked, ordered_levels, levels_arg = "ordered_levels"
+    )$label
     before <- to_ordinal(scored[seq_len(nrow(data))], ordered_levels)
     after <- to_ordinal(scored[nrow(data) + seq_len(nrow(data))], ordered_levels)
     test <- paired_flip_test(before, after, conf_level)
@@ -275,7 +277,7 @@ probe_position <- function(data,
   )
   graded <- grade_blind(
     judge, evidence$judge_data, c(choice_levels, tie_label),
-    context = "Structured position output"
+    context = "Structured position output", levels_arg = "choice_levels"
   )
   ev <- evidence$internal
   ev$.judge_item_id <- graded$blinding_map$.item_id[
@@ -332,7 +334,7 @@ combine_bias <- function(...,
   if (length(probes) < 2L || !all(vapply(probes, inherits, logical(1), "yourhonor_bias"))) {
     cli::cli_abort("{.fn combine_bias} requires two or more {.cls yourhonor_bias} objects.")
   }
-  ids <- lapply(probes, function(x) attr(x, "audit_id", exact = TRUE))
+  ids <- lapply(probes, audit_id)
   has_id <- !vapply(ids, is.null, logical(1))
   if (any(has_id) && (!all(has_id) || length(unique(unlist(ids))) != 1L)) {
     cli::cli_abort("All bias evidence must share the same non-missing {.arg audit_id}.")
@@ -370,8 +372,8 @@ new_yourhonor_bias <- function(rows,
     evidence = probe_named_list(evidence, rows$probe),
     item_evidence = probe_named_list(item_evidence, rows$probe)
   )
-  # NULL leaves the attribute absent, which evidence_audit_id() treats as
-  # "unbound".
+  # NULL leaves the attribute absent, which audit_id() returns as NULL and
+  # evidence_is_bound() treats as "unbound".
   attr(out, "audit_id") <- audit_id
   out
 }

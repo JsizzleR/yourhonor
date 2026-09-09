@@ -43,29 +43,34 @@ judge-consensus pair.}
 explicitly when stability is outside this policy.}
 
 \item{min_stability_n}{Minimum independent items with at least two stability
-judgments. Required when \code{max_pairwise_disagreement} is not \code{NULL}.}
+judgments. Required when \code{max_pairwise_disagreement} is not \code{NULL} and
+rejected otherwise.}
 
 \item{min_stability_runs}{Minimum repeated judge runs. Required when
-\code{max_pairwise_disagreement} is not \code{NULL}.}
+\code{max_pairwise_disagreement} is not \code{NULL} and rejected otherwise.}
 
 \item{max_stability_missing_rate}{Maximum fraction of individual repeated
-judgments that may be missing. Required when stability is in the policy.}
+judgments that may be missing. Required when stability is in the policy
+and rejected otherwise.}
 
 \item{required_probes}{Bias probes that must be present and free of detected
 signal.}
 
 \item{min_probe_n}{Minimum paired comparisons required for every required
-bias probe. Required when \code{required_probes} is non-empty.}
+bias probe. Required when \code{required_probes} is non-empty and rejected
+otherwise.}
 
 \item{max_probe_flip_rate}{Maximum upper confidence bound for a required
-probe's flip rate. Required when \code{required_probes} is non-empty.}
+probe's flip rate. Required when \code{required_probes} is non-empty and
+rejected otherwise.}
 
 \item{max_probe_directional_rate}{Maximum practically tolerable net
-directional effect, assessed against a conservative confidence interval.}
+directional effect, assessed against a conservative confidence interval.
+Required when \code{required_probes} is non-empty and rejected otherwise.}
 
 \item{max_probe_missing_rate}{Maximum fraction of individual probe judgments
 that may be missing. Required when \code{required_probes} is non-empty so
-selective abstention cannot make a probe look clean.}
+selective abstention cannot make a probe look clean; rejected otherwise.}
 
 \item{min_precision}{Optional minimum lower confidence bound for per-class
 precision, scalar or named.}
@@ -86,4 +91,11 @@ A \code{yourhonor_policy} object.
 A policy turns descriptive calibration evidence into a decision. Thresholds
 are intentionally supplied by the caller because acceptable error depends on
 the task and the cost of each class of mistake.
+}
+\details{
+Stability and bias thresholds are grouped behind a parent gate:
+\code{max_pairwise_disagreement} switches the stability checks on and
+\code{required_probes} switches the bias checks on. The dependent thresholds must
+be supplied together with their gate and are rejected without it, so a policy
+can never carry a threshold that the assessment does not read.
 }
