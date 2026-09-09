@@ -22,7 +22,9 @@
 #' @param human_cols Human-rater columns.
 #' @param judge_col Column containing precomputed judge labels when `judge` is
 #'   `NULL`.
-#' @param label_levels Complete label universe in intended order. Required for
+#' @param label_levels Complete label universe in intended order. Labels are
+#'   matched exactly (case and whitespace are significant) and empty labels are
+#'   rejected; represent a failed judgement as `NA`. Required for
 #'   `scale = "ordinal"`.
 #' @param scale Whether labels are nominal or ordinal.
 #' @param weights Agreement weights. `NULL` selects `"unweighted"` for nominal
@@ -95,7 +97,7 @@ calibrate_judge <- function(gold,
   if (scale == "ordinal" && is.null(label_levels)) {
     cli::cli_abort("{.arg label_levels} is required when {.code scale = 'ordinal'}.")
   }
-  label_levels <- resolve_label_levels(human_source, label_levels)
+  label_levels <- resolve_label_levels(human_source, label_levels, arg = "human_cols")
   if (length(label_levels) == 0L) {
     cli::cli_abort("Human ratings contain no observed labels.")
   }
@@ -385,7 +387,7 @@ grade_blind <- function(judge,
                         data,
                         label_levels = NULL,
                         context = "Structured judge output") {
-  data <- tibble::as_tibble(data)
+  data <- sanitize_judge_frame(data)
   if (".item_id" %in% names(data)) {
     cli::cli_abort("Internal blind-grading input cannot already contain {.field .item_id}.")
   }
@@ -408,6 +410,49 @@ grade_blind <- function(judge,
       .item_id = seq_len(nrow(data)), .source_row = permutation
     )
   )
+}
+
+# Element names and free-form attributes travel with the values through a
+# shuffle, so a column built with sapply() over labels or IDs would hand the
+# judge every human label row-aligned. Keep only the attributes a vector needs
+# to keep its class, and rebuild the frame so table-level attributes are gone.
+sanitize_judge_frame <- function(data) {
+  data <- tibble::as_tibble(data, .name_repair = "minimal")
+  columns <- lapply(data, sanitize_judge_value)
+  tibble::new_tibble(columns, nrow = nrow(data))
+}
+
+# Names on a column (or on any atomic vector inside it) are row-aligned and
+# are dropped; names inside nested lists are keys and are kept.
+sanitize_judge_value <- function(x, nested = FALSE) {
+  # Objects without row-aligned names are passed through untouched.
+  if (isS4(x) || is.environment(x) || is.function(x)) return(x)
+  if (is.data.frame(x)) return(sanitize_judge_frame(x))
+  # POSIXlt keeps every datetime component as a whole vector on each element.
+  if (inherits(x, "POSIXlt")) x <- as.POSIXlt(unname(as.POSIXct(x)))
+  # A record is a named list of fields; the fields are the column's data.
+  # Scalar attributes are class metadata (a precision, a unit) and stay;
+  # anything longer could be row-aligned and is dropped.
+  if (inherits(x, "vctrs_rcrd")) {
+    fields <- vctrs::fields(x)
+    attrs <- attributes(x)
+    extra <- setdiff(names(attrs)[lengths(attrs) > 1L], c("names", "class"))
+    for (name in extra) attr(x, name) <- NULL
+    for (field in fields) {
+      vctrs::field(x, field) <- sanitize_judge_value(vctrs::field(x, field))
+    }
+    return(x)
+  }
+  if (!nested || !vctrs::obj_is_list(x)) x <- vctrs::vec_set_names(x, NULL)
+  keep <- c("names", "class", "levels", "tzone", "units", "dim", "dimnames", "ptype")
+  extra <- setdiff(names(attributes(x)), keep)
+  for (name in extra) attr(x, name) <- NULL
+  # Bare lists, list_of and AsIs columns hold one value per row and are
+  # traversed; other classed list-likes own their components and are not.
+  if (vctrs::obj_is_list(x)) {
+    x[] <- lapply(x, sanitize_judge_value, nested = TRUE)
+  }
+  x
 }
 
 grade_keyed <- function(judge,
@@ -451,6 +496,7 @@ grade_keyed <- function(judge,
     output$label <- as.character(out)
   }
   labels <- as.character(labels)
+  check_labels_nonblank(labels, "judge")
   if (!is.null(label_levels)) labels <- validate_labels(labels, label_levels, "judge")
   list(label = labels, output = output)
 }

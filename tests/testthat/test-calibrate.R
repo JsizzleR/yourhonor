@@ -231,3 +231,135 @@ test_that("ordinal calibration requires declared label order", {
   expect_true("gwet_ac2" %in% cal$agreement$coefficient)
   expect_false("gwet_ac1" %in% cal$agreement$coefficient)
 })
+
+test_that("a blank judge label is rejected on the first call and named as such", {
+  gold <- tibble::tibble(
+    human_label = c("C", "C", "P", "I", "C", "P"),
+    input = paste("answer", 1:6)
+  )
+  calls <- 0L
+  blank_judge <- function(d) {
+    calls <<- calls + 1L
+    labels <- rep("C", nrow(d))
+    labels[[1]] <- ""
+    labels
+  }
+  expect_error(
+    test_retest(gold, blank_judge, input_cols = "input", n_runs = 3, n_boot = 10, seed = 1),
+    "`judge` contains empty"
+  )
+  expect_equal(calls, 1L)
+  expect_error(
+    calibrate_judge(gold, blank_judge, input_cols = "input", n_boot = 10, seed = 1),
+    "`judge` contains empty"
+  )
+})
+
+test_that("element names and attributes never reach the judge", {
+  gold <- tibble::tibble(
+    human_label = c("C", "C", "P", "I", "C", "P", "I", "C"),
+    input = paste("answer", 1:8)
+  )
+  gold$input <- stats::setNames(gold$input, gold$human_label)
+  attr(gold$input, "secret") <- gold$human_label
+  attr(gold, "comment") <- "human labels: C C P I C P I C"
+  seen <- NULL
+  judge <- function(d) {
+    seen <<- list(
+      names = names(d$input),
+      column_attrs = names(attributes(d$input)),
+      table_attrs = names(attributes(d))
+    )
+    rep("C", nrow(d))
+  }
+  calibrate_judge(
+    gold, judge, input_cols = "input", label_levels = c("I", "P", "C"),
+    n_boot = 10, seed = 1
+  )
+  expect_null(seen$names)
+  expect_null(seen$column_attrs)
+  expect_setequal(seen$table_attrs, c("names", "row.names", "class"))
+
+  # List columns are sanitised element by element.
+  gold$input <- lapply(seq_len(8), function(i) {
+    structure(list(text = paste("answer", i)), secret = gold$human_label[[i]])
+  })
+  seen_list <- NULL
+  list_judge <- function(d) {
+    seen_list <<- lapply(d$input, function(el) names(attributes(el)))
+    rep("C", nrow(d))
+  }
+  calibrate_judge(
+    gold, list_judge, input_cols = "input", label_levels = c("I", "P", "C"),
+    n_boot = 10, seed = 1
+  )
+  expect_true(all(vapply(seen_list, identical, logical(1), "names")))
+
+  # Classed list columns (list_of, AsIs) are traversed too; S4 objects pass
+  # through whole.
+  setClass("yourhonor_blob", representation(payload = "character"))
+  gold$as_is <- I(lapply(gold$human_label, function(g) structure(1, hidden = g)))
+  gold$list_of <- vctrs::list_of(!!!lapply(gold$human_label, function(g) stats::setNames(1, g)))
+  gold$blob <- lapply(gold$human_label, function(g) new("yourhonor_blob", payload = "static"))
+  gold$when <- lapply(gold$human_label, function(g) {
+    stats::setNames(as.POSIXlt("2024-01-01", tz = "UTC"), g)
+  })
+  seen_classed <- NULL
+  classed_judge <- function(d) {
+    seen_classed <<- list(
+      as_is = unlist(lapply(d$as_is, function(el) attr(el, "hidden"))),
+      list_of = unlist(lapply(d$list_of, names)),
+      blob = vapply(d$blob, function(el) el@payload, character(1)),
+      list_of_class = class(d$list_of),
+      when = unlist(lapply(d$when, names))
+    )
+    rep("C", nrow(d))
+  }
+  calibrate_judge(
+    gold, classed_judge, input_cols = c("as_is", "list_of", "blob", "when"),
+    label_levels = c("I", "P", "C"), n_boot = 10, seed = 1
+  )
+  expect_null(seen_classed$as_is)
+  expect_null(seen_classed$list_of)
+  expect_identical(seen_classed$blob, rep("static", 8))
+  expect_true("vctrs_list_of" %in% seen_classed$list_of_class)
+  expect_null(seen_classed$when)
+})
+
+test_that("sanitising judge input keeps classed columns intact", {
+  gold <- tibble::tibble(
+    human_label = c("C", "P", "I", "C"),
+    when = as.Date("2024-01-01") + 0:3,
+    stamp = as.POSIXct("2024-01-01 12:00:00", tz = "Asia/Tokyo") + 0:3,
+    local = stats::setNames(
+      as.POSIXlt(as.POSIXct("2024-01-01 12:00:00", tz = "UTC") + 0:3),
+      c("C", "P", "I", "C")
+    ),
+    grade = factor(c("x", "y", "x", "y")),
+    record = vctrs::new_rcrd(
+      list(lo = 1:4, hi = stats::setNames(5:8, c("C", "P", "I", "C"))),
+      secret = c("C", "P", "I", "C"), precision = "day", class = "yourhonor_span"
+    ),
+    nested = tibble::tibble(a = 1:4, a = 5:8, .name_repair = "minimal")
+  )
+  judge <- function(d) {
+    expect_s3_class(d$when, "Date")
+    expect_identical(attr(d$stamp, "tzone"), "Asia/Tokyo")
+    expect_s3_class(d$local, "POSIXlt")
+    expect_null(names(d$local))
+    expect_setequal(format(d$local, "%H:%M:%S"), c("12:00:00", "12:00:01", "12:00:02", "12:00:03"))
+    expect_s3_class(d$grade, "factor")
+    expect_identical(levels(d$grade), c("x", "y"))
+    expect_setequal(vctrs::field(d$record, "hi"), 5:8)
+    expect_null(names(vctrs::field(d$record, "hi")))
+    expect_null(attr(d$record, "secret"))
+    expect_identical(attr(d$record, "precision"), "day")
+    expect_identical(names(d$nested), c("a", "a"))
+    rep("C", nrow(d))
+  }
+  cal <- calibrate_judge(
+    gold, judge, input_cols = c("when", "stamp", "local", "grade", "record", "nested"),
+    label_levels = c("I", "P", "C"), n_boot = 10, seed = 1
+  )
+  expect_equal(cal$n_items, 4)
+})

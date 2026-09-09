@@ -66,6 +66,7 @@ probe_bias <- function(data,
   if (length(ordered_levels) < 2L || anyNA(ordered_levels) || anyDuplicated(ordered_levels)) {
     cli::cli_abort("{.arg ordered_levels} must contain at least two unique labels.")
   }
+  check_labels_nonblank(ordered_levels, "ordered_levels")
 
   data <- tibble::as_tibble(data)
   if (!"input" %in% names(data)) {
@@ -219,11 +220,13 @@ probe_position <- function(data,
   if (length(choice_levels) != 2L || anyNA(choice_levels) || anyDuplicated(choice_levels)) {
     cli::cli_abort("{.arg choice_levels} must contain two unique display labels.")
   }
+  check_labels_nonblank(choice_levels, "choice_levels")
   if (!is.null(tie_label)) {
     if (length(tie_label) != 1L || is.na(tie_label) || !nzchar(as.character(tie_label))) {
       cli::cli_abort("{.arg tie_label} must be one non-empty label or {.code NULL}.")
     }
     tie_label <- as.character(tie_label)
+    check_labels_nonblank(tie_label, "tie_label")
     if (tie_label %in% choice_levels) {
       cli::cli_abort("{.arg tie_label} must differ from {.arg choice_levels}.")
     }
@@ -267,7 +270,7 @@ probe_position <- function(data,
   first_rate <- if (n_directional > 0L) first_count / n_directional else NA_real_
   first_ci <- exact_binom_interval(first_count, n_directional, conf_level)
   directional_ci <- directional_magnitude_interval(
-    first_count, n_directional - first_count, nrow(data), conf_level
+    first_count, n_directional - first_count, n_scored, conf_level
   )
   p <- if (n_directional > 0L) {
     stats::binom.test(first_count, n_directional, 0.5)$p.value
@@ -299,7 +302,11 @@ probe_position <- function(data,
     conf_low = flip_ci[[1]],
     conf_high = flip_ci[[2]],
     direction = direction,
-    directional_rate = abs(2L * first_count - n_directional) / nrow(data),
+    directional_rate = if (n_scored > 0L) {
+      abs(2L * first_count - n_directional) / n_scored
+    } else {
+      NA_real_
+    },
     directional_conf_low = directional_ci[[1]],
     directional_conf_high = directional_ci[[2]],
     position_preference = first_rate,
@@ -569,6 +576,14 @@ map_canonical_choice <- function(choice, condition, choice_levels, tie_label) {
   out
 }
 
+# The display slot a canonical choice occupied in a given condition: 1 for
+# the first slot, 2 for the second, 0 for a tie.
+canonical_slot <- function(choice, condition) {
+  if (choice == "tie") return(0L)
+  first <- if (condition == "original") "candidate_a" else "candidate_b"
+  if (choice == first) 1L else 2L
+}
+
 position_item_evidence <- function(evidence, choice_levels) {
   rows <- lapply(unique(evidence$.item_id), function(item_id) {
     item <- evidence[evidence$.item_id == item_id, , drop = FALSE]
@@ -588,12 +603,21 @@ position_item_evidence <- function(evidence, choice_levels) {
     } else {
       NA_real_
     }
-    position_direction <- if (is.na(first_rate) || first_rate == 0.5) {
+    # Direction is evidence only when the item was decided in both display
+    # orders and the canonical choice moved with the order. A judge that keeps
+    # its canonical choice has no position preference, however unevenly it
+    # abstained across repeats, so display counts are not used here. A tie is
+    # a decided judgement that commits to neither slot.
+    position_direction <- if (is.na(flipped)) {
+      NA_integer_
+    } else if (!flipped) {
       0L
-    } else if (first_rate > 0.5) {
-      1L
     } else {
-      -1L
+      slots <- c(
+        canonical_slot(original_choice, "original"),
+        canonical_slot(swapped_choice, "swapped")
+      )
+      as.integer(sign(sum(slots == 1L) - sum(slots == 2L)))
     }
     tibble::tibble(
       .item_id = item_id,

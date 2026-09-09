@@ -8,3 +8,4 @@
 ^\.github$
 ^\.git$
 ^figure$
+^\.claude$

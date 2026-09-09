@@ -1,5 +1,25 @@
 # yourhonor 0.0.0.9000
 
+* Ratings are integer-coded before they reach irrCAC, which upper-cases, trims,
+  and blanks character labels internally. Labels that differ only by case or
+  whitespace now stay distinct in every coefficient and in test-retest
+  stability, matching `confusion()`. Empty or whitespace-only labels are
+  rejected with a request to use `NA`.
+* `probe_position()` counts an item toward the directional sign test only when
+  it was decided in both display orders and its canonical choice moved with
+  the order, so abstaining on one order no longer reads as a position
+  preference. A tie counts as a decided judgement that commits to neither
+  slot. The directional rate and interval now use scored items as the
+  denominator, as the pointwise probes do.
+* Blind grading strips element names and free-form attributes from every
+  judge-visible vector, list element, record field and nested frame, closing
+  a channel through which a column built with `sapply()` over labels or IDs
+  carried them to the judge row-aligned through the shuffle. Structural
+  attributes (class, levels, tzone, units, dim, ptype) are kept, and S4
+  objects, environments and functions inside list columns pass through as is.
+* Inferred label universes now union declared factor levels with every label
+  observed in a non-factor column, so `confusion()` no longer silently drops a
+  pair whose label is absent from a factor's levels.
 * Calibration now shuffles redacted judge inputs before assigning opaque keys,
   validates keyed output, preserves a declared label universe, and distinguishes
   human reliability from a purported ceiling.

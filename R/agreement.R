@@ -23,7 +23,10 @@
 #' @param n_boot Positive number of bootstrap resamples.
 #' @param seed Optional integer seed. The caller's random state is restored.
 #' @param label_levels Complete label universe in its intended order. Supplying
-#'   this is strongly recommended for ordinal scales and rare classes.
+#'   this is strongly recommended for ordinal scales and rare classes. Labels
+#'   are matched exactly: case and surrounding whitespace are significant, and
+#'   empty or whitespace-only labels are rejected. Use `NA` for a missing or
+#'   failed judgement.
 #' @param weights Agreement weights. `"unweighted"` treats labels as nominal;
 #'   `"linear"`, `"quadratic"`, or `"ordinal"` use the order in
 #'   `label_levels`.
@@ -73,7 +76,7 @@ agreement <- function(x,
     )
   }
   ratings <- as_ratings(x)
-  label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE)
+  label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE, arg = "x")
   compute_agreement(
     ratings, coefficients, conf_level, n_boot, seed,
     label_levels = label_levels, weights = weights
@@ -182,19 +185,22 @@ coeff_point <- function(ratings,
       "{.val cohen_kappa} is defined for exactly two raters; got {ncol(ratings)}."
     )
   }
+  if (is.null(label_levels)) label_levels <- sort(observed_categories(ratings))
+  coded <- encode_ratings(ratings, label_levels)
+  categ <- seq_along(label_levels)
   val <- switch(
     coefficient,
     cohen_kappa = irrCAC::conger.kappa.raw(
-      ratings, weights = weights, categ.labels = label_levels
+      coded, weights = weights, categ.labels = categ
     )$est$coeff.val,
     krippendorff_alpha = irrCAC::krippen.alpha.raw(
-      ratings, weights = weights, categ.labels = label_levels
+      coded, weights = weights, categ.labels = categ
     )$est$coeff.val,
     gwet_ac1 = irrCAC::gwet.ac1.raw(
-      ratings, weights = weights, categ.labels = label_levels
+      coded, weights = weights, categ.labels = categ
     )$est$coeff.val,
     gwet_ac2 = irrCAC::gwet.ac1.raw(
-      ratings, weights = weights, categ.labels = label_levels
+      coded, weights = weights, categ.labels = categ
     )$est$coeff.val,
     cli::cli_abort("Unknown coefficient {.val {coefficient}}.")
   )

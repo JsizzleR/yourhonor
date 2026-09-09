@@ -73,6 +73,7 @@ test_retest <- function(data,
     weights = weights,
     conf_level = conf_level,
     n_boot = n_boot,
+    arg = "judge",
     audit_id = audit_id
   )
 }
@@ -82,7 +83,8 @@ summarize_stability_runs <- function(runs,
                                      weights = "unweighted",
                                      conf_level = 0.95,
                                      n_boot = 1000,
-                                     audit_id = NULL) {
+                                     audit_id = NULL,
+                                     arg = "ratings") {
   runs <- as.matrix(runs)
   storage.mode(runs) <- "character"
   if (nrow(runs) < 1L || ncol(runs) < 2L) {
@@ -95,7 +97,8 @@ summarize_stability_runs <- function(runs,
   label_levels <- resolve_label_levels(
     as.data.frame(runs, stringsAsFactors = FALSE),
     label_levels,
-    allow_single = TRUE
+    allow_single = TRUE,
+    arg = arg
   )
 
   observed_count <- apply(runs, 1, function(z) sum(!is.na(z)))
@@ -225,11 +228,12 @@ chance_corrected_stability <- function(runs,
   if (length(unique(stats::na.omit(as.vector(runs)))) < 2L) {
     return(NA_real_)
   }
+  if (is.null(label_levels)) label_levels <- sort(observed_categories(runs))
   tryCatch(
     as.numeric(irrCAC::gwet.ac1.raw(
-      as.data.frame(runs, stringsAsFactors = FALSE),
+      encode_ratings(runs, label_levels),
       weights = weights,
-      categ.labels = label_levels
+      categ.labels = seq_along(label_levels)
     )$est$coeff.val),
     error = function(e) NA_real_
   )

@@ -200,3 +200,109 @@ test_that("pointwise and position evidence combine only within one audit", {
   attr(position, "audit_id") <- "bundle-2"
   expect_error(combine_bias(pointwise, position), "same non-missing")
 })
+
+test_that("position direction needs a decided judgement in both display orders", {
+  data <- pair_data()[rep(1:2, 10), ]
+  # Content-consistent judge that abstains whenever its preferred answer is
+  # shown second. Abstention alone must not read as a position preference.
+  abstainer <- function(d) ifelse(grepl("good", d$.candidate_1), "A", NA_character_)
+  res <- probe_position(
+    data, abstainer,
+    "candidate_a", "candidate_b", context_cols = "context", repeats = 2, seed = 1
+  )
+  expect_equal(res$n_scored, 0)
+  expect_equal(res$n_directional_items, 0)
+  expect_true(is.na(res$directional_rate))
+  expect_equal(res$verdict, "INCONCLUSIVE")
+
+  # Same judge, but it answers both orders on the first item only.
+  partial <- function(d) {
+    ifelse(
+      grepl("good", d$.candidate_1) | grepl("question 1", d$context),
+      ifelse(grepl("good", d$.candidate_1), "A", "B"),
+      NA_character_
+    )
+  }
+  res <- probe_position(
+    data, partial,
+    "candidate_a", "candidate_b", context_cols = "context", repeats = 2, seed = 1
+  )
+  expect_equal(res$n_scored, 10)
+  expect_equal(res$flip_rate, 0)
+  expect_equal(res$n_directional_items, 0)
+  expect_equal(res$directional_rate, 0)
+  expect_equal(res$verdict, "no_signal")
+})
+
+test_that("uneven abstention across repeats is not a position preference", {
+  data <- pair_data()[rep(1:2, 10), ]
+  # Content-consistent judge that abstains on every other display where its
+  # preferred answer is shown second. Its canonical choice never moves.
+  uneven <- function(d) {
+    preferred_first <- grepl("good", d$.candidate_1)
+    ifelse(
+      preferred_first, "A",
+      ifelse(seq_len(nrow(d)) %% 2L == 0L, "B", NA_character_)
+    )
+  }
+  res <- probe_position(
+    data, uneven,
+    "candidate_a", "candidate_b", context_cols = "context", repeats = 4, seed = 1
+  )
+  expect_equal(res$flip_rate, 0)
+  expect_equal(res$n_directional_items, 0)
+  expect_equal(res$directional_rate, 0)
+  expect_equal(res$verdict, "no_signal")
+  expect_gt(res$missing_rate, 0)
+})
+
+test_that("a tie in one display order still counts toward the slot it avoided", {
+  data <- pair_data()[rep(1:2, 10), ]
+  # Picks slot 1 when the good answer is first, otherwise declares a tie:
+  # every decided judgement commits to slot 1, never to slot 2.
+  first_or_tie <- function(d) ifelse(grepl("good", d$.candidate_1), "A", "tie")
+  res <- probe_position(
+    data, first_or_tie,
+    "candidate_a", "candidate_b", context_cols = "context",
+    tie_label = "tie", repeats = 2, seed = 1
+  )
+  expect_equal(res$flip_rate, 1)
+  expect_equal(res$n_directional_items, 20)
+  expect_equal(res$direction, "favors_first")
+  expect_equal(res$verdict, "BIAS")
+
+  second_or_tie <- function(d) ifelse(grepl("good", d$.candidate_2), "B", "tie")
+  res <- probe_position(
+    data, second_or_tie,
+    "candidate_a", "candidate_b", context_cols = "context",
+    tie_label = "tie", repeats = 2, seed = 1
+  )
+  expect_equal(res$direction, "favors_second")
+  expect_equal(res$verdict, "BIAS")
+})
+
+test_that("blank probe labels are rejected", {
+  expect_error(
+    probe_bias(tibble::tibble(input = "x"), function(d) "C", ordered_levels = c("", "C")),
+    "ordered_levels"
+  )
+  expect_error(
+    probe_position(pair_data(), function(d) "A", "candidate_a", "candidate_b", choice_levels = c(" ", "B")),
+    "choice_levels"
+  )
+  expect_error(
+    probe_position(pair_data(), function(d) "A", "candidate_a", "candidate_b", tie_label = " "),
+    "tie_label"
+  )
+})
+
+test_that("position directional rate uses scored items as its denominator", {
+  first_judge <- function(d) ifelse(grepl("question 2", d$context), NA_character_, "A")
+  res <- probe_position(
+    pair_data()[rep(1:2, 10), ], first_judge,
+    "candidate_a", "candidate_b", context_cols = "context", repeats = 2, seed = 1
+  )
+  expect_gt(res$n_missing, 0)
+  expect_equal(res$directional_rate, 1)
+  expect_equal(res$n_directional_items, res$n_scored)
+})

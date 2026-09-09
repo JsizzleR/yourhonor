@@ -32,7 +32,7 @@ confusion <- function(x,
   if (ncol(ratings) != 2L) {
     cli::cli_abort("{.fn confusion} requires exactly two rating columns.")
   }
-  label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE)
+  label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE, arg = "x")
   ratings <- ratings[stats::complete.cases(ratings), , drop = FALSE]
   if (nrow(ratings) == 0L) {
     cli::cli_abort("No complete judge-human pairs are available for a confusion matrix.")

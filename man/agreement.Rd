@@ -32,7 +32,10 @@ unweighted; AC2 is its weighted counterpart.}
 \item{seed}{Optional integer seed. The caller's random state is restored.}
 
 \item{label_levels}{Complete label universe in its intended order. Supplying
-this is strongly recommended for ordinal scales and rare classes.}
+this is strongly recommended for ordinal scales and rare classes. Labels
+are matched exactly: case and surrounding whitespace are significant, and
+empty or whitespace-only labels are rejected. Use \code{NA} for a missing or
+failed judgement.}
 
 \item{weights}{Agreement weights. \code{"unweighted"} treats labels as nominal;
 \code{"linear"}, \code{"quadratic"}, or \code{"ordinal"} use the order in

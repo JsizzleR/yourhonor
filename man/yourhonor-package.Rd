@@ -17,11 +17,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Jay Clark \email{JsizzleR@users.noreply.github.com}
+\strong{Maintainer}: Jay Clark \email{27960665+JsizzleR@users.noreply.github.com}
 
 Authors:
 \itemize{
-  \item Jay Clark \email{JsizzleR@users.noreply.github.com}
+  \item Jay Clark \email{27960665+JsizzleR@users.noreply.github.com}
 }
 
 }

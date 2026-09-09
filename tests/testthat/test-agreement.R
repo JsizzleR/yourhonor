@@ -135,3 +135,64 @@ test_that("too few rated rows error cleanly", {
     "at least 2"
   )
 })
+
+test_that("labels that differ only by case or whitespace stay distinct", {
+  # irrCAC upper-cases and trims character ratings; ratings are integer-coded
+  # before it sees them so the package's exact-match universe is preserved.
+  case_swaps <- data.frame(
+    human = c("C", "c", "C", "c", "C", "c"),
+    judge = c("C", "c", "c", "C", "C", "c")
+  )
+  ag <- agreement(case_swaps, n_boot = 20, seed = 1)
+  expect_true(all(ag$status == "ok"))
+  expect_equal(ag$estimate[ag$coefficient == "cohen_kappa"], 1 / 3, tolerance = 1e-4)
+  expect_equal(ag$estimate[ag$coefficient == "gwet_ac1"], 1 / 3, tolerance = 1e-4)
+
+  padded <- data.frame(
+    human = c("C", "P", "C", "P", "C", "P"),
+    judge = c("C ", "P", "C", "P ", "C", "P")
+  )
+  ag <- agreement(padded, n_boot = 20, seed = 1)
+  conf <- confusion(padded)
+  expect_true(all(ag$estimate < 1))
+  expect_equal(sum(conf$n[conf$human_label != conf$judge_label]), 2)
+})
+
+test_that("an unused blank factor level is ignored, not fatal", {
+  ratings <- data.frame(
+    human = factor(rep(c("C", "I", "P"), 4), levels = c("", "C", "I", "P")),
+    judge = rep(c("C", "I", "P"), length.out = 12)
+  )
+  ag <- agreement(ratings, n_boot = 20, seed = 1)
+  expect_true(all(ag$status == "ok"))
+  expect_setequal(
+    yourhonor:::resolve_label_levels(ratings, NULL), c("C", "I", "P")
+  )
+})
+
+test_that("empty-string labels are rejected as missing values", {
+  blank_judge <- data.frame(
+    human = c("C", "P", "C", "P", "C", "P"),
+    judge = c("C", "", "C", "P", "", "P")
+  )
+  expect_error(agreement(blank_judge, n_boot = 10), "empty or whitespace-only")
+  expect_error(confusion(blank_judge), "empty or whitespace-only")
+  expect_error(
+    agreement(blank_judge[c(1, 3, 4, 6), ], label_levels = c("C", "P", " ")),
+    "empty or whitespace-only"
+  )
+})
+
+test_that("factor levels are unioned with labels observed in character columns", {
+  ratings <- data.frame(
+    human = factor(c("a", "b", "a", "b")),
+    judge = c("a", "c", "a", "b"),
+    stringsAsFactors = FALSE
+  )
+  expect_identical(yourhonor:::resolve_label_levels(ratings, NULL), c("a", "b", "c"))
+  conf <- confusion(ratings)
+  expect_equal(sum(conf$n), 4)
+  ag <- agreement(ratings, n_boot = 20, seed = 1)
+  expect_true(all(ag$status == "ok"))
+  expect_equal(ag$n_items, rep(4L, nrow(ag)))
+})

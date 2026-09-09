@@ -46,3 +46,4 @@ independent gold items would make confidence intervals too narrow. Filter to
 one epoch before calling \code{audit_vitals()}. Use \code{\link[=stability_vitals]{stability_vitals()}} for epochs
 only when every judge-visible content field is invariant within item.
 }
+

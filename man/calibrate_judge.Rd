@@ -39,7 +39,9 @@ generated when omitted.}
 \item{judge_col}{Column containing precomputed judge labels when \code{judge} is
 \code{NULL}.}
 
-\item{label_levels}{Complete label universe in intended order. Required for
+\item{label_levels}{Complete label universe in intended order. Labels are
+matched exactly (case and whitespace are significant) and empty labels are
+rejected; represent a failed judgement as \code{NA}. Required for
 \code{scale = "ordinal"}.}
 
 \item{scale}{Whether labels are nominal or ordinal.}

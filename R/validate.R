@@ -45,7 +45,12 @@ check_column_name <- function(x, arg) {
   x
 }
 
-resolve_label_levels <- function(ratings, label_levels = NULL, allow_single = FALSE) {
+resolve_label_levels <- function(ratings,
+                                 label_levels = NULL,
+                                 allow_single = FALSE,
+                                 arg = "ratings") {
+  observed <- unique(stats::na.omit(unlist(lapply(ratings, as.character), use.names = FALSE)))
+  check_labels_nonblank(observed, arg)
   if (!is.null(label_levels)) {
     label_levels <- as.character(label_levels)
     if ((!allow_single && length(label_levels) < 2L) || length(label_levels) < 1L ||
@@ -54,7 +59,7 @@ resolve_label_levels <- function(ratings, label_levels = NULL, allow_single = FA
         "{.arg label_levels} must contain at least two unique, non-missing labels."
       )
     }
-    observed <- unique(stats::na.omit(unlist(lapply(ratings, as.character), use.names = FALSE)))
+    check_labels_nonblank(label_levels, "label_levels")
     unknown <- setdiff(observed, label_levels)
     if (length(unknown) > 0L) {
       cli::cli_abort(
@@ -67,11 +72,14 @@ resolve_label_levels <- function(ratings, label_levels = NULL, allow_single = FA
   factor_levels <- unique(unlist(lapply(ratings, function(x) {
     if (is.factor(x)) levels(x) else character(0)
   }), use.names = FALSE))
+  factor_levels <- factor_levels[!is_blank_label(factor_levels)]
   if (length(factor_levels) >= 2L) {
-    return(factor_levels)
+    # Declared factor order first, then any label observed only in a
+    # non-factor column, so no observed rating is silently dropped.
+    return(unique(c(factor_levels, observed)))
   }
 
-  unique(stats::na.omit(unlist(lapply(ratings, as.character), use.names = FALSE)))
+  observed
 }
 
 validate_labels <- function(labels, label_levels, arg = "judge") {
@@ -86,7 +94,45 @@ validate_labels <- function(labels, label_levels, arg = "judge") {
 }
 
 observed_categories <- function(ratings) {
-  unique(stats::na.omit(unlist(ratings, use.names = FALSE)))
+  values <- if (is.list(ratings)) {
+    unlist(lapply(ratings, as.character), use.names = FALSE)
+  } else {
+    as.vector(ratings)
+  }
+  unique(stats::na.omit(values))
+}
+
+# Blank labels are missing values, not categories. irrCAC silently maps "" to
+# NA, so accepting them here would make agreement disagree with confusion().
+is_blank_label <- function(labels) {
+  !is.na(labels) & !nzchar(trimws(labels, whitespace = "[\\h\\v]"))
+}
+
+check_labels_nonblank <- function(labels, arg) {
+  if (any(is_blank_label(labels))) {
+    cli::cli_abort(c(
+      "{.arg {arg}} contains empty or whitespace-only labels.",
+      i = "Represent a missing or failed judgement as {.code NA}, not {.val {''}}."
+    ))
+  }
+  invisible(labels)
+}
+
+# irrCAC upper-cases and trims character ratings and category labels before
+# comparing them, so labels that differ only by case or whitespace would be
+# merged and double counted. Integer codes bypass that path entirely and keep
+# the package's exact-match label universe, in declared order, for weighting.
+encode_ratings <- function(ratings, label_levels) {
+  ratings <- as.data.frame(ratings, stringsAsFactors = FALSE)
+  coded <- lapply(ratings, function(col) {
+    values <- as.character(col)
+    codes <- match(values, label_levels)
+    if (any(is.na(codes) & !is.na(values))) {
+      cli::cli_abort("Internal error: a rating is outside the resolved label universe.")
+    }
+    codes
+  })
+  as.data.frame(coded, stringsAsFactors = FALSE, col.names = names(ratings))
 }
 
 exact_binom_interval <- function(successes, trials, conf_level = 0.95) {

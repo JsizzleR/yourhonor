@@ -139,3 +139,25 @@ test_that("ties produce an explicit NA mode", {
   expect_true(yourhonor:::is_tie(c("C", "P")))
   expect_false(yourhonor:::is_tie(c("C", "C", "P")))
 })
+
+test_that("stability keeps case-variant labels distinct", {
+  runs <- matrix(
+    c("C", "c", "C", "c", "C", "c", "c", "C", "c", "C", "c", "C"),
+    ncol = 2
+  )
+  expect_equal(
+    yourhonor:::chance_corrected_stability(runs, "unweighted", c("C", "c")),
+    -1
+  )
+  identical_runs <- matrix(rep(c("C", "c", "C", "c"), 2), ncol = 2)
+  expect_equal(
+    yourhonor:::chance_corrected_stability(identical_runs, "unweighted", c("C", "c")),
+    1
+  )
+  # The inferred universe of a matrix is its cells, not its rows, and factor
+  # columns contribute their labels, not their codes.
+  expect_setequal(yourhonor:::observed_categories(runs), c("C", "c"))
+  mixed <- data.frame(a = factor(c("yes", "no")), b = c("no", "maybe"))
+  expect_setequal(yourhonor:::observed_categories(mixed), c("yes", "no", "maybe"))
+  expect_equal(yourhonor:::chance_corrected_stability(runs, "unweighted", NULL), -1)
+})

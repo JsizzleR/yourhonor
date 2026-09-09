@@ -74,6 +74,8 @@ audit_vitals <- function(task,
 
   judge_labels <- samples[[score_col]]
   judge_col <- ".yourhonor_judge_label"
+  check_labels_nonblank(as.character(labels), "human_labels")
+  check_labels_nonblank(as.character(judge_labels), "score_col")
   samples[[human_col]] <- labels
   samples[[judge_col]] <- judge_labels
   if (!is.list(provenance) || (length(provenance) > 0L && is.null(names(provenance)))) {
@@ -201,7 +203,8 @@ stability_vitals <- function(task,
   if (!is.null(seed)) withr::local_seed(seed)
   out <- summarize_stability_runs(
     runs, label_levels = label_levels, weights = weights,
-    conf_level = conf_level, n_boot = n_boot, audit_id = audit_id
+    conf_level = conf_level, n_boot = n_boot, audit_id = audit_id,
+    arg = "score_col"
   )
   out$provenance <- list(
     source = "vitals", id_col = id_col, epoch_col = epoch_col,
