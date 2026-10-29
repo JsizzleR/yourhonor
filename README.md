@@ -150,8 +150,9 @@ report(cal, policy = policy, output = "console")
 #> PASS: calibration_confidence_level = 0.95 (= 0.95) - Confidence level matches
 #> policy.
 #> PASS: calibration_missing_rate = 0 (<= 0.01) - Criterion met.
-#> INDETERMINATE: agreement_gwet_ac2 = 0.557 (lower >= 0.75) - Interval overlaps
-#> threshold.
+#> INDETERMINATE: agreement_gwet_ac2 = -0.00832 (lower >= 0.75) - Interval
+#> overlaps threshold. The lower bound is conf_low_exact (the exact bound on
+#> observed agreement, mapped onto the coefficient's scale).
 #> INDETERMINATE: class_support = 2 (>= 20) - Insufficient reference support for:
 #> I, P, C
 #> INDETERMINATE: recall_I = 0.0126 (lower >= 0.9) - Interval overlaps threshold.

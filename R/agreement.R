@@ -9,10 +9,19 @@
 #' level: Gwet's AC1 and AC2 divide by the number of categories, so a declared
 #' level that no rater used would otherwise raise them on identical data
 #' (Cohen's kappa and Krippendorff's alpha are unaffected by unused levels).
+#' Unweighted, an unused declared level therefore changes no coefficient.
 #' Weighted coefficients still take their weights from the full declared
 #' scale, so an ordinal distance never depends on which levels were
-#' observed; an unused level can therefore still change AC2 through the
-#' distances it spans, but not through the chance term.
+#' observed. An unused level still changes the weights between the observed
+#' levels, and every weighted chance term sums those weights: with linear
+#' weights and levels 1 to 3 observed, declaring a fourth level can move
+#' AC2's chance term from about 0.55 to 0.70 and so change AC2 itself.
+#' Kappa's and alpha's chance terms move too. For a level beyond the observed
+#' ones each weight scheme only rescales the distances between observed
+#' levels, so their observed agreement moves with the chance term and their
+#' estimates do not change (their `conf_low_exact` does; see below). A level
+#' between observed ones can change those distances and the weighted
+#' estimates with them.
 #'
 #' Agreement is descriptive evidence, not a universal fitness gate. In
 #' particular, a high aggregate coefficient can coexist with zero recall on a
@@ -80,34 +89,56 @@
 #'   sample only: a bootstrap resample whose reference happens to hold one
 #'   category still contributes its coefficient.
 #'
-#'   `conf_low_exact` is a Clopper-Pearson lower bound on observed agreement
-#'   (the share of items whose ratings all agree) mapped onto the
-#'   coefficient's scale as `(lower - pe) / (1 - pe)`, holding the sample's
-#'   chance term `pe` fixed. Krippendorff's alpha weights each item by its
-#'   number of ratings, so when ratings are missing its `lower` is first
-#'   multiplied by the smallest number of ratings on an item over the mean
-#'   number, which keeps the bound below alpha's observed agreement; with no
-#'   missing ratings the factor is 1. It is exact for observed agreement, not
-#'   for the coefficient, because `pe` is itself estimated; in simulation the
-#'   Clopper-Pearson slack more than absorbs that, and the bound's coverage
-#'   stayed at or above nominal. It does not depend on resampling, so it
-#'   stays honest where the percentile bootstrap is optimistic: at small `n`,
-#'   and on a perfect sample, whose bootstrap is a zero-width interval at 1.
-#'   Because the bound on observed agreement is divided by `1 - pe`, it is
-#'   weak for kappa and alpha on imbalanced labels, whose `pe` is large: at
-#'   90/10 prevalence it rarely exceeds 0.6 below a few hundred items, and it
-#'   can fall below -1 (kappa's floor is `-pe / (1 - pe)`). Gwet's AC1 has a
-#'   small `pe` there and is affected far less. It is
-#'   reported for every coefficient with `status = "ok"` and is `NA`
-#'   otherwise. For a weighted coefficient it counts only exact agreement,
-#'   giving no partial credit for a near miss; weighted agreement is never
-#'   below exact agreement, so the bound remains valid but is conservative
-#'   when disagreements are mostly adjacent. Policies assess the smaller of
-#'   `conf_low` and `conf_low_exact`; see [acceptance_policy()].
+#'   `conf_low_exact` is a resampling-free lower bound on the coefficient's
+#'   own observed agreement `pa`, mapped onto its scale as
+#'   `(lower - pe) / (1 - pe)` with the sample's chance term `pe` held fixed.
+#'   `pa` is the mean over items of each item's weighted pairwise agreement,
+#'   so a near miss under weights earns its partial credit; Krippendorff's
+#'   alpha's `pa` is `(1 - eps) * A + eps`, with `A` the mean weighted by
+#'   each item's number of ratings `r` and `eps = 1 / sum(r)`, and its bound
+#'   is on `A`. Each item's agreement is bounded by the declared
+#'   weights' range, 0 to 1, not by the weights between the categories the
+#'   sample happened to show: a rare, distant disagreement the sample missed
+#'   would otherwise make the bound overshoot. Declaring a level beyond the
+#'   observed ones therefore lowers kappa's and alpha's bound even where it
+#'   leaves their estimates unchanged. The bound is
+#'   one-sided at level `(1 + conf_level) / 2`, like the lower end of the
+#'   bootstrap interval. With two raters and no weights each item agrees or
+#'   not, and the bound is Clopper-Pearson's. Otherwise each item's agreement
+#'   lies between 0 and 1, and the bound is the binomial stop-loss bound for
+#'   a mean of such values, which is never looser than Hoeffding's; for alpha
+#'   with three or more rater columns it bounds alpha's ratio of
+#'   rating-weighted agreement by inverting Hoeffding's relative-entropy
+#'   test, so missing ratings widen it. On a perfect sample every route gives
+#'   Clopper-Pearson's `((1 - conf_level) / 2)^(1 / n)` for `n` items,
+#'   except alpha with missing ratings, which is lower. As items accumulate
+#'   the bound approaches the estimate, at a rate of about `1 / sqrt(n)`,
+#'   for every coefficient, weighting and number of raters, provided
+#'   `1 - pe` stays away from 0.
+#'
+#'   It is exact (a finite-sample bound, not an asymptotic one) for observed
+#'   agreement, not for the coefficient, because `pe` is itself estimated;
+#'   in simulation (two and several raters, weighted and not, alpha with
+#'   missing ratings, 30 to 1000 items) its coverage of the coefficient was
+#'   at or above nominal, within simulation error. It does not depend on
+#'   resampling, so it stays honest where the percentile bootstrap is
+#'   optimistic: at small `n`, and on a perfect sample, whose bootstrap is a
+#'   zero-width interval at 1. Because the bound on observed agreement is
+#'   divided by `1 - pe`, it is weak for kappa and alpha on imbalanced
+#'   labels, whose `pe` is large: at 90/10 prevalence it stays far below
+#'   the estimate until a few hundred items (a kappa of 0.92 on 100 items
+#'   averaged about 0.63 in simulation), and it can fall below -1 (kappa's
+#'   floor is `-pe / (1 - pe)`). Gwet's AC1 has a small `pe` there and is affected
+#'   far less. It never exceeds `estimate`, is reported for every
+#'   coefficient with `status = "ok"`, and is `NA` otherwise. Policies
+#'   assess the smaller of `conf_low` and `conf_low_exact`; see
+#'   [acceptance_policy()].
 #'
 #'   `ci_reliable` is `TRUE` only
-#'   when at least 80% of the requested resamples produced a finite statistic
-#'   and the interval is not `boundary_degenerate`: a perfect finite sample
+#'   when at least 30 resamples, and at least 80% of the requested resamples,
+#'   produced a finite statistic, and the interval is not
+#'   `boundary_degenerate`. With `n_boot` below 30 every interval is
+#'   therefore unreliable. A perfect finite sample
 #'   produces a zero-width nonparametric bootstrap, and that interval is
 #'   flagged unreliable rather than treated as proof of population-perfect
 #'   agreement; `conf_low_exact` is the usable lower bound there. The
@@ -293,8 +324,12 @@ compute_agreement <- function(ratings,
     usable, unique(coefficients[status == "ok"]), n_boot, weights,
     label_levels, chance_levels
   )
-  agree_low <- exact_agreement_lower(usable, conf_level)
-  alpha_scale <- alpha_count_scale(usable)
+  # Two rater columns, unweighted: every item's agreement is 0 or 1, so the
+  # agreeing share has an exact binomial bound.
+  binary_low <- if (ncol(usable) == 2L && weights == "unweighted") {
+    exact_agreement_lower(usable, conf_level)
+  }
+  counts <- rowSums(!is.na(usable))
 
   rows <- lapply(seq_along(coefficients), function(i) {
     co <- coefficients[[i]]
@@ -304,8 +339,11 @@ compute_agreement <- function(ratings,
     ci <- bootstrap_quantiles(stat, conf_level)
     boundary_degenerate <- is_boundary_degenerate(co_status, co_estimate, ci)
     exact_low <- if (co_status == "ok") {
-      scale <- if (co == "krippendorff_alpha") alpha_scale else 1
-      chance_mapped(scale * agree_low, fits[[i]]$chance)
+      low <- observed_agreement_lower(
+        fits[[i]]$agreement, co, counts, ncol(usable), conf_level, binary_low
+      )
+      # irrCAC rounds the estimate to five decimals; the bound never exceeds it.
+      min(chance_mapped(low, fits[[i]]$chance), co_estimate)
     } else {
       NA_real_
     }
@@ -371,9 +409,8 @@ chance_categories <- function(ratings, label_levels) {
 }
 
 # Clopper-Pearson lower bound on the share of items whose observed ratings
-# all agree. Per item, agreeing on every rating is never more than the
-# pairwise agreement, weighted or not, that the coefficients average, so the
-# bound holds for kappa and Gwet's AC1 and AC2, which average items equally.
+# all agree. With two raters and no weights each item's agreement is 0 or 1,
+# and that share is kappa's and AC1's `pa` and alpha's before its eps term.
 exact_agreement_lower <- function(ratings, conf_level) {
   agree <- apply(ratings, 1, function(values) {
     length(unique(stats::na.omit(values))) == 1L
@@ -381,15 +418,98 @@ exact_agreement_lower <- function(ratings, conf_level) {
   exact_binom_interval(sum(agree), length(agree), conf_level)[[1]]
 }
 
-# Krippendorff's alpha weights item i's pairwise agreement by r_i / mean(r),
-# its number of ratings over the mean (irrCAC's `krippen.alpha.raw`), and
-# its `pa` is never below that weighted mean. Each weight is at least
-# min(r) / mean(r), so scaling the bound above by that factor keeps it below
-# alpha's `pa`. The factor is 1 when no rating is missing.
-alpha_count_scale <- function(ratings) {
-  counts <- rowSums(!is.na(ratings))
-  if (length(counts) == 0L) return(NA_real_)
-  min(counts) / mean(counts)
+# One-sided lower bound, at level `(1 + conf_level) / 2`, on a coefficient's
+# own observed agreement `pa` as irrCAC computes it. Item i has weighted
+# pairwise agreement a_i in [0, 1] over its r_i >= 2 ratings. Kappa (Conger)
+# and Gwet's AC1 and AC2 average a_i over items; alpha's `pa` is
+# (1 - eps) * sum(r a) / sum(r) + eps with eps = 1 / sum(r), whose
+# population counterpart is the ratio E[r a] / E[r]. Items are taken as an
+# independent sample, as the bootstrap takes them.
+#
+# Each a_i is bounded in [0, 1], the range of the declared weights. A
+# narrower range taken from the categories the sample observed would not
+# hold for the population: a rare, distant disagreement the sample missed
+# makes those samples look perfect, and in simulation such a bound overshot
+# the population coefficient in 15% of samples at a nominal 2.5%.
+observed_agreement_lower <- function(pa,
+                                     coefficient,
+                                     counts,
+                                     n_raters,
+                                     conf_level,
+                                     binary_low = NULL) {
+  if (!is.null(binary_low)) return(binary_low)
+  if (!is.finite(pa)) return(NA_real_)
+  delta <- (1 - conf_level) / 2
+  n <- length(counts)
+  if (coefficient == "krippendorff_alpha") {
+    eps <- 1 / sum(counts)
+    pa <- (pa - eps) / (1 - eps)
+  }
+  if (coefficient == "krippendorff_alpha" && n_raters > 2L) {
+    ratio_mean_lower(pa, counts, n_raters, delta)
+  } else {
+    # Two columns: every usable item has both ratings, so alpha's ratio is
+    # a mean as well.
+    bounded_mean_lower(pa, n, delta)
+  }
+}
+
+# Lower bound on the mean of n independent values in [0, 1] from their sample
+# mean. A [0, 1] value with mean mu is below Bernoulli(mu) in convex order, so
+# the sum S is below Z ~ Binomial(n, mu), and for every c < t,
+# P(S >= t) <= E[(Z - c)+] / (t - c). The bound is the mu at which the
+# smallest of those reaches `delta`. It is never looser than Hoeffding's
+# relative-entropy bound, and on a perfect sample it is delta^(1/n), the
+# Clopper-Pearson bound for n successes.
+bounded_mean_lower <- function(mean, n, delta) {
+  mean <- min(max(mean, 0), 1)
+  if (mean == 0) return(0)
+  t <- n * mean
+  stats::uniroot(
+    function(mu) stop_loss_tail(mu, n, t) - delta,
+    c(0, mean), tol = 1e-10
+  )$root
+}
+
+# min(1, min over c < t of E[(Z - c)+] / (t - c)) for Z ~ Binomial(n, mu).
+# The ratio is monotone between integers, so integer c in [0, t) suffice.
+stop_loss_tail <- function(mu, n, t) {
+  z <- 0:n
+  p <- stats::dbinom(z, n, mu)
+  tail_p <- rev(cumsum(rev(p)))
+  tail_zp <- rev(cumsum(rev(z * p)))
+  c <- seq_len(ceiling(t)) - 1L
+  # E[(Z - c)+] sums z > c, which starts at index c + 2 of the tail sums.
+  stop_loss <- tail_zp[c + 2L] - c * tail_p[c + 2L]
+  min(1, stop_loss / (t - c))
+}
+
+# Lower bound on alpha's ratio E[r a] / E[r] by test inversion. With R the
+# number of rater columns, fixed by design, y_i(m) = r_i (a_i - m) / R + m
+# lies in [0, 1] and has mean m exactly when m is the ratio. Its sample mean
+# is m + h (ratio - m) with h = mean(r) / R, and m is rejected when
+# Hoeffding's relative-entropy bound puts that mean above m:
+# n kl(m + h (ratio - m) || m) > log(1 / delta). kl is jointly convex and
+# zero at the estimate, so the rejected values form one interval below the
+# bound. Written this way the mean is exactly m at m = ratio, where kl must
+# be 0 even when the ratio is 1.
+ratio_mean_lower <- function(ratio, counts, n_raters, delta) {
+  ratio <- min(max(ratio, 0), 1)
+  if (ratio == 0) return(0)
+  n <- length(counts)
+  h <- mean(counts) / n_raters
+  excess <- function(m) n * bernoulli_kl(m + h * (ratio - m), m) - log(1 / delta)
+  low <- .Machine$double.eps
+  if (excess(low) <= 0) return(0)
+  stats::uniroot(excess, c(low, ratio), tol = 1e-10)$root
+}
+
+# Relative entropy between Bernoulli(x) and Bernoulli(q), with 0 log 0 = 0.
+bernoulli_kl <- function(x, q) {
+  x <- min(max(x, 0), 1)
+  up <- if (x > 0) x * log(x / q) else 0
+  down <- if (x < 1) (1 - x) * log((1 - x) / (1 - q)) else 0
+  up + down
 }
 
 # A coefficient is `(pa - pe) / (1 - pe)`; holding the sample's chance term
@@ -479,10 +599,10 @@ coeff_point <- function(ratings,
   coeff_fit(ratings, coefficient, weights, label_levels, chance_levels)$value
 }
 
-# The estimate and its chance term `pe` from one irrCAC call. Weights are
-# built over the full declared scale, so an ordinal distance never depends
-# on which levels were observed, then restricted to `chance_levels`, the
-# categories the chance term counts.
+# The estimate, its chance term `pe` and observed agreement `pa` from one
+# irrCAC call. Weights are built over the full declared scale, so an ordinal
+# distance never depends on which levels were observed, then restricted to
+# `chance_levels`, the categories the chance term counts.
 coeff_fit <- function(ratings,
                       coefficient,
                       weights = "unweighted",
@@ -508,7 +628,11 @@ coeff_fit <- function(ratings,
     cli::cli_abort("Unknown coefficient {.val {coefficient}}.")
   )
   est <- fn(coded, weights = weight_mat, categ.labels = categ)$est
-  list(value = as.numeric(est$coeff.val), chance = as.numeric(est$pe))
+  list(
+    value = as.numeric(est$coeff.val),
+    chance = as.numeric(est$pe),
+    agreement = as.numeric(est$pa)
+  )
 }
 
 # irrCAC's own weight schemes, indexed by declared position.
@@ -536,7 +660,9 @@ safe_coeff_fit <- function(ratings,
     suppressWarnings(
       coeff_fit(ratings, coefficient, weights, label_levels, chance_levels)
     ),
-    error = function(e) list(value = NA_real_, chance = NA_real_)
+    error = function(e) {
+      list(value = NA_real_, chance = NA_real_, agreement = NA_real_)
+    }
   )
   if (length(fit$value) != 1L || !is.finite(fit$value)) {
     fit$value <- NA_real_

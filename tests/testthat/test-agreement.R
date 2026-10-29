@@ -486,6 +486,25 @@ test_that("no bootstrap is drawn when nothing is estimable", {
   expect_false(identical(runif(1), after))
 })
 
+# conf_low_exact before agreement() caps it at the rounded estimate, so a
+# bound that overshoots the estimate fails a test instead of being hidden.
+uncapped_exact_low <- function(ratings, coefficient, weights = "unweighted",
+                               levels = NULL, conf_level = 0.95) {
+  ratings[] <- lapply(ratings, as.character)
+  if (is.null(levels)) levels <- sort(unique(stats::na.omit(unlist(ratings))))
+  usable <- ratings[rowSums(!is.na(ratings)) >= 2L, , drop = FALSE]
+  chance <- yourhonor:::chance_categories(usable, levels)
+  fit <- yourhonor:::coeff_fit(usable, coefficient, weights, levels, chance)
+  binary <- if (ncol(usable) == 2L && weights == "unweighted") {
+    yourhonor:::exact_agreement_lower(usable, conf_level)
+  }
+  low <- yourhonor:::observed_agreement_lower(
+    fit$agreement, coefficient, rowSums(!is.na(usable)), ncol(usable),
+    conf_level, binary
+  )
+  yourhonor:::chance_mapped(low, fit$chance)
+}
+
 test_that("the exact lower bound never exceeds alpha with missing ratings", {
   # Alpha weights each item by its number of ratings, so items rated twice
   # count for less than items rated three times; an unscaled bound on the
@@ -507,7 +526,11 @@ test_that("the exact lower bound never exceeds alpha with missing ratings", {
       rater_cols = c("r1", "r2", "r3")
     )
     expect_identical(out$status, "ok")
-    expect_lte(out$conf_low_exact, out$estimate)
+    uncapped <- uncapped_exact_low(
+      d, "krippendorff_alpha", weights, c("a", "b", "c")
+    )
+    expect_equal(out$conf_low_exact, uncapped)
+    expect_lt(uncapped, out$estimate)
   }
 })
 
@@ -515,4 +538,202 @@ test_that("a sample with no item rated twice reports without warnings", {
   ratings <- data.frame(human = c("a", NA, "b"), judge = c(NA, "b", NA))
   expect_no_warning(out <- agreement(ratings, n_boot = 10, seed = 1))
   expect_true(all(out$status == "insufficient_items"))
+})
+
+# Weighted pairwise agreement of each usable item, computed independently of
+# irrCAC: the per-item values the exact bound treats as bounded in [0, 1].
+item_pairwise_agreement <- function(ratings, label_levels, weights) {
+  w <- yourhonor:::agreement_weight_matrix(weights, length(label_levels))
+  usable <- ratings[rowSums(!is.na(ratings)) >= 2L, , drop = FALSE]
+  coded <- as.matrix(yourhonor:::encode_ratings(usable, label_levels))
+  values <- apply(coded, 1, function(x) {
+    x <- x[!is.na(x)]
+    r <- length(x)
+    c(a = (sum(w[x, x]) - r) / (r * (r - 1)), r = r)
+  })
+  list(a = values["a", ], r = values["r", ])
+}
+
+test_that("per-item agreement averages to each coefficient's own pa", {
+  set.seed(11)
+  levels <- c("1", "2", "3", "4")
+  ratings <- as.data.frame(matrix(
+    sample(c(levels, NA), 4 * 60, replace = TRUE, prob = c(3, 3, 2, 2, 1)),
+    ncol = 4
+  ))
+  ratings <- ratings[rowSums(!is.na(ratings)) >= 2L, ]
+  chance <- yourhonor:::chance_categories(ratings, levels)
+  for (weights in c("unweighted", "linear", "quadratic", "ordinal")) {
+    items <- item_pairwise_agreement(ratings, levels, weights)
+    expect_true(all(items$a >= 0 & items$a <= 1))
+    for (co in c("gwet_ac1", "krippendorff_alpha")) {
+      pa <- yourhonor:::coeff_fit(ratings, co, weights, levels, chance)$agreement
+      expected <- if (co == "krippendorff_alpha") {
+        eps <- 1 / sum(items$r)
+        (1 - eps) * sum(items$r * items$a) / sum(items$r) + eps
+      } else {
+        mean(items$a)
+      }
+      expect_equal(pa, expected, tolerance = 1e-12)
+    }
+    pair <- ratings[stats::complete.cases(ratings[1:2]), 1:2]
+    kappa_pa <- yourhonor:::coeff_fit(
+      pair, "cohen_kappa", weights, levels,
+      yourhonor:::chance_categories(pair, levels)
+    )$agreement
+    expect_equal(
+      kappa_pa, mean(item_pairwise_agreement(pair, levels, weights)$a),
+      tolerance = 1e-12
+    )
+  }
+})
+
+test_that("the exact bound approaches a weighted estimate as items grow", {
+  # The all-agree share stays near 75% here whatever n, so a bound on it
+  # stayed at 0.113 for quadratic AC2 0.948 at n = 3000.
+  set.seed(1)
+  n <- 3000
+  human <- sample(1:5, n, TRUE)
+  off <- ifelse(runif(n) < 0.75, 0, sample(c(-1, 1), n, TRUE))
+  judge <- pmin(pmax(human + off, 1), 5)
+  d <- data.frame(human = as.character(human), judge = as.character(judge))
+  for (weights in c("quadratic", "linear")) {
+    out <- agreement(
+      d, n_boot = 20, seed = 1, label_levels = as.character(1:5),
+      weights = weights
+    )
+    expect_true(all(out$estimate - out$conf_low_exact < 0.04))
+    uncapped <- vapply(out$coefficient, uncapped_exact_low, numeric(1),
+                       ratings = d, weights = weights,
+                       levels = as.character(1:5))
+    expect_true(all(uncapped < out$estimate))
+  }
+})
+
+test_that("the exact bound approaches a multi-rater estimate as items grow", {
+  set.seed(2)
+  n <- 2000
+  truth <- sample(c("a", "b", "c"), n, TRUE)
+  ratings <- replicate(
+    4, ifelse(runif(n) < 0.9, truth, sample(c("a", "b", "c"), n, TRUE))
+  )
+  ratings[cbind(sample(n, 400), sample(4, 400, TRUE))] <- NA
+  ratings <- as.data.frame(ratings)
+  out <- suppressMessages(agreement(
+    ratings, coefficients = c("gwet_ac1", "krippendorff_alpha"),
+    n_boot = 20, seed = 1
+  ))
+  expect_true(all(out$estimate - out$conf_low_exact < 0.05))
+  uncapped <- vapply(out$coefficient, uncapped_exact_low, numeric(1),
+                     ratings = ratings)
+  expect_true(all(uncapped < out$estimate))
+})
+
+test_that("a weighted perfect sample's exact bound is delta^(1/n) mapped", {
+  levels <- c("1", "2", "3")
+  human <- rep(levels, 10)
+  out <- agreement(
+    data.frame(human = human, judge = human), n_boot = 20, seed = 1,
+    label_levels = levels, weights = "quadratic"
+  )
+  pe <- vapply(out$coefficient, function(co) {
+    yourhonor:::coeff_fit(
+      data.frame(human = human, judge = human), co, "quadratic", levels,
+      levels
+    )$chance
+  }, numeric(1))
+  expect_equal(
+    out$conf_low_exact, unname((0.025^(1 / 30) - pe) / (1 - pe)),
+    tolerance = 1e-6
+  )
+})
+
+test_that("the bounded-mean bound is valid, tight on perfect samples and monotone", {
+  delta <- 0.025
+  expect_equal(yourhonor:::bounded_mean_lower(1, 30, delta), delta^(1 / 30),
+               tolerance = 1e-8)
+  expect_identical(yourhonor:::bounded_mean_lower(0, 30, delta), 0)
+  kl_lower <- function(mean, n) {
+    stats::uniroot(
+      function(q) n * yourhonor:::bernoulli_kl(mean, q) - log(1 / delta),
+      c(1e-12, mean), tol = 1e-12
+    )$root
+  }
+  for (n in c(2, 30, 500)) {
+    means <- c(0.2, 0.5, 0.85, 0.98)
+    lows <- vapply(means, yourhonor:::bounded_mean_lower, numeric(1),
+                   n = n, delta = delta)
+    expect_true(all(lows <= means))
+    expect_true(all(diff(lows) > 0))
+    # Never looser than Hoeffding's relative-entropy bound.
+    expect_true(all(lows >= vapply(means, kl_lower, numeric(1), n = n) - 1e-9))
+  }
+})
+
+test_that("alpha's ratio bound reduces to the relative-entropy bound without missing ratings", {
+  delta <- 0.025
+  counts <- rep(3, 50)
+  low <- yourhonor:::ratio_mean_lower(0.8, counts, 3L, delta)
+  expect_equal(
+    50 * yourhonor:::bernoulli_kl(0.8, low), log(1 / delta), tolerance = 1e-6
+  )
+  # Missing ratings only widen it, and it never exceeds the ratio.
+  ragged <- rep(c(2, 3), 25)
+  expect_lt(yourhonor:::ratio_mean_lower(0.8, ragged, 3L, delta), low)
+  expect_identical(yourhonor:::ratio_mean_lower(0, ragged, 3L, delta), 0)
+  expect_lte(yourhonor:::ratio_mean_lower(1, ragged, 3L, delta), 1)
+})
+
+test_that("a perfect sample with ragged missing ratings has an alpha bound", {
+  # The ratio bound's mean rounded to just below 1 at a ratio of 1, its
+  # relative entropy became infinite, and uniroot() aborted agreement().
+  ratings <- data.frame(
+    v1 = c("x", "x", "y"), v2 = c("x", "x", "y"), v3 = c("x", "x", NA),
+    v4 = c("x", "x", "y"), v5 = c("x", "x", "y"), v6 = c("x", "x", "y")
+  )
+  out <- agreement(
+    ratings, coefficients = "krippendorff_alpha", n_boot = 20, seed = 1,
+    rater_cols = names(ratings)
+  )
+  expect_identical(out$status, "ok")
+  expect_true(is.finite(out$conf_low_exact))
+  expect_lt(out$conf_low_exact, out$estimate)
+  for (counts in list(c(2, 2, 2, 2, 3), c(3, 3, 3, 3, 2, 2, 2), c(6, 6, 5))) {
+    low <- yourhonor:::ratio_mean_lower(1, counts, max(counts), 0.025)
+    expect_true(low > 0 && low < 1)
+  }
+})
+
+test_that("alpha's bound is on its ratio, without the small-sample term", {
+  # Two items rated twice: eps = 1 / 4, so pa = 0.4 is a ratio of 0.2.
+  expect_equal(
+    yourhonor:::observed_agreement_lower(
+      0.4, "krippendorff_alpha", c(2, 2), 2L, 0.95
+    ),
+    yourhonor:::bounded_mean_lower(0.2, 2, 0.025)
+  )
+  expect_lt(
+    yourhonor:::bounded_mean_lower(0.2, 2, 0.025),
+    yourhonor:::bounded_mean_lower(0.4, 2, 0.025)
+  )
+})
+
+test_that("the exact bound does not assume an unobserved level never occurs", {
+  # Bounding agreement by the weights between observed levels made this
+  # perfect two-level sample look certain (0.77) although level 3 is
+  # declared; in simulation that overshot the population kappa in 15% of
+  # samples where a rare 1-3 disagreement went unseen.
+  human <- rep(c("1", "2"), 15)
+  d <- data.frame(human = human, judge = human)
+  out <- agreement(
+    d, coefficients = c("cohen_kappa", "krippendorff_alpha"), n_boot = 20,
+    seed = 1, label_levels = c("1", "2", "3"), weights = "quadratic"
+  )
+  pe <- vapply(out$coefficient, function(co) {
+    yourhonor:::coeff_fit(d, co, "quadratic", c("1", "2", "3"), c("1", "2"))$chance
+  }, numeric(1))
+  expect_equal(
+    out$conf_low_exact, unname((0.025^(1 / 30) - pe) / (1 - pe)),
+    tolerance = 1e-6
+  )
 })
