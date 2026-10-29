@@ -54,10 +54,14 @@ User-visible changes made while addressing the pre-release code review.
   while kappa read zero.
 * Agreement tables gain `conf_low_exact`, a Clopper-Pearson lower bound on
   observed agreement mapped onto the coefficient's scale. Policies assess
-  the smaller of it and the bootstrap `conf_low`, and on a perfect sample
-  (whose bootstrap interval has zero width) the exact bound alone, so a
-  perfect sample is no longer `INDETERMINATE` where one error could `PASS`,
-  and small-`n` bootstrap optimism no longer reaches a decision. For
+  the smaller of it and the bootstrap `conf_low` on every sample; on a
+  perfect sample the bootstrap interval is a zero-width point at 1, so the
+  exact bound decides there, and a perfect sample is no longer
+  `INDETERMINATE` where one error could `PASS`. Small-`n` bootstrap optimism
+  no longer reaches a decision. For Krippendorff's alpha with missing
+  ratings, which weights items by their number of ratings, the bound is
+  scaled by the fewest ratings on an item over the mean, so it can no
+  longer exceed the estimate. For
   weighted coefficients the exact bound counts only exact agreement, so
   ordinal policies whose disagreements are mostly adjacent pass less often.
   For kappa and alpha on imbalanced labels the bound is weak (it is divided
@@ -75,8 +79,11 @@ User-visible changes made while addressing the pre-release code review.
   abstentions" in `?calibrate_judge`.
 * `acceptance_policy()`'s `coefficient` now defaults to `NULL`, the
   calibration's Gwet coefficient (AC1 nominal, AC2 ordinal); the old
-  `"gwet_ac1"` default left an ordinal calibration `NOT_ASSESSED`. Naming a
-  coefficient the calibration did not compute is an error at assessment.
+  `"gwet_ac1"` default left an ordinal calibration `NOT_ASSESSED`. When the
+  calibration did not compute that Gwet coefficient (for example
+  `coefficients = "cohen_kappa"`), the agreement check is `NOT_ASSESSED`
+  and the rest of the report is still assessed. Naming a coefficient the
+  calibration did not compute is an error at assessment.
 * The JSON artifact adds `calibration.confusion` (long-form counts),
   `calibration.per_rater_agreement`, and the abstention fields.
 

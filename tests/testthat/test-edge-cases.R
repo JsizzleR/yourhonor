@@ -186,17 +186,6 @@ test_that("the JSON artifact carries confusion counts and per-rater agreement", 
 
 # Review follow-ups -------------------------------------------------------------
 
-test_that("the default coefficient must have been computed", {
-  gold <- tibble::tibble(
-    human_label = rep(c("a", "b"), 15),
-    judge_label = rep(c("a", "b"), 15)
-  )
-  kappa_only <- calibrate_judge(
-    gold, coefficients = "cohen_kappa", n_boot = 50, seed = 1
-  )
-  expect_error(report(kappa_only, policy = edge_policy()), "gwet_ac1.*did not compute")
-})
-
 test_that("a policy coefficient must be a single name", {
   expect_error(
     edge_policy(coefficient = c("gwet_ac1", "gwet_ac2", "cohen_kappa", "krippendorff_alpha")),
