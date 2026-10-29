@@ -485,3 +485,34 @@ test_that("no bootstrap is drawn when nothing is estimable", {
   )
   expect_false(identical(runif(1), after))
 })
+
+test_that("the exact lower bound never exceeds alpha with missing ratings", {
+  # Alpha weights each item by its number of ratings, so items rated twice
+  # count for less than items rated three times; an unscaled bound on the
+  # share of agreeing items overshot the unweighted estimate here
+  # (0.175 > 0.101). The quadratic case is extra coverage: it held before.
+  pairs <- data.frame(
+    r1 = rep(c("a", "b", "c"), length.out = 200),
+    r2 = rep(c("a", "b", "c"), length.out = 200),
+    r3 = NA_character_
+  )
+  spread <- data.frame(
+    r1 = rep("a", 200), r2 = rep("b", 200), r3 = rep("c", 200)
+  )
+  d <- rbind(pairs, spread)
+  for (weights in c("unweighted", "quadratic")) {
+    out <- agreement(
+      d, coefficients = "krippendorff_alpha", n_boot = 20, seed = 1,
+      label_levels = c("a", "b", "c"), weights = weights,
+      rater_cols = c("r1", "r2", "r3")
+    )
+    expect_identical(out$status, "ok")
+    expect_lte(out$conf_low_exact, out$estimate)
+  }
+})
+
+test_that("a sample with no item rated twice reports without warnings", {
+  ratings <- data.frame(human = c("a", NA, "b"), judge = c(NA, "b", NA))
+  expect_no_warning(out <- agreement(ratings, n_boot = 10, seed = 1))
+  expect_true(all(out$status == "insufficient_items"))
+})

@@ -83,8 +83,12 @@
 #'   `conf_low_exact` is a Clopper-Pearson lower bound on observed agreement
 #'   (the share of items whose ratings all agree) mapped onto the
 #'   coefficient's scale as `(lower - pe) / (1 - pe)`, holding the sample's
-#'   chance term `pe` fixed. It is exact for observed agreement, not for the
-#'   coefficient, because `pe` is itself estimated; in simulation the
+#'   chance term `pe` fixed. Krippendorff's alpha weights each item by its
+#'   number of ratings, so when ratings are missing its `lower` is first
+#'   multiplied by the smallest number of ratings on an item over the mean
+#'   number, which keeps the bound below alpha's observed agreement; with no
+#'   missing ratings the factor is 1. It is exact for observed agreement, not
+#'   for the coefficient, because `pe` is itself estimated; in simulation the
 #'   Clopper-Pearson slack more than absorbs that, and the bound's coverage
 #'   stayed at or above nominal. It does not depend on resampling, so it
 #'   stays honest where the percentile bootstrap is optimistic: at small `n`,
@@ -236,10 +240,9 @@ compute_agreement <- function(ratings,
   usable <- ratings[rowSums(!is.na(ratings)) >= 2L, , drop = FALSE]
   n_items <- nrow(usable)
   n_missing <- sum(!stats::complete.cases(ratings))
-  # The chance term counts the categories this sample observed, in declared
-  # order, held fixed across bootstrap draws: a declared level no rater used
-  # would otherwise move Gwet's AC1 and AC2 on identical data.
-  chance_levels <- intersect(label_levels, observed_categories(usable))
+  # Held fixed across bootstrap draws: a declared level no rater used would
+  # otherwise move Gwet's AC1 and AC2 on identical data.
+  chance_levels <- chance_categories(usable, label_levels)
   variation <- length(chance_levels)
   reference_variation <- if (is.null(reference)) {
     NA_integer_
@@ -277,6 +280,7 @@ compute_agreement <- function(ratings,
     label_levels, chance_levels
   )
   agree_low <- exact_agreement_lower(usable, conf_level)
+  alpha_scale <- alpha_count_scale(usable)
 
   rows <- lapply(seq_along(coefficients), function(i) {
     co <- coefficients[[i]]
@@ -286,7 +290,8 @@ compute_agreement <- function(ratings,
     ci <- bootstrap_quantiles(stat, conf_level)
     boundary_degenerate <- is_boundary_degenerate(co_status, co_estimate, ci)
     exact_low <- if (co_status == "ok") {
-      chance_mapped(agree_low, fits[[i]]$chance)
+      scale <- if (co == "krippendorff_alpha") alpha_scale else 1
+      chance_mapped(scale * agree_low, fits[[i]]$chance)
     } else {
       NA_real_
     }
@@ -343,17 +348,34 @@ bootstrap_coefficients <- function(ratings,
   draws
 }
 
+# The categories a chance term counts: those observed on rows with at least
+# two ratings, in declared order. agreement() and test_retest() share this
+# rule, and each holds the result fixed across its bootstrap draws.
+chance_categories <- function(ratings, label_levels) {
+  usable <- ratings[rowSums(!is.na(ratings)) >= 2L, , drop = FALSE]
+  intersect(label_levels, observed_categories(usable))
+}
+
 # Clopper-Pearson lower bound on the share of items whose observed ratings
 # all agree. Per item, agreeing on every rating is never more than the
-# pairwise agreement that kappa and AC1 average, so the bound holds for them.
-# Krippendorff's alpha weights items by their number of ratings, so with
-# missing ratings the inequality can fail in principle; its CP slack is far
-# larger than that gap in practice.
+# pairwise agreement, weighted or not, that the coefficients average, so the
+# bound holds for kappa and Gwet's AC1 and AC2, which average items equally.
 exact_agreement_lower <- function(ratings, conf_level) {
   agree <- apply(ratings, 1, function(values) {
     length(unique(stats::na.omit(values))) == 1L
   })
   exact_binom_interval(sum(agree), length(agree), conf_level)[[1]]
+}
+
+# Krippendorff's alpha weights item i's pairwise agreement by r_i / mean(r),
+# its number of ratings over the mean (irrCAC's `krippen.alpha.raw`), and
+# its `pa` is never below that weighted mean. Each weight is at least
+# min(r) / mean(r), so scaling the bound above by that factor keeps it below
+# alpha's `pa`. The factor is 1 when no rating is missing.
+alpha_count_scale <- function(ratings) {
+  counts <- rowSums(!is.na(ratings))
+  if (length(counts) == 0L) return(NA_real_)
+  min(counts) / mean(counts)
 }
 
 # A coefficient is `(pa - pe) / (1 - pe)`; holding the sample's chance term

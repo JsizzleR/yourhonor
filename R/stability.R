@@ -159,8 +159,7 @@ summarize_stability_runs <- function(runs,
   per_item$pairwise_disagreement <- item_disagreement
   pairwise_disagreement <- mean_or_na(item_disagreement)
   pairwise <- if (is.na(pairwise_disagreement)) NA_real_ else 1 - pairwise_disagreement
-  if (is.null(label_levels)) label_levels <- sort(observed_categories(runs))
-  chance_levels <- stability_chance_levels(runs, label_levels)
+  chance_levels <- chance_categories(runs, label_levels)
   chance <- chance_corrected_stability(
     runs, weights, label_levels, chance_levels
   )
@@ -265,9 +264,9 @@ is_tie <- function(z) {
 # Estimate and status are derived from the same filtered matrix so they can
 # never disagree about why an estimate is unavailable.
 chance_corrected_stability <- function(runs,
-                                       weights = "unweighted",
-                                       label_levels = NULL,
-                                       chance_levels = NULL) {
+                                       weights,
+                                       label_levels,
+                                       chance_levels) {
   unavailable <- function(status) list(estimate = NA_real_, status = status)
   usable <- runs[rowSums(!is.na(runs)) >= 2L, , drop = FALSE]
   if (nrow(usable) < 2L) return(unavailable("insufficient_items"))
@@ -277,24 +276,15 @@ chance_corrected_stability <- function(runs,
   if (length(unique(stats::na.omit(as.vector(usable)))) < 2L) {
     return(unavailable("insufficient_variation"))
   }
-  # Chance categories are those observed on items with two or more runs,
-  # the rule agreement() applies; the caller fixes them from the full data
-  # so every bootstrap draw is compared with the same estimand.
-  if (is.null(label_levels)) label_levels <- sort(observed_categories(runs))
-  if (is.null(chance_levels)) {
-    chance_levels <- stability_chance_levels(runs, label_levels)
-  }
+  # The caller fixes `chance_levels` from the full data with
+  # chance_categories(), the rule agreement() applies, so every bootstrap
+  # draw is compared with the same estimand.
   estimate <- tryCatch(
     coeff_point(usable, "gwet_ac1", weights, label_levels, chance_levels),
     error = function(e) NA_real_
   )
   if (!is.finite(estimate)) return(unavailable("undefined"))
   list(estimate = estimate, status = "ok")
-}
-
-stability_chance_levels <- function(runs, label_levels) {
-  usable <- runs[rowSums(!is.na(runs)) >= 2L, , drop = FALSE]
-  intersect(label_levels, observed_categories(usable))
 }
 
 item_pairwise_disagreement <- function(runs) {

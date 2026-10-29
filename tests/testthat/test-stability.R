@@ -116,11 +116,16 @@ test_that("fewer than two items with paired runs is insufficient_items", {
 
 test_that("chance-corrected estimate and status are computed together", {
   runs <- matrix(c("C", "P", "C", "P", "C", "P", "C", "P"), nrow = 4)
-  out <- yourhonor:::chance_corrected_stability(runs)
+  levels <- c("C", "P")
+  out <- yourhonor:::chance_corrected_stability(
+    runs, "unweighted", levels, levels
+  )
   expect_named(out, c("estimate", "status"))
   expect_identical(out$status, "ok")
   expect_equal(out$estimate, 1)
-  flat <- yourhonor:::chance_corrected_stability(matrix("C", 4, 2))
+  flat <- yourhonor:::chance_corrected_stability(
+    matrix("C", 4, 2), "unweighted", "C", "C"
+  )
   expect_identical(flat$status, "insufficient_variation")
   expect_true(is.na(flat$estimate))
 })
@@ -268,12 +273,16 @@ test_that("stability keeps case-variant labels distinct", {
     ncol = 2
   )
   expect_equal(
-    yourhonor:::chance_corrected_stability(runs, "unweighted", c("C", "c"))$estimate,
+    yourhonor:::chance_corrected_stability(
+      runs, "unweighted", c("C", "c"), c("C", "c")
+    )$estimate,
     -1
   )
   identical_runs <- matrix(rep(c("C", "c", "C", "c"), 2), ncol = 2)
   expect_equal(
-    yourhonor:::chance_corrected_stability(identical_runs, "unweighted", c("C", "c"))$estimate,
+    yourhonor:::chance_corrected_stability(
+      identical_runs, "unweighted", c("C", "c"), c("C", "c")
+    )$estimate,
     1
   )
   # The inferred universe of a matrix is its cells, not its rows, and factor
@@ -282,7 +291,7 @@ test_that("stability keeps case-variant labels distinct", {
   mixed <- data.frame(a = factor(c("yes", "no")), b = c("no", "maybe"))
   expect_setequal(yourhonor:::observed_categories(mixed), c("yes", "no", "maybe"))
   expect_equal(
-    yourhonor:::chance_corrected_stability(runs, "unweighted", NULL)$estimate, -1
+    yourhonor:::summarize_stability_runs(runs, n_boot = 1)$stability, -1
   )
 })
 

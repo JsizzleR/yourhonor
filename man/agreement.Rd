@@ -87,8 +87,12 @@ category still contributes its coefficient.
 \code{conf_low_exact} is a Clopper-Pearson lower bound on observed agreement
 (the share of items whose ratings all agree) mapped onto the
 coefficient's scale as \code{(lower - pe) / (1 - pe)}, holding the sample's
-chance term \code{pe} fixed. It is exact for observed agreement, not for the
-coefficient, because \code{pe} is itself estimated; in simulation the
+chance term \code{pe} fixed. Krippendorff's alpha weights each item by its
+number of ratings, so when ratings are missing its \code{lower} is first
+multiplied by the smallest number of ratings on an item over the mean
+number, which keeps the bound below alpha's observed agreement; with no
+missing ratings the factor is 1. It is exact for observed agreement, not
+for the coefficient, because \code{pe} is itself estimated; in simulation the
 Clopper-Pearson slack more than absorbs that, and the bound's coverage
 stayed at or above nominal. It does not depend on resampling, so it
 stays honest where the percentile bootstrap is optimistic: at small \code{n},

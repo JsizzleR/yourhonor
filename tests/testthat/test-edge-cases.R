@@ -256,10 +256,10 @@ test_that("stability and agreement count the same chance categories", {
     r1 = c(rep("a", 9), rep("b", 9), "a", "b"),
     r2 = c(rep("a", 9), rep("b", 9), "b", "a")
   )
-  base <- chance_corrected_stability(runs)$estimate
-  extended <- chance_corrected_stability(
-    rbind(runs, data.frame(r1 = "c", r2 = NA))
-  )$estimate
+  base <- summarize_stability_runs(runs, n_boot = 1)$stability
+  extended <- summarize_stability_runs(
+    rbind(runs, data.frame(r1 = "c", r2 = NA)), n_boot = 1
+  )$stability
   expect_equal(extended, base)
   expect_equal(base, agreement(runs, coefficients = "gwet_ac1", n_boot = 10, seed = 1)$estimate)
 })
