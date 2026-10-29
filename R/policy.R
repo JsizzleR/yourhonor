@@ -26,10 +26,6 @@
 #'   scalar applies to all classes; a named vector applies only to named classes.
 #' @param max_missing_rate Maximum fraction of calibration rows without a usable
 #'   judge-consensus pair.
-#' @param max_abstention_rate Optional maximum upper confidence bound for the
-#'   judge's abstention rate: the share of items with a human reference that
-#'   the judge left `NA`. See the "Missing labels and abstentions" section of
-#'   [calibrate_judge()].
 #' @param max_pairwise_disagreement Maximum stability disagreement. Set `NULL`
 #'   explicitly when stability is outside this policy.
 #' @param min_stability_n Minimum independent items with at least two stability
@@ -64,9 +60,15 @@
 #' @param coefficient Agreement coefficient used by the policy. `NULL` (the
 #'   default) selects the calibration's Gwet coefficient: `"gwet_ac1"` for an
 #'   unweighted (nominal) calibration and `"gwet_ac2"` for a weighted
-#'   (ordinal) one. A coefficient named here that the calibration did not
-#'   compute is an error when the policy is assessed, never a silent
-#'   `NOT_ASSESSED`.
+#'   (ordinal) one. When the calibration did not compute that default
+#'   coefficient, the agreement check is `NOT_ASSESSED` with the reason, and
+#'   the other checks are still assessed. A coefficient named here that the
+#'   calibration did not compute is an error when the policy is assessed,
+#'   never a silent `NOT_ASSESSED`.
+#' @param max_abstention_rate Optional maximum upper confidence bound for the
+#'   judge's abstention rate: the share of items with a human reference that
+#'   the judge left `NA`. See the "Missing labels and abstentions" section of
+#'   [calibrate_judge()].
 #'
 #' @return A `yourhonor_policy` object.
 #' @export
@@ -86,9 +88,9 @@ acceptance_policy <- function(min_agreement_lower,
                               max_probe_missing_rate = NULL,
                               min_precision = NULL,
                               min_human_reliability_lower = NULL,
-                              max_abstention_rate = NULL,
                               conf_level = 0.95,
-                              coefficient = NULL) {
+                              coefficient = NULL,
+                              max_abstention_rate = NULL) {
   # Every validation error acceptance_policy() raises carries `policy_error`,
   # so a caller can catch a malformed policy as one condition class; the
   # rlang argument checks are re-signalled under it with the original as
@@ -373,10 +375,12 @@ level_mismatch_reason <- paste(
 # The coefficient a policy assesses on `x`: its own choice, or by default
 # the Gwet coefficient matching the calibration's weights. An explicit choice
 # the calibration did not compute is a configuration error, not missing
-# evidence, so it stops the assessment.
+# evidence, so it stops the assessment. The default is the policy's choice
+# rather than the user's, so when the calibration lacks it the agreement
+# check reads `NOT_ASSESSED` and the rest of the report still stands.
 policy_coefficient <- function(policy, x, call = rlang::caller_env()) {
   coefficient <- policy$coefficient
-  if (is.null(coefficient)) coefficient <- calibration_gwet(x)
+  if (is.null(coefficient)) return(calibration_gwet(x))
   computed <- x$agreement$coefficient
   if (!coefficient %in% computed) {
     cli::cli_abort(
@@ -421,7 +425,11 @@ calibration_checks <- function(x, policy, level_ok) {
     coefficient_interval_check(
       paste0("agreement_", coefficient), x$agreement,
       coefficient, policy$min_agreement_lower, level_ok,
-      absent = "Required coefficient was not computed.",
+      absent = paste0(
+        "The calibration did not compute ", coefficient, ", the policy's ",
+        "default coefficient; request it in calibrate_judge() or name a ",
+        "computed coefficient in acceptance_policy()."
+      ),
       what = "Agreement"
     )
   )
@@ -501,29 +509,28 @@ coefficient_interval_check <- function(check,
   } else {
     NA_real_
   }
-  unreliable <- interval_unreliable_reason(row, what, exact_low)
-  if (!is.null(unreliable)) {
+  # The bound assessed is the smaller of the bootstrap and exact lower bounds
+  # on every row. A perfect sample's bootstrap is a zero-width point at 1
+  # that says nothing about the population: it is not trusted on its own,
+  # but with an exact bound beside it the minimum is that exact bound, and
+  # the interval runs up to the coefficient's maximum of 1.
+  degenerate <- isTRUE(row$boundary_degenerate[[1]])
+  exact_bounded <- degenerate && is.finite(exact_low) &&
+    identical(row$status[[1]], "ok")
+  unreliable <- interval_unreliable_reason(row, what)
+  if (!is.null(unreliable) && !exact_bounded) {
     return(assessment_row(
       check, "INDETERMINATE", NA_real_, op, threshold, unreliable
     ))
   }
-  # A zero-width bootstrap at 1 says nothing about the population, so a
-  # degenerate row is bounded by the exact interval alone, up to the
-  # coefficient's maximum of 1; otherwise the bootstrap interval must be
-  # usable on its own before the smaller of the two lower bounds is assessed.
-  if (isTRUE(row$boundary_degenerate[[1]])) {
-    low <- exact_low
-    high <- 1
-  } else {
-    unusable <- interval_unusable_reason(row$conf_low[[1]], row$conf_high[[1]])
-    if (!is.null(unusable)) {
-      return(assessment_row(
-        check, "INDETERMINATE", NA_real_, op, threshold, unusable
-      ))
-    }
-    low <- min(row$conf_low[[1]], exact_low, na.rm = TRUE)
-    high <- row$conf_high[[1]]
+  unusable <- interval_unusable_reason(row$conf_low[[1]], row$conf_high[[1]])
+  if (!is.null(unusable)) {
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_, op, threshold, unusable
+    ))
   }
+  low <- min(row$conf_low[[1]], exact_low, na.rm = TRUE)
+  high <- if (degenerate) 1 else row$conf_high[[1]]
   result <- interval_min_check(check, low, high, threshold)
   if (is.finite(exact_low) && low == exact_low &&
       !identical(low, row$conf_low[[1]])) {
@@ -539,13 +546,12 @@ coefficient_interval_check <- function(check,
 # NULL when an agreement row's interval can be compared with a threshold;
 # otherwise the specific reason it cannot, so the reader learns the cause
 # rather than an echo of `status = "ok"`.
-interval_unreliable_reason <- function(row, what, exact_low = NA_real_) {
+interval_unreliable_reason <- function(row, what) {
   status <- row$status[[1]]
   if (!identical(status, "ok")) {
     return(paste0(what, " is not estimable: ", status, "."))
   }
   if (isTRUE(row$boundary_degenerate[[1]])) {
-    if (is.finite(exact_low)) return(NULL)
     return(paste0(
       what, " bootstrap interval is degenerate at the boundary and is not ",
       "trusted."

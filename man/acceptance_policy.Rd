@@ -21,9 +21,9 @@ acceptance_policy(
   max_probe_missing_rate = NULL,
   min_precision = NULL,
   min_human_reliability_lower = NULL,
-  max_abstention_rate = NULL,
   conf_level = 0.95,
-  coefficient = NULL
+  coefficient = NULL,
+  max_abstention_rate = NULL
 )
 }
 \arguments{
@@ -88,20 +88,22 @@ precision, scalar or named.}
 for human-rater Gwet AC1 (nominal) or AC2 (weighted). When supplied, a
 single-rater gold set is \code{NOT_ASSESSED}, never accepted silently.}
 
-\item{max_abstention_rate}{Optional maximum upper confidence bound for the
-judge's abstention rate: the share of items with a human reference that
-the judge left \code{NA}. See the "Missing labels and abstentions" section of
-\code{\link[=calibrate_judge]{calibrate_judge()}}.}
-
 \item{conf_level}{Confidence level required across calibration, bias, and
 stability evidence.}
 
 \item{coefficient}{Agreement coefficient used by the policy. \code{NULL} (the
 default) selects the calibration's Gwet coefficient: \code{"gwet_ac1"} for an
 unweighted (nominal) calibration and \code{"gwet_ac2"} for a weighted
-(ordinal) one. A coefficient named here that the calibration did not
-compute is an error when the policy is assessed, never a silent
-\code{NOT_ASSESSED}.}
+(ordinal) one. When the calibration did not compute that default
+coefficient, the agreement check is \code{NOT_ASSESSED} with the reason, and
+the other checks are still assessed. A coefficient named here that the
+calibration did not compute is an error when the policy is assessed,
+never a silent \code{NOT_ASSESSED}.}
+
+\item{max_abstention_rate}{Optional maximum upper confidence bound for the
+judge's abstention rate: the share of items with a human reference that
+the judge left \code{NA}. See the "Missing labels and abstentions" section of
+\code{\link[=calibrate_judge]{calibrate_judge()}}.}
 }
 \value{
 A \code{yourhonor_policy} object.

@@ -1162,3 +1162,81 @@ test_that("every acceptance_policy() validation error is classed", {
   expect_match(rlang::cnd_header(err), "`max_missing_rate` is absent")
   expect_identical(rlang::call_name(err$call), "acceptance_policy")
 })
+
+# Policy coefficient follow-ups --------------------------------------------------
+
+test_that("a default coefficient the calibration lacks is NOT_ASSESSED", {
+  gold <- tibble::tibble(
+    human_label = rep(c("a", "b"), 15),
+    judge_label = rep(c("a", "b"), 15)
+  )
+  kappa_only <- calibrate_judge(
+    gold, coefficients = "cohen_kappa", n_boot = 50, seed = 1
+  )
+  policy <- acceptance_policy(
+    min_agreement_lower = 0.5, min_n = 20, min_class_n = 1, min_recall = 0,
+    max_missing_rate = 0.5, max_pairwise_disagreement = NULL
+  )
+  rep <- report(kappa_only, policy = policy, output = "md")
+  row <- rep$checks[rep$checks$check == "agreement_gwet_ac1", ]
+  expect_identical(row$status, "NOT_ASSESSED")
+  expect_match(row$reason, "did not compute gwet_ac1")
+  expect_identical(rep$decision, "NOT_ASSESSED")
+  # The other checks are still assessed on their own evidence.
+  expect_identical(check_status(rep, "usable_items"), "PASS")
+  expect_identical(check_status(rep, "calibration_missing_rate"), "PASS")
+  expect_identical(check_status(rep, "class_support"), "PASS")
+  expect_match(
+    paste(format(rep), collapse = "\n"), "gwet_ac1\\): not estimable"
+  )
+
+  path <- withr::local_tempfile(fileext = ".json")
+  expect_no_error(write_audit(kappa_only, path, policy = policy))
+  audit <- jsonlite::fromJSON(path)
+  expect_identical(audit$decision, "NOT_ASSESSED")
+  expect_identical(
+    audit$checks$status[audit$checks$check == "agreement_gwet_ac1"],
+    "NOT_ASSESSED"
+  )
+  # Naming the uncomputed coefficient is still a configuration error.
+  expect_error(
+    report(kappa_only, policy = make_policy()), "gwet_ac1.*did not compute"
+  )
+})
+
+test_that("a degenerate row's exact bound is capped by the bootstrap bound", {
+  cal <- make_cal()
+  i <- cal$agreement$coefficient == "gwet_ac1"
+  # A zero-width bootstrap below an exact bound that clears the threshold:
+  # the exact bound alone would PASS, the smaller of the two cannot.
+  cal$agreement$boundary_degenerate[i] <- TRUE
+  cal$agreement$ci_reliable[i] <- FALSE
+  cal$agreement$conf_low[i] <- 0.85
+  cal$agreement$conf_high[i] <- 0.85
+  cal$agreement$conf_low_exact[i] <- 0.95
+  row <- assess_calibration(cal, NULL, NULL, make_policy())$checks
+  row <- row[row$check == "agreement_gwet_ac1", ]
+  expect_identical(row$status, "INDETERMINATE")
+  expect_identical(row$value, 0.85)
+
+  # Without an exact bound the degenerate bootstrap is not trusted at all.
+  cal$agreement$conf_low_exact[i] <- NA_real_
+  row <- assess_calibration(cal, NULL, NULL, make_policy())$checks
+  row <- row[row$check == "agreement_gwet_ac1", ]
+  expect_identical(row$status, "INDETERMINATE")
+  expect_match(row$reason, "degenerate at the boundary")
+})
+
+test_that("acceptance_policy() keeps conf_level and coefficient positional", {
+  policy <- acceptance_policy(
+    0.8, 20, 1, 0, 0.5, NULL, NULL, NULL, NULL, character(0), NULL, NULL,
+    NULL, NULL, NULL, NULL, 0.9, "cohen_kappa"
+  )
+  expect_identical(policy$conf_level, 0.9)
+  expect_identical(policy$coefficient, "cohen_kappa")
+  expect_null(policy$max_abstention_rate)
+  expect_identical(
+    names(formals(acceptance_policy))[17:19],
+    c("conf_level", "coefficient", "max_abstention_rate")
+  )
+})
