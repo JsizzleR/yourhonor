@@ -52,25 +52,31 @@ User-visible changes made while addressing the pre-release code review.
   reports `status = "insufficient_reference_variation"` for every
   coefficient instead of an estimate: Gwet's AC1 read "almost perfect" there
   while kappa read zero.
-* Agreement tables gain `conf_low_exact`, a Clopper-Pearson lower bound on
-  observed agreement mapped onto the coefficient's scale. Policies assess
-  the smaller of it and the bootstrap `conf_low` on every sample; on a
-  perfect sample the bootstrap interval is a zero-width point at 1, so the
+* Agreement tables gain `conf_low_exact`, a resampling-free finite-sample
+  lower bound on each coefficient's own observed agreement (irrCAC's
+  weighted pairwise `pa`), mapped onto the coefficient's scale. It is
+  Clopper-Pearson for two raters without weights, a binomial stop-loss bound
+  for kappa, AC1, AC2 and two-rater alpha otherwise, and for alpha with three
+  or more raters a relative-entropy bound on its rating-weighted ratio. Near
+  misses earn their weighted credit, so the bound approaches the estimate
+  as items grow for weighted and multi-rater coefficients too. Policies
+  assess the smaller of it and the bootstrap `conf_low` on every sample; on
+  a perfect sample the bootstrap interval is a zero-width point at 1, so the
   exact bound decides there, and a perfect sample is no longer
   `INDETERMINATE` where one error could `PASS`. Small-`n` bootstrap optimism
-  no longer reaches a decision. For Krippendorff's alpha with missing
-  ratings, which weights items by their number of ratings, the bound is
-  scaled by the fewest ratings on an item over the mean, so it can no
-  longer exceed the estimate. For
-  weighted coefficients the exact bound counts only exact agreement, so
-  ordinal policies whose disagreements are mostly adjacent pass less often.
-  For kappa and alpha on imbalanced labels the bound is weak (it is divided
-  by `1 - pe`) and usually decides the check below a few hundred items.
+  no longer reaches a decision. For kappa and alpha on imbalanced labels the
+  bound is weak (it is divided by `1 - pe`) and usually decides the check
+  below a few hundred items.
 * Chance agreement now counts only the categories some rater used, so
-  declaring an unused level no longer moves Gwet's AC1 (it did not move
-  kappa or alpha) and no longer enters AC2's chance term. Weights still
-  follow the full declared scale, so for AC2 an unused level still changes
-  the distances it spans. This applies to `test_retest()` too.
+  declaring an unused level no longer moves Gwet's AC1. Weights still follow
+  the full declared scale, so under weights an unused level still enters the
+  chance term (linear AC2 on levels 1-3: `pe` 0.55 with three declared
+  levels, 0.70 with a fourth). Beyond the observed levels it leaves kappa's
+  and alpha's estimates unchanged but lowers their `conf_low_exact`. This
+  applies to `test_retest()` too.
+* `ci_reliable` also requires at least 30 finite resamples, so an `n_boot`
+  below 30 can never give a reliable interval; the documentation now says
+  so.
 * `calibrate_judge()` reports judge abstentions (an `NA` judge label on an
   item with a human reference) separately from human gaps:
   `n_judge_abstentions`, `judge_abstention_rate`, and its Clopper-Pearson
