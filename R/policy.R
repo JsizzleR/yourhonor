@@ -11,13 +11,25 @@
 #' can never carry a threshold that the assessment does not read.
 #'
 #' @param min_agreement_lower Minimum acceptable lower confidence bound for the
-#'   selected agreement coefficient.
+#'   selected agreement coefficient. The bound assessed is the smaller of the
+#'   bootstrap `conf_low` and the exact `conf_low_exact` reported by
+#'   [agreement()]. On a perfect sample the bootstrap interval is a
+#'   zero-width point at 1 and only `conf_low_exact` is used, so a perfect
+#'   sample is assessed on the same footing as a near-perfect one rather than
+#'   reading `INDETERMINATE` where a single error could `PASS`. Comparing a
+#'   two-sided interval's lower bound with the threshold is a one-sided test
+#'   at level `(1 + conf_level) / 2`, and taking the smaller of two lower
+#'   bounds makes it more conservative than that.
 #' @param min_n Minimum usable judge-human pairs.
 #' @param min_class_n Minimum human-reference support for every class.
 #' @param min_recall Minimum lower confidence bound for per-class recall. A
 #'   scalar applies to all classes; a named vector applies only to named classes.
 #' @param max_missing_rate Maximum fraction of calibration rows without a usable
 #'   judge-consensus pair.
+#' @param max_abstention_rate Optional maximum upper confidence bound for the
+#'   judge's abstention rate: the share of items with a human reference that
+#'   the judge left `NA`. See the "Missing labels and abstentions" section of
+#'   [calibrate_judge()].
 #' @param max_pairwise_disagreement Maximum stability disagreement. Set `NULL`
 #'   explicitly when stability is outside this policy.
 #' @param min_stability_n Minimum independent items with at least two stability
@@ -49,7 +61,12 @@
 #'   single-rater gold set is `NOT_ASSESSED`, never accepted silently.
 #' @param conf_level Confidence level required across calibration, bias, and
 #'   stability evidence.
-#' @param coefficient Agreement coefficient used by the policy.
+#' @param coefficient Agreement coefficient used by the policy. `NULL` (the
+#'   default) selects the calibration's Gwet coefficient: `"gwet_ac1"` for an
+#'   unweighted (nominal) calibration and `"gwet_ac2"` for a weighted
+#'   (ordinal) one. A coefficient named here that the calibration did not
+#'   compute is an error when the policy is assessed, never a silent
+#'   `NOT_ASSESSED`.
 #'
 #' @return A `yourhonor_policy` object.
 #' @export
@@ -69,11 +86,9 @@ acceptance_policy <- function(min_agreement_lower,
                               max_probe_missing_rate = NULL,
                               min_precision = NULL,
                               min_human_reliability_lower = NULL,
+                              max_abstention_rate = NULL,
                               conf_level = 0.95,
-                              coefficient = c(
-                                "gwet_ac1", "gwet_ac2", "cohen_kappa",
-                                "krippendorff_alpha"
-                              )) {
+                              coefficient = NULL) {
   # Every validation error acceptance_policy() raises carries `policy_error`,
   # so a caller can catch a malformed policy as one condition class; the
   # rlang argument checks are re-signalled under it with the original as
@@ -87,7 +102,10 @@ acceptance_policy <- function(min_agreement_lower,
       rlang::check_required(min_recall)
       rlang::check_required(max_missing_rate)
       rlang::check_required(max_pairwise_disagreement)
-      rlang::arg_match(coefficient)
+      if (!is.null(coefficient)) {
+        rlang::check_string(coefficient)
+        rlang::arg_match(coefficient, supported_coefficients)
+      }
     },
     error = function(err) {
       header <- rlang::cnd_header(err)
@@ -105,6 +123,9 @@ acceptance_policy <- function(min_agreement_lower,
   min_precision <- check_optional(min_precision, check_metric_threshold)
   min_human_reliability_lower <- check_optional(
     min_human_reliability_lower, check_numeric_threshold
+  )
+  max_abstention_rate <- check_optional(
+    max_abstention_rate, check_probability, class = policy_error
   )
 
   max_pairwise_disagreement <- check_optional(
@@ -165,6 +186,7 @@ acceptance_policy <- function(min_agreement_lower,
       min_precision = min_precision,
       min_human_reliability_lower = min_human_reliability_lower,
       max_missing_rate = max_missing_rate,
+      max_abstention_rate = max_abstention_rate,
       max_pairwise_disagreement = max_pairwise_disagreement,
       min_stability_n = min_stability_n,
       min_stability_runs = min_stability_runs,
@@ -348,7 +370,44 @@ level_mismatch_reason <- paste(
   "the interval was not assessed."
 )
 
+# The coefficient a policy assesses on `x`: its own choice, or by default
+# the Gwet coefficient matching the calibration's weights. An explicit choice
+# the calibration did not compute is a configuration error, not missing
+# evidence, so it stops the assessment.
+policy_coefficient <- function(policy, x, call = rlang::caller_env()) {
+  coefficient <- policy$coefficient
+  if (is.null(coefficient)) coefficient <- calibration_gwet(x)
+  computed <- x$agreement$coefficient
+  if (!coefficient %in% computed) {
+    cli::cli_abort(
+      c(
+        "The policy assesses {.val {coefficient}}, which this calibration did not compute.",
+        i = "Computed: {.val {computed}}.",
+        i = paste0(
+          "Request {.val {coefficient}} in {.fn calibrate_judge}, or name ",
+          "a computed coefficient in {.fn acceptance_policy}. A ",
+          "{.code NULL} {.arg coefficient} assesses the calibration's ",
+          "Gwet coefficient."
+        )
+      ),
+      call = call
+    )
+  }
+  coefficient
+}
+
+# Gwet's coefficient under the calibration's weights; a calibration that
+# records no weights is unweighted.
+calibration_gwet <- function(x) {
+  if (is.null(x$weights) || identical(x$weights, "unweighted")) {
+    "gwet_ac1"
+  } else {
+    "gwet_ac2"
+  }
+}
+
 calibration_checks <- function(x, policy, level_ok) {
+  coefficient <- policy_coefficient(policy, x)
   rows <- list(
     compare_min_count("usable_items", x$n_items, policy$min_n),
     confidence_level_check(
@@ -360,23 +419,43 @@ calibration_checks <- function(x, policy, level_ok) {
       "Too many rows lacked a usable judge-consensus pair."
     ),
     coefficient_interval_check(
-      paste0("agreement_", policy$coefficient), x$agreement,
-      policy$coefficient, policy$min_agreement_lower, level_ok,
+      paste0("agreement_", coefficient), x$agreement,
+      coefficient, policy$min_agreement_lower, level_ok,
       absent = "Required coefficient was not computed.",
       what = "Agreement"
     )
   )
+  if (!is.null(policy$max_abstention_rate)) {
+    rows <- c(rows, list(abstention_check(x, policy, level_ok)))
+  }
   rows
+}
+
+abstention_check <- function(x, policy, level_ok) {
+  check <- "judge_abstention_rate"
+  threshold <- policy$max_abstention_rate
+  if (is.null(x$judge_abstention_conf_high)) {
+    return(assessment_row(
+      check, "NOT_ASSESSED", NA_real_, "upper <=", threshold,
+      "The calibration does not record judge abstentions."
+    ))
+  }
+  if (!level_ok) {
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_, "upper <=", threshold,
+      level_mismatch_reason
+    ))
+  }
+  interval_max_check(
+    check, x$judge_abstention_conf_low, x$judge_abstention_conf_high,
+    threshold
+  )
 }
 
 human_reliability_checks <- function(x, policy, level_ok) {
   threshold <- policy$min_human_reliability_lower
   if (is.null(threshold)) return(list())
-  coefficient <- if (identical(x$weights, "unweighted")) {
-    "gwet_ac1"
-  } else {
-    "gwet_ac2"
-  }
+  coefficient <- calibration_gwet(x)
   list(coefficient_interval_check(
     "human_reliability", x$human_reliability, coefficient, threshold,
     level_ok,
@@ -417,24 +496,56 @@ coefficient_interval_check <- function(check,
       check, "INDETERMINATE", NA_real_, op, threshold, level_mismatch_reason
     ))
   }
-  unreliable <- interval_unreliable_reason(row, what)
+  exact_low <- if ("conf_low_exact" %in% names(row)) {
+    row$conf_low_exact[[1]]
+  } else {
+    NA_real_
+  }
+  unreliable <- interval_unreliable_reason(row, what, exact_low)
   if (!is.null(unreliable)) {
     return(assessment_row(
       check, "INDETERMINATE", NA_real_, op, threshold, unreliable
     ))
   }
-  interval_min_check(check, row$conf_low[[1]], row$conf_high[[1]], threshold)
+  # A zero-width bootstrap at 1 says nothing about the population, so a
+  # degenerate row is bounded by the exact interval alone, up to the
+  # coefficient's maximum of 1; otherwise the bootstrap interval must be
+  # usable on its own before the smaller of the two lower bounds is assessed.
+  if (isTRUE(row$boundary_degenerate[[1]])) {
+    low <- exact_low
+    high <- 1
+  } else {
+    unusable <- interval_unusable_reason(row$conf_low[[1]], row$conf_high[[1]])
+    if (!is.null(unusable)) {
+      return(assessment_row(
+        check, "INDETERMINATE", NA_real_, op, threshold, unusable
+      ))
+    }
+    low <- min(row$conf_low[[1]], exact_low, na.rm = TRUE)
+    high <- row$conf_high[[1]]
+  }
+  result <- interval_min_check(check, low, high, threshold)
+  if (is.finite(exact_low) && low == exact_low &&
+      !identical(low, row$conf_low[[1]])) {
+    result$reason <- paste(
+      result$reason,
+      "The lower bound is conf_low_exact (the exact bound on observed",
+      "agreement, mapped onto the coefficient's scale)."
+    )
+  }
+  result
 }
 
 # NULL when an agreement row's interval can be compared with a threshold;
 # otherwise the specific reason it cannot, so the reader learns the cause
 # rather than an echo of `status = "ok"`.
-interval_unreliable_reason <- function(row, what) {
+interval_unreliable_reason <- function(row, what, exact_low = NA_real_) {
   status <- row$status[[1]]
   if (!identical(status, "ok")) {
     return(paste0(what, " is not estimable: ", status, "."))
   }
   if (isTRUE(row$boundary_degenerate[[1]])) {
+    if (is.finite(exact_low)) return(NULL)
     return(paste0(
       what, " bootstrap interval is degenerate at the boundary and is not ",
       "trusted."

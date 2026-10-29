@@ -61,7 +61,9 @@ arrays, even when they hold one value. Top-level members:
 or \code{NOT_ASSESSED}).
 \item \code{audit_id}: string or \code{null}.
 \item \code{policy}: \code{null}, or an object with one member per
-\code{\link[=acceptance_policy]{acceptance_policy()}} argument. \code{required_probes} is an array;
+\code{\link[=acceptance_policy]{acceptance_policy()}} argument. A \code{null} \code{coefficient} means the
+calibration's Gwet coefficient, which the \verb{agreement_<coefficient>}
+check names. \code{required_probes} is an array;
 \code{min_recall} and \code{min_precision} are a number when global or an object
 keyed by class name when class-specific; unset thresholds are \code{null}.
 \item \code{checks}: array of objects, one per policy check, with \code{check}, \code{status},
@@ -70,11 +72,16 @@ comparison the check encodes: \code{">="}, \code{"<="}, \code{"lower >="},
 \code{"upper <="}, or \code{"="}), a numeric \code{threshold}, and \code{reason}. Without a
 policy the single placeholder check has \code{null} \code{op} and \code{threshold}.
 \item \code{calibration}: \code{n_input}, \code{n_items}, \code{n_excluded}, \code{n_consensus_ties},
-\code{scale}, \code{weights}, \code{conf_level}, \code{n_boot}, \code{seed} (scalars);
-\code{label_levels} and \code{coefficients} (arrays); \code{agreement},
-\code{confusion_metrics}, and \code{human_reliability} (arrays of row objects
-mirroring the tibble columns, \code{human_reliability} \code{null} for a single
-rater).
+\code{n_judge_abstentions}, \code{judge_abstention_rate},
+\code{judge_abstention_conf_low}, \code{judge_abstention_conf_high}, \code{scale},
+\code{weights}, \code{conf_level}, \code{n_boot}, \code{seed} (scalars); \code{label_levels} and
+\code{coefficients} (arrays); \code{agreement}, \code{confusion}, \code{confusion_metrics},
+\code{human_reliability}, and \code{per_rater_agreement} (arrays of row objects
+mirroring the tibble columns; \code{human_reliability} and
+\code{per_rater_agreement} are \code{null} for a single rater). \code{confusion} holds
+one row per reference-by-judge cell, empty cells included, with the
+reference label, the judge label, the count \code{n}, and its share \code{prop},
+so a reader can rebuild the matrix in \code{label_levels} order.
 \item \code{bias}: \code{null}, or \code{audit_id} plus \code{results}, an array of row objects
 with the columns of the bias tibble.
 \item \code{stability}: \code{null}, or the scalar summary fields of a

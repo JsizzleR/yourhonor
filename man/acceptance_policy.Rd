@@ -21,13 +21,22 @@ acceptance_policy(
   max_probe_missing_rate = NULL,
   min_precision = NULL,
   min_human_reliability_lower = NULL,
+  max_abstention_rate = NULL,
   conf_level = 0.95,
-  coefficient = c("gwet_ac1", "gwet_ac2", "cohen_kappa", "krippendorff_alpha")
+  coefficient = NULL
 )
 }
 \arguments{
 \item{min_agreement_lower}{Minimum acceptable lower confidence bound for the
-selected agreement coefficient.}
+selected agreement coefficient. The bound assessed is the smaller of the
+bootstrap \code{conf_low} and the exact \code{conf_low_exact} reported by
+\code{\link[=agreement]{agreement()}}. On a perfect sample the bootstrap interval is a
+zero-width point at 1 and only \code{conf_low_exact} is used, so a perfect
+sample is assessed on the same footing as a near-perfect one rather than
+reading \code{INDETERMINATE} where a single error could \code{PASS}. Comparing a
+two-sided interval's lower bound with the threshold is a one-sided test
+at level \code{(1 + conf_level) / 2}, and taking the smaller of two lower
+bounds makes it more conservative than that.}
 
 \item{min_n}{Minimum usable judge-human pairs.}
 
@@ -79,10 +88,20 @@ precision, scalar or named.}
 for human-rater Gwet AC1 (nominal) or AC2 (weighted). When supplied, a
 single-rater gold set is \code{NOT_ASSESSED}, never accepted silently.}
 
+\item{max_abstention_rate}{Optional maximum upper confidence bound for the
+judge's abstention rate: the share of items with a human reference that
+the judge left \code{NA}. See the "Missing labels and abstentions" section of
+\code{\link[=calibrate_judge]{calibrate_judge()}}.}
+
 \item{conf_level}{Confidence level required across calibration, bias, and
 stability evidence.}
 
-\item{coefficient}{Agreement coefficient used by the policy.}
+\item{coefficient}{Agreement coefficient used by the policy. \code{NULL} (the
+default) selects the calibration's Gwet coefficient: \code{"gwet_ac1"} for an
+unweighted (nominal) calibration and \code{"gwet_ac2"} for a weighted
+(ordinal) one. A coefficient named here that the calibration did not
+compute is an error when the policy is assessed, never a silent
+\code{NOT_ASSESSED}.}
 }
 \value{
 A \code{yourhonor_policy} object.

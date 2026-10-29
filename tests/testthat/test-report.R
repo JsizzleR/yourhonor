@@ -323,13 +323,13 @@ test_that("required but omitted evidence is never treated as a pass", {
   expect_true(is.na(row$value))
 })
 
-test_that("a missing policy coefficient is named instead of silently replaced", {
+test_that("a policy coefficient the calibration lacks is an error", {
   policy <- make_policy()
   policy$coefficient <- "cohen_kappa"
-  rep <- report(make_cal(), policy = policy, output = "md")
-  text <- paste(format(rep), collapse = "\n")
-  expect_match(text, "cohen_kappa.*not estimable")
-  expect_identical(rep$decision, "NOT_ASSESSED")
+  expect_error(
+    report(make_cal(), policy = policy, output = "md"),
+    "cohen_kappa.*did not compute"
+  )
 })
 
 test_that("unbound secondary evidence cannot satisfy a policy", {
@@ -508,16 +508,27 @@ test_that("single-class calibration stays indeterminate", {
   )
 })
 
-test_that("a zero-width perfect-sample bootstrap cannot clear policy", {
-  labels <- rep(c("I", "P", "C"), each = 100)
-  cal <- calibrate_judge(
-    tibble::tibble(human_label = labels, judge_label = labels),
-    label_levels = c("I", "P", "C"), coefficients = "gwet_ac1",
-    n_boot = 50, seed = 1
-  )
-  rep <- report(cal, policy = make_policy(), output = "md")
-  expect_true(cal$agreement$boundary_degenerate)
-  expect_identical(rep$decision, "INDETERMINATE")
+test_that("a zero-width perfect-sample bootstrap is assessed on the exact bound", {
+  perfect <- function(each) {
+    labels <- rep(c("I", "P", "C"), each = each)
+    calibrate_judge(
+      tibble::tibble(human_label = labels, judge_label = labels),
+      label_levels = c("I", "P", "C"), coefficients = "gwet_ac1",
+      n_boot = 50, seed = 1
+    )
+  }
+  large <- perfect(100)
+  rep <- report(large, policy = make_policy(), output = "md")
+  expect_true(large$agreement$boundary_degenerate)
+  expect_identical(check_status(rep, "agreement_gwet_ac1"), "PASS")
+  row <- rep$checks[rep$checks$check == "agreement_gwet_ac1", ]
+  expect_equal(row$value, large$agreement$conf_low_exact)
+  expect_lt(row$value, 1)
+
+  # Fifteen perfect items cannot support a 0.9 lower bound.
+  small <- perfect(5)
+  rep <- report(small, policy = make_policy(), output = "md")
+  expect_true(small$agreement$boundary_degenerate)
   expect_identical(check_status(rep, "agreement_gwet_ac1"), "INDETERMINATE")
 })
 
@@ -601,9 +612,11 @@ test_that("human reliability can pass or be indeterminate", {
   expect_identical(row$threshold, 0.9)
   expect_gte(row$value, 0.9)
 
-  # A perfect three-rater sample pins the bootstrap at 1 and is degenerate.
+  # A small perfect three-rater sample pins the bootstrap at 1; its exact
+  # bound is too wide to clear the threshold.
+  small <- rep(c("I", "P", "C"), each = 5)
   perfect <- calibrate_judge(
-    tibble::tibble(h1 = base, h2 = base, h3 = base, judge_label = base),
+    tibble::tibble(h1 = small, h2 = small, h3 = small, judge_label = small),
     human_cols = c("h1", "h2", "h3"), label_levels = c("I", "P", "C"),
     coefficients = "gwet_ac1", n_boot = 100, seed = 1,
     audit_id = "test-bundle"
@@ -918,6 +931,9 @@ test_that("an untrusted interval reports NA and its cause, not the estimate", {
     label_levels = c("I", "P", "C"), coefficients = "gwet_ac1",
     n_boot = 50, seed = 1
   )
+  # A degenerate row without an exact bound, as in a calibration made before
+  # `conf_low_exact` existed, has no usable lower bound at all.
+  cal$agreement$conf_low_exact <- NULL
   rep <- report(cal, policy = make_policy(), output = "md")
   row <- rep$checks[rep$checks$check == "agreement_gwet_ac1", ]
   expect_identical(row$status, "INDETERMINATE")
