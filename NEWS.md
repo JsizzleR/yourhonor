@@ -276,3 +276,17 @@ User-visible changes made while addressing the pre-release code review.
   (`id_col`, `audit_id`) present as `null`. `provenance` must have unique,
   non-blank names. Any task whose `$get_samples` is callable is accepted by
   the vitals adapters.
+
+### Third review pass
+
+* `calibrate_judge()` without `label_levels` infers the label set from the
+  human and judge labels together (with factor levels), so a label only the
+  judge used no longer aborts; supplied `label_levels` are still enforced.
+* A structured judge may return `.item_id` as the exact string form of the
+  issued key; any other key gets the package's own error instead of a vctrs
+  one.
+* `agreement()` and `calibrate_judge()` reject a repeated coefficient.
+* `interpret_agreement()` bands now match Landis and Koch exactly: 0 is
+  `"slight"`, not `"poor"`.
+* `agreement()` on all-missing ratings now says there are no non-missing
+  ratings instead of blaming `label_levels`.
