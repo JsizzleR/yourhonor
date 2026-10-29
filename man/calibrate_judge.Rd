@@ -90,6 +90,12 @@ Exclusion counts: \code{n_input} items were supplied, \code{n_items} had a usabl
 human consensus and judge label, \code{n_excluded = n_input - n_items}, and
 \code{n_consensus_ties} and \code{n_insufficient_human_ratings} break the exclusions
 down for multi-rater runs.
+
+Judge abstentions: \code{n_judge_abstentions} counts items with a human
+reference but no judge label, \code{judge_abstention_rate} divides it by the
+items with a human reference, and \code{judge_abstention_conf_low} and
+\code{judge_abstention_conf_high} are its Clopper-Pearson interval. See the
+"Missing labels and abstentions" section.
 }
 \description{
 Runs a judge on a redacted view of a human-labeled set and reports agreement,
@@ -126,6 +132,21 @@ found hardest, and with two raters every human disagreement is a tie, the
 judge is scored only on the items humans agreed about; that direction is
 optimistic. \code{per_rater_agreement} compares the judge against each rater on
 every item and is the all-items counterpart.
+}
+
+\section{Missing labels and abstentions}{
+
+Encode a judge abstention, refusal, or unparseable output as \code{NA} in the
+judge label (or return \code{NA} from \code{judge}); never as a sentinel label such
+as \code{"abstain"}, which would be scored as a category. Encode a missing human
+rating as \code{NA} in its human column. The two are reported separately: an
+item with a human reference and an \code{NA} judge label is a judge abstention
+(\code{n_judge_abstentions}), while an item without a human reference is a gap
+in the gold set. Both are excluded from agreement and counted in
+\code{n_excluded}, which \code{\link[=acceptance_policy]{acceptance_policy()}}'s \code{max_missing_rate} bounds;
+its optional \code{max_abstention_rate} bounds the abstention interval alone,
+because a judge that abstains on hard items looks more accurate on the
+items it did answer.
 }
 
 \examples{

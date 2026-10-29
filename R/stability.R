@@ -14,7 +14,8 @@
 #' @param n_runs Number of repeated gradings; must be at least two.
 #' @param seed Optional R random seed. This does not force deterministic behavior
 #'   from a remote model provider.
-#' @param label_levels Optional complete label universe.
+#' @param label_levels Optional complete label universe. Declared levels no run
+#'   used do not count toward Gwet's chance term; see [agreement()].
 #' @param weights Agreement weights passed to Gwet's coefficient; see
 #'   [agreement()] for the weight schemes.
 #' @param conf_level Confidence level for both intervals.
@@ -158,9 +159,14 @@ summarize_stability_runs <- function(runs,
   per_item$pairwise_disagreement <- item_disagreement
   pairwise_disagreement <- mean_or_na(item_disagreement)
   pairwise <- if (is.na(pairwise_disagreement)) NA_real_ else 1 - pairwise_disagreement
-  chance <- chance_corrected_stability(runs, weights, label_levels)
+  if (is.null(label_levels)) label_levels <- sort(observed_categories(runs))
+  chance_levels <- stability_chance_levels(runs, label_levels)
+  chance <- chance_corrected_stability(
+    runs, weights, label_levels, chance_levels
+  )
   boot <- bootstrap_stability(
-    runs, item_disagreement, n_boot, conf_level, weights, label_levels
+    runs, item_disagreement, n_boot, conf_level, weights, label_levels,
+    chance_levels
   )
   any_flip <- mean_or_na(per_item$flipped)
   stability_boundary_degenerate <- is_boundary_degenerate(
@@ -260,7 +266,8 @@ is_tie <- function(z) {
 # never disagree about why an estimate is unavailable.
 chance_corrected_stability <- function(runs,
                                        weights = "unweighted",
-                                       label_levels = NULL) {
+                                       label_levels = NULL,
+                                       chance_levels = NULL) {
   unavailable <- function(status) list(estimate = NA_real_, status = status)
   usable <- runs[rowSums(!is.na(runs)) >= 2L, , drop = FALSE]
   if (nrow(usable) < 2L) return(unavailable("insufficient_items"))
@@ -270,20 +277,24 @@ chance_corrected_stability <- function(runs,
   if (length(unique(stats::na.omit(as.vector(usable)))) < 2L) {
     return(unavailable("insufficient_variation"))
   }
-  # The label universe comes from every run so a category seen only in rows
-  # that later drop out still counts toward chance agreement, as it does for
-  # the full-data estimate that the bootstrap draws are compared against.
+  # Chance categories are those observed on items with two or more runs,
+  # the rule agreement() applies; the caller fixes them from the full data
+  # so every bootstrap draw is compared with the same estimand.
   if (is.null(label_levels)) label_levels <- sort(observed_categories(runs))
+  if (is.null(chance_levels)) {
+    chance_levels <- stability_chance_levels(runs, label_levels)
+  }
   estimate <- tryCatch(
-    as.numeric(irrCAC::gwet.ac1.raw(
-      encode_ratings(usable, label_levels),
-      weights = weights,
-      categ.labels = seq_along(label_levels)
-    )$est$coeff.val),
+    coeff_point(usable, "gwet_ac1", weights, label_levels, chance_levels),
     error = function(e) NA_real_
   )
   if (!is.finite(estimate)) return(unavailable("undefined"))
   list(estimate = estimate, status = "ok")
+}
+
+stability_chance_levels <- function(runs, label_levels) {
+  usable <- runs[rowSums(!is.na(runs)) >= 2L, , drop = FALSE]
+  intersect(label_levels, observed_categories(usable))
 }
 
 item_pairwise_disagreement <- function(runs) {
@@ -315,7 +326,8 @@ bootstrap_stability <- function(runs,
                                 n_boot,
                                 conf_level,
                                 weights,
-                                label_levels) {
+                                label_levels,
+                                chance_levels = label_levels) {
   n <- nrow(runs)
   pairwise <- numeric(n_boot)
   stability <- numeric(n_boot)
@@ -323,7 +335,7 @@ bootstrap_stability <- function(runs,
     idx <- sample.int(n, n, replace = TRUE)
     pairwise[[i]] <- mean_or_na(item_disagreement[idx])
     stability[[i]] <- chance_corrected_stability(
-      runs[idx, , drop = FALSE], weights, label_levels
+      runs[idx, , drop = FALSE], weights, label_levels, chance_levels
     )$estimate
   }
   list(

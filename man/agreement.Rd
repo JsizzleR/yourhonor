@@ -69,18 +69,52 @@ object, which carries its own ratings.}
 \value{
 A tibble with one row per coefficient and columns
 \code{coefficient}, \code{estimate}, \code{conf_low}, \code{conf_high}, \code{se}, \code{n_items},
-\code{n_input}, \code{n_raters}, \code{n_missing_rows}, \code{weights},
+\code{conf_low_exact}, \code{n_input}, \code{n_raters}, \code{n_missing_rows}, \code{weights},
 \code{n_boot_effective}, \code{boundary_degenerate}, \code{ci_reliable}, \code{status}, and
 \code{interpretation}.
 
 \code{status} is \code{"ok"} when the estimate and interval were computed, or one
 of \code{"insufficient_items"}, \code{"insufficient_variation"},
-\code{"invalid_rater_count"}, and \code{"undefined"}. \code{ci_reliable} is \code{TRUE} only
+\code{"insufficient_reference_variation"}, \code{"invalid_rater_count"}, and
+\code{"undefined"}. \code{"insufficient_reference_variation"} applies to a
+calibration object, whose human (consensus) reference must use at least
+two categories: against a single-class reference every chance-corrected
+coefficient is uninformative, and Gwet's AC1 in particular can read
+"almost perfect" while kappa reads zero. The rule applies to the full
+sample only: a bootstrap resample whose reference happens to hold one
+category still contributes its coefficient.
+
+\code{conf_low_exact} is a Clopper-Pearson lower bound on observed agreement
+(the share of items whose ratings all agree) mapped onto the
+coefficient's scale as \code{(lower - pe) / (1 - pe)}, holding the sample's
+chance term \code{pe} fixed. It is exact for observed agreement, not for the
+coefficient, because \code{pe} is itself estimated; in simulation the
+Clopper-Pearson slack more than absorbs that, and the bound's coverage
+stayed at or above nominal. It does not depend on resampling, so it
+stays honest where the percentile bootstrap is optimistic: at small \code{n},
+and on a perfect sample, whose bootstrap is a zero-width interval at 1.
+Because the bound on observed agreement is divided by \code{1 - pe}, it is
+weak for kappa and alpha on imbalanced labels, whose \code{pe} is large: at
+90/10 prevalence it rarely exceeds 0.6 below a few hundred items, and it
+can fall below -1 (kappa's floor is \code{-pe / (1 - pe)}). Gwet's AC1 has a
+small \code{pe} there and is affected far less. It is
+reported for every coefficient with \code{status = "ok"} and is \code{NA}
+otherwise. For a weighted coefficient it counts only exact agreement,
+giving no partial credit for a near miss; weighted agreement is never
+below exact agreement, so the bound remains valid but is conservative
+when disagreements are mostly adjacent. Policies assess the smaller of
+\code{conf_low} and \code{conf_low_exact}; see \code{\link[=acceptance_policy]{acceptance_policy()}}.
+
+\code{ci_reliable} is \code{TRUE} only
 when at least 80\% of the requested resamples produced a finite statistic
 and the interval is not \code{boundary_degenerate}: a perfect finite sample
 produces a zero-width nonparametric bootstrap, and that interval is
 flagged unreliable rather than treated as proof of population-perfect
-agreement. \code{interpretation} applies the Landis and Koch (1977) bands
+agreement; \code{conf_low_exact} is the usable lower bound there. The
+percentile bootstrap is also optimistic at small \code{n} (around 30 items or
+fewer), which is why policies also read \code{conf_low_exact}.
+
+\code{interpretation} applies the Landis and Koch (1977) bands
 (\code{"poor"} below 0, then \code{"slight"}, \code{"fair"}, \code{"moderate"},
 \code{"substantial"}, and \code{"almost perfect"} at 0.2 steps). Those bands were
 proposed for kappa; applied to alpha, AC1, or AC2 they are a heuristic
@@ -89,11 +123,20 @@ different bands under different coefficients.
 }
 \description{
 Reports how closely a set of judge labels agrees with human labels. Confidence
-intervals use a nonparametric item bootstrap. Declared label levels are held
-fixed across bootstrap draws so rare categories do not silently disappear from
-the estimand.
+intervals use a nonparametric item bootstrap. The categories the sample
+observed are held fixed across bootstrap draws so rare categories do not
+silently disappear from the estimand.
 }
 \details{
+Chance agreement counts the categories some rater used, not every declared
+level: Gwet's AC1 and AC2 divide by the number of categories, so a declared
+level that no rater used would otherwise raise them on identical data
+(Cohen's kappa and Krippendorff's alpha are unaffected by unused levels).
+Weighted coefficients still take their weights from the full declared
+scale, so an ordinal distance never depends on which levels were
+observed; an unused level can therefore still change AC2 through the
+distances it spans, but not through the chance term.
+
 Agreement is descriptive evidence, not a universal fitness gate. In
 particular, a high aggregate coefficient can coexist with zero recall on a
 rare, important class. Use \code{\link[=report]{report()}} with an explicit

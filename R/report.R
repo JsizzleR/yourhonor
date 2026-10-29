@@ -193,7 +193,7 @@ headline_row <- function(x, policy = NULL) {
     match <- preferred[preferred %in% ag$coefficient]
     if (length(match) > 0L) match[[1]] else ag$coefficient[[1]]
   } else {
-    policy$coefficient
+    policy_coefficient(policy, x)
   }
   i <- which(ag$coefficient == coefficient)
   if (length(i) == 0L) {

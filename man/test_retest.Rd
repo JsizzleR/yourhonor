@@ -34,7 +34,8 @@ exposed to the judge unless explicitly included in \code{input_cols}.}
 \item{seed}{Optional R random seed. This does not force deterministic behavior
 from a remote model provider.}
 
-\item{label_levels}{Optional complete label universe.}
+\item{label_levels}{Optional complete label universe. Declared levels no run
+used do not count toward Gwet's chance term; see \code{\link[=agreement]{agreement()}}.}
 
 \item{weights}{Agreement weights passed to Gwet's coefficient; see
 \code{\link[=agreement]{agreement()}} for the weight schemes.}

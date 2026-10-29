@@ -284,7 +284,9 @@ extract_vitals_samples <- function(task) {
 #'   or `NOT_ASSESSED`).
 #' * `audit_id`: string or `null`.
 #' * `policy`: `null`, or an object with one member per
-#'   [acceptance_policy()] argument. `required_probes` is an array;
+#'   [acceptance_policy()] argument. A `null` `coefficient` means the
+#'   calibration's Gwet coefficient, which the `agreement_<coefficient>`
+#'   check names. `required_probes` is an array;
 #'   `min_recall` and `min_precision` are a number when global or an object
 #'   keyed by class name when class-specific; unset thresholds are `null`.
 #' * `checks`: array of objects, one per policy check, with `check`, `status`,
@@ -293,11 +295,16 @@ extract_vitals_samples <- function(task) {
 #'   `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without a
 #'   policy the single placeholder check has `null` `op` and `threshold`.
 #' * `calibration`: `n_input`, `n_items`, `n_excluded`, `n_consensus_ties`,
-#'   `scale`, `weights`, `conf_level`, `n_boot`, `seed` (scalars);
-#'   `label_levels` and `coefficients` (arrays); `agreement`,
-#'   `confusion_metrics`, and `human_reliability` (arrays of row objects
-#'   mirroring the tibble columns, `human_reliability` `null` for a single
-#'   rater).
+#'   `n_judge_abstentions`, `judge_abstention_rate`,
+#'   `judge_abstention_conf_low`, `judge_abstention_conf_high`, `scale`,
+#'   `weights`, `conf_level`, `n_boot`, `seed` (scalars); `label_levels` and
+#'   `coefficients` (arrays); `agreement`, `confusion`, `confusion_metrics`,
+#'   `human_reliability`, and `per_rater_agreement` (arrays of row objects
+#'   mirroring the tibble columns; `human_reliability` and
+#'   `per_rater_agreement` are `null` for a single rater). `confusion` holds
+#'   one row per reference-by-judge cell, empty cells included, with the
+#'   reference label, the judge label, the count `n`, and its share `prop`,
+#'   so a reader can rebuild the matrix in `label_levels` order.
 #' * `bias`: `null`, or `audit_id` plus `results`, an array of row objects
 #'   with the columns of the bias tibble.
 #' * `stability`: `null`, or the scalar summary fields of a
@@ -427,6 +434,10 @@ json_calibration <- function(x) {
     n_items = x$n_items,
     n_excluded = x$n_excluded,
     n_consensus_ties = x$n_consensus_ties,
+    n_judge_abstentions = x$n_judge_abstentions,
+    judge_abstention_rate = x$judge_abstention_rate,
+    judge_abstention_conf_low = x$judge_abstention_conf_low,
+    judge_abstention_conf_high = x$judge_abstention_conf_high,
     label_levels = json_array(x$label_levels),
     scale = x$scale,
     weights = x$weights,
@@ -435,10 +446,23 @@ json_calibration <- function(x) {
     seed = x$seed,
     coefficients = json_array(x$coefficients),
     agreement = as.data.frame(x$agreement),
+    confusion = json_confusion(x$confusion),
     confusion_metrics = as.data.frame(x$confusion_metrics),
     human_reliability = if (is.null(x$human_reliability)) NULL else
-      as.data.frame(x$human_reliability)
+      as.data.frame(x$human_reliability),
+    per_rater_agreement = if (is.null(x$per_rater_agreement)) NULL else
+      as.data.frame(x$per_rater_agreement)
   )
+}
+
+# The long-form counts, one row per reference-by-judge cell including empty
+# cells, without the R-side attributes a `yourhonor_confusion` carries.
+json_confusion <- function(confusion) {
+  if (is.null(confusion)) return(NULL)
+  out <- as.data.frame(unclass(confusion), stringsAsFactors = FALSE)
+  attr(out, "label_levels") <- NULL
+  attr(out, "metrics") <- NULL
+  out
 }
 
 json_bias <- function(bias) {

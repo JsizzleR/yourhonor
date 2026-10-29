@@ -32,6 +32,19 @@
 #' optimistic. `per_rater_agreement` compares the judge against each rater on
 #' every item and is the all-items counterpart.
 #'
+#' @section Missing labels and abstentions:
+#' Encode a judge abstention, refusal, or unparseable output as `NA` in the
+#' judge label (or return `NA` from `judge`); never as a sentinel label such
+#' as `"abstain"`, which would be scored as a category. Encode a missing human
+#' rating as `NA` in its human column. The two are reported separately: an
+#' item with a human reference and an `NA` judge label is a judge abstention
+#' (`n_judge_abstentions`), while an item without a human reference is a gap
+#' in the gold set. Both are excluded from agreement and counted in
+#' `n_excluded`, which [acceptance_policy()]'s `max_missing_rate` bounds;
+#' its optional `max_abstention_rate` bounds the abstention interval alone,
+#' because a judge that abstains on hard items looks more accurate on the
+#' items it did answer.
+#'
 #' @param gold A data frame of labeled examples.
 #' @param judge A function receiving the redacted judge input, or `NULL` to read
 #'   precomputed labels from `judge_col`.
@@ -84,6 +97,12 @@
 #'   human consensus and judge label, `n_excluded = n_input - n_items`, and
 #'   `n_consensus_ties` and `n_insufficient_human_ratings` break the exclusions
 #'   down for multi-rater runs.
+#'
+#'   Judge abstentions: `n_judge_abstentions` counts items with a human
+#'   reference but no judge label, `judge_abstention_rate` divides it by the
+#'   items with a human reference, and `judge_abstention_conf_low` and
+#'   `judge_abstention_conf_high` are its Clopper-Pearson interval. See the
+#'   "Missing labels and abstentions" section.
 #' @export
 #' @examples
 #' gold <- tibble::tibble(
@@ -179,6 +198,7 @@ calibrate_judge <- function(gold,
     stringsAsFactors = FALSE
   )
   complete <- stats::complete.cases(ratings_full)
+  abstention <- judge_abstention(ratings_full, conf_level)
   if (sum(complete) < 2L) {
     cli::cli_abort("Need at least 2 complete judge-human pairs to calibrate.")
   }
@@ -190,7 +210,7 @@ calibrate_judge <- function(gold,
 
   agr <- compute_agreement(
     ratings_full, coefficients, conf_level, n_boot, seed,
-    label_levels = label_levels, weights = weights
+    label_levels = label_levels, weights = weights, reference = "human"
   )
   conf <- confusion(
     ratings_full, label_levels = label_levels, conf_level = conf_level,
@@ -212,7 +232,7 @@ calibrate_judge <- function(gold,
       pair <- data.frame(human = human_mat[[i]], judge = judge_label)
       out <- compute_agreement(
         pair, coefficients, conf_level, n_boot, seed,
-        label_levels = label_levels, weights = weights
+        label_levels = label_levels, weights = weights, reference = "human"
       )
       out$rater <- human_cols[[i]]
       out[, c("rater", setdiff(names(out), "rater"))]
@@ -277,6 +297,10 @@ calibrate_judge <- function(gold,
       } else {
         0L
       },
+      n_judge_abstentions = abstention$n,
+      judge_abstention_rate = abstention$rate,
+      judge_abstention_conf_low = abstention$conf_low,
+      judge_abstention_conf_high = abstention$conf_high,
       human_cols = human_cols,
       judge_col = judge_col,
       input_cols = input_cols,
@@ -333,11 +357,36 @@ print.yourhonor_calibration <- function(x, ...) {
       "{x$n_insufficient_human_ratings} item{?s} had fewer than two observed human ratings."
     )
   }
+  if (isTRUE(x$n_judge_abstentions > 0L)) {
+    cli::cli_text(
+      "The judge abstained (returned {.code NA}) on ",
+      "{x$n_judge_abstentions} item{?s} with a human reference: rate ",
+      "{fmt_num(x$judge_abstention_rate)} ",
+      "[{fmt_num(x$judge_abstention_conf_low)}, ",
+      "{fmt_num(x$judge_abstention_conf_high)}]."
+    )
+  }
   if (x$n_excluded > 0L) {
     cli::cli_text("{x$n_excluded} item{?s} excluded from judge-consensus agreement.")
   }
   cli::cli_alert_info("No deployment decision is implied; call report() with a policy to assess one.")
   invisible(x)
+}
+
+# A judge abstention is a missing judge label on an item that has a human
+# reference; a missing reference is a gap in the gold set, not the judge's
+# doing, so those items are outside the denominator.
+judge_abstention <- function(ratings, conf_level) {
+  referenced <- !is.na(ratings$human)
+  n <- sum(is.na(ratings$judge[referenced]))
+  trials <- sum(referenced)
+  ci <- exact_binom_interval(n, trials, conf_level)
+  list(
+    n = n,
+    rate = if (trials > 0L) n / trials else NA_real_,
+    conf_low = ci[[1]],
+    conf_high = ci[[2]]
+  )
 }
 
 calibration_ids <- function(gold, id_col, call = rlang::caller_env()) {

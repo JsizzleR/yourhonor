@@ -46,6 +46,40 @@ calls.
 
 User-visible changes made while addressing the pre-release code review.
 
+### Calibration edge cases (#1)
+
+* A calibration whose human (consensus) reference uses a single category now
+  reports `status = "insufficient_reference_variation"` for every
+  coefficient instead of an estimate: Gwet's AC1 read "almost perfect" there
+  while kappa read zero.
+* Agreement tables gain `conf_low_exact`, a Clopper-Pearson lower bound on
+  observed agreement mapped onto the coefficient's scale. Policies assess
+  the smaller of it and the bootstrap `conf_low`, and on a perfect sample
+  (whose bootstrap interval has zero width) the exact bound alone, so a
+  perfect sample is no longer `INDETERMINATE` where one error could `PASS`,
+  and small-`n` bootstrap optimism no longer reaches a decision. For
+  weighted coefficients the exact bound counts only exact agreement, so
+  ordinal policies whose disagreements are mostly adjacent pass less often.
+  For kappa and alpha on imbalanced labels the bound is weak (it is divided
+  by `1 - pe`) and usually decides the check below a few hundred items.
+* Chance agreement now counts only the categories some rater used, so
+  declaring an unused level no longer moves Gwet's AC1 (it did not move
+  kappa or alpha) and no longer enters AC2's chance term. Weights still
+  follow the full declared scale, so for AC2 an unused level still changes
+  the distances it spans. This applies to `test_retest()` too.
+* `calibrate_judge()` reports judge abstentions (an `NA` judge label on an
+  item with a human reference) separately from human gaps:
+  `n_judge_abstentions`, `judge_abstention_rate`, and its Clopper-Pearson
+  interval. `acceptance_policy(max_abstention_rate = )` bounds the
+  interval's upper end. The encoding is documented under "Missing labels and
+  abstentions" in `?calibrate_judge`.
+* `acceptance_policy()`'s `coefficient` now defaults to `NULL`, the
+  calibration's Gwet coefficient (AC1 nominal, AC2 ordinal); the old
+  `"gwet_ac1"` default left an ordinal calibration `NOT_ASSESSED`. Naming a
+  coefficient the calibration did not compute is an error at assessment.
+* The JSON artifact adds `calibration.confusion` (long-form counts),
+  `calibration.per_rater_agreement`, and the abstention fields.
+
 ### Labels and blinding
 
 * Ratings are integer-coded before they reach irrCAC, which upper-cases, trims,
