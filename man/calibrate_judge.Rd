@@ -44,7 +44,13 @@ human-reliability benchmark.}
 \item{label_levels}{Complete label universe in intended order. Labels are
 matched exactly (case and whitespace are significant) and empty labels are
 rejected; represent a failed judgement as \code{NA}. Required for
-\code{scale = "ordinal"}.}
+\code{scale = "ordinal"}. When \code{NULL}, the universe is inferred from the human
+and judge labels together: when factor columns (or a judge returning a
+factor) declare at least two levels between them, those levels come
+first, then any other observed label; otherwise the observed labels in
+the order first seen. A label
+only the judge used is then a category, not an error; when
+\code{label_levels} is supplied, every human and judge label must be in it.}
 
 \item{scale}{Whether labels are nominal or ordinal.}
 

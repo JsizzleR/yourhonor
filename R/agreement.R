@@ -184,6 +184,9 @@ agreement <- function(x,
     )
   }
   ratings <- as_ratings(x, rater_cols)
+  if (length(observed_categories(ratings)) == 0L) {
+    cli::cli_abort("{.arg x} contains no non-missing ratings.")
+  }
   label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE, arg = "x")
   compute_agreement(
     ratings, coefficients, conf_level, n_boot, seed,
@@ -210,6 +213,17 @@ resolve_coefficients <- function(coefficients,
       coefficients, supported_coefficients, multiple = TRUE,
       error_arg = arg, error_call = call
     )
+    # A repeated name would yield identical rows that a policy cannot tell
+    # apart; like a repeated label level, it is the caller's mistake to fix.
+    if (anyDuplicated(coefficients)) {
+      cli::cli_abort(
+        paste0(
+          "{.arg {arg}} must not repeat a coefficient: ",
+          "{.val {unique(coefficients[duplicated(coefficients)])}}."
+        ),
+        call = call
+      )
+    }
   }
   if (inherited) {
     coefficients[coefficients == "gwet_ac2"] <- "gwet_ac1"
@@ -580,7 +594,10 @@ resolve_gwet_coefficient <- function(coefficients,
 # every coefficient here as a reading aid only; see `?agreement`.
 interpret_agreement <- function(value) {
   if (length(value) != 1L || is.na(value)) return(NA_character_)
-  breaks <- c(-Inf, 0.0, 0.2, 0.4, 0.6, 0.8, Inf)
-  labels <- c("poor", "slight", "fair", "moderate", "substantial", "almost perfect")
+  # "poor" is strictly below 0; from 0 the bands are 0-0.20, 0.21-0.40, and
+  # so on, each closed at its upper edge, so 0 itself is "slight".
+  if (value < 0) return("poor")
+  breaks <- c(-Inf, 0.2, 0.4, 0.6, 0.8, Inf)
+  labels <- c("slight", "fair", "moderate", "substantial", "almost perfect")
   as.character(cut(value, breaks = breaks, labels = labels, right = TRUE))
 }

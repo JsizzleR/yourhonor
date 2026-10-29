@@ -60,7 +60,13 @@
 #' @param label_levels Complete label universe in intended order. Labels are
 #'   matched exactly (case and whitespace are significant) and empty labels are
 #'   rejected; represent a failed judgement as `NA`. Required for
-#'   `scale = "ordinal"`.
+#'   `scale = "ordinal"`. When `NULL`, the universe is inferred from the human
+#'   and judge labels together: when factor columns (or a judge returning a
+#'   factor) declare at least two levels between them, those levels come
+#'   first, then any other observed label; otherwise the observed labels in
+#'   the order first seen. A label
+#'   only the judge used is then a category, not an error; when
+#'   `label_levels` is supplied, every human and judge label must be in it.
 #' @param scale Whether labels are nominal or ordinal.
 #' @param weights Agreement weights. `NULL` selects `"unweighted"` for nominal
 #'   labels and `"ordinal"` for ordinal labels. Weighted coefficients use
@@ -152,8 +158,12 @@ calibrate_judge <- function(gold,
   if (scale == "ordinal" && is.null(label_levels)) {
     cli::cli_abort("{.arg label_levels} is required when {.code scale = 'ordinal'}.")
   }
-  label_levels <- resolve_label_levels(human_source, label_levels, arg = "human_cols")
-  if (length(label_levels) == 0L) {
+  # Supplied levels are checked against the human labels here and against the
+  # judge's labels as they are graded. Left NULL, the universe is inferred
+  # after grading from the human and judge labels together, so a label only
+  # the judge used is a category of the calibration rather than an error.
+  human_levels <- resolve_label_levels(human_source, label_levels, arg = "human_cols")
+  if (length(human_levels) == 0L) {
     cli::cli_abort("Human ratings contain no observed labels.")
   }
   if (is.null(weights)) weights <- if (scale == "ordinal") "ordinal" else "unweighted"
@@ -174,6 +184,23 @@ calibrate_judge <- function(gold,
     label_levels = label_levels
   )
   judge_label <- graded$label
+  label_levels <- if (is.null(label_levels)) {
+    # A judge's declared factor levels count as a factor column; labels it
+    # returned outside them are kept as levels so none is dropped.
+    judge_source <- if (is.null(graded$label_levels)) {
+      judge_label
+    } else {
+      factor(
+        judge_label,
+        levels = unique(c(graded$label_levels, stats::na.omit(judge_label)))
+      )
+    }
+    resolve_label_levels(
+      c(as.list(human_source), list(judge_source)), arg = "human_cols"
+    )
+  } else {
+    human_levels
+  }
 
   human_mat <- as.data.frame(lapply(human_source, as.character), stringsAsFactors = FALSE)
   human_observed <- rowSums(!is.na(human_mat))
@@ -448,10 +475,20 @@ grade_calibration <- function(judge,
         call = call
       )
     }
-    labels <- validate_labels(
-      gold[[judge_col]], label_levels, arg = judge_col, call = call
-    )
-    return(list(label = labels, visible_output = NULL, blinding_map = NULL))
+    column <- gold[[judge_col]]
+    labels <- check_labels_nonblank(as.character(column), judge_col, call = call)
+    if (!is.null(label_levels)) {
+      labels <- validate_labels(labels, label_levels, arg = judge_col, call = call)
+    }
+    declared <- if (is.null(label_levels) && is.factor(column)) {
+      inferred_factor_levels(column)
+    } else {
+      NULL
+    }
+    return(list(
+      label = labels, label_levels = declared, visible_output = NULL,
+      blinding_map = NULL
+    ))
   }
   if (!is.function(judge)) {
     cli::cli_abort(
@@ -640,6 +677,11 @@ grade_keyed <- function(judge,
       )
     }
     output <- tibble::as_tibble(out)
+    for (col in key_cols) {
+      output[[col]] <- align_output_key(
+        output[[col]], data[[col]], context, call = call
+      )
+    }
     output_keys <- as.data.frame(output[key_cols])
     input_keys <- as.data.frame(data[key_cols])
     index <- vctrs::vec_match(input_keys, output_keys)
@@ -687,6 +729,41 @@ grade_keyed <- function(judge,
     )
   }
   list(label = labels, output = output, label_levels = inferred_levels)
+}
+
+# A judge that parses JSON often hands its keys back as strings. A string key
+# is accepted only when it is exactly the string form of an issued key, so
+# "01", " 1" or "1.0" never matches item 1 and is reported as a key that was
+# not issued. A number must cast to the issued type without loss; any other
+# type is a contract error rather than a vctrs one.
+align_output_key <- function(returned,
+                             issued,
+                             context,
+                             call = rlang::caller_env()) {
+  if (is.character(returned) || is.factor(returned)) {
+    return(issued[match(as.character(returned), as.character(issued))])
+  }
+  if (!is.numeric(returned) && !all(is.na(returned))) {
+    cli::cli_abort(
+      paste0(
+        "{context} keys must be the issued integer keys or their exact ",
+        "string forms, not {.cls {class(returned)}}."
+      ),
+      call = call
+    )
+  }
+  rlang::try_fetch(
+    vctrs::vec_cast(returned, issued),
+    vctrs_error = function(cnd) {
+      cli::cli_abort(
+        paste0(
+          "{context} keys must be the issued integer keys or their exact ",
+          "string forms; a fractional or out-of-range key matches no item."
+        ),
+        call = call
+      )
+    }
+  )
 }
 
 # Levels a factor declares, minus blank ones. An unused blank level is not a
