@@ -296,3 +296,12 @@ User-visible changes made while addressing the pre-release code review.
   `"slight"`, not `"poor"`.
 * `agreement()` on all-missing ratings now says there are no non-missing
   ratings instead of blaming `label_levels`.
+* The acceptance policy's bias flip-rate and directional checks now count
+  every unscored probe item (a missing judgment, or a position item lost to
+  a within-condition tie across `repeats`) as a worst-case flip in their
+  upper bounds. A weakly position-biased judge could previously pass at the
+  default `repeats = 2` because its bias landed in ties; it now reads
+  `INDETERMINATE`. Unscored items never cause a `FAIL`, and fully scored
+  probes are assessed exactly as before.
+* `probe_position()` documents that even `repeats` can tie, and that taking
+  the mode attenuates a per-call bias.
