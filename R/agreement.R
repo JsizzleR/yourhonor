@@ -91,7 +91,8 @@
 #'
 #'   `conf_low_exact` is a resampling-free lower bound on the coefficient's
 #'   own observed agreement `pa`, mapped onto its scale as
-#'   `(lower - pe) / (1 - pe)` with the sample's chance term `pe` held fixed.
+#'   `(lower - pe) / (1 - pe)` with the sample's chance term `pe` held
+#'   fixed, then capped as described below.
 #'   `pa` is the mean over items of each item's weighted pairwise agreement,
 #'   so a near miss under weights earns its partial credit; Krippendorff's
 #'   alpha's `pa` is `(1 - eps) * A + eps`, with `A` the mean weighted by
@@ -111,10 +112,37 @@
 #'   rating-weighted agreement by inverting Hoeffding's relative-entropy
 #'   test, so missing ratings widen it. On a perfect sample every route gives
 #'   Clopper-Pearson's `((1 - conf_level) / 2)^(1 / n)` for `n` items,
-#'   except alpha with missing ratings, which is lower. As items accumulate
-#'   the bound approaches the estimate, at a rate of about `1 / sqrt(n)`,
-#'   for every coefficient, weighting and number of raters, provided
-#'   `1 - pe` stays away from 0.
+#'   except alpha with missing ratings, which is lower.
+#'
+#'   No sample's bound ranks above that of a perfect sample it can be
+#'   corrected into: a correction gives every item whose ratings disagree
+#'   one of its own ratings for all of them (in a calibration, the judge
+#'   matching the human reference) and keeps the other items and the missing
+#'   ratings, and the bound is capped at the worst such perfect sample's
+#'   (for Gwet's coefficients, at or below it: their chance term is bounded
+#'   from above rather than found exactly).
+#'   Without the cap an error could rank above its own correction, because
+#'   a rating moved into a rarer category, or into one the perfect sample
+#'   never used, raises the chance disagreement `1 - pe` that divides the
+#'   bound's margin. The cap costs most at small `n` with rare categories,
+#'   where a rare category seen only in disagreements lets a correction drop
+#'   it: in simulation with 20 to 30 items and end categories of 1% to 3%,
+#'   the share of samples whose AC2 bound reached 0.6 fell from 12% to 1%
+#'   in the worst scenario (three raters, end categories of 3%, 30 items),
+#'   while coverage was unchanged; from 100 items it moved the mean bound by
+#'   about 0.004 at most. Two imperfect samples keep no such guarantee:
+#'   correcting an error can lower the estimate itself (when it removes the
+#'   only rating in a category from the chance term), so no bound that
+#'   tracks the estimate can always rise with a correction.
+#'
+#'   As items accumulate the bound approaches the estimate, at a rate of
+#'   about `1 / sqrt(n)`, for every coefficient, weighting and number of
+#'   raters, provided `1 - pe` stays away from 0, for the corrections too.
+#'   For kappa and alpha that holds when the items the raters agree on use
+#'   at least two categories in non-vanishing shares. Gwet's chance term for
+#'   a correction always stays below 1, but on a wide quadratic scale the
+#'   gap can be small (about 0.02 with six levels), so the cap can hold the
+#'   bound down until a few thousand items.
 #'
 #'   It is exact (a finite-sample bound, not an asymptotic one) for observed
 #'   agreement, not for the coefficient, because `pe` is itself estimated;
@@ -342,8 +370,12 @@ compute_agreement <- function(ratings,
       low <- observed_agreement_lower(
         fits[[i]]$agreement, co, counts, ncol(usable), conf_level, binary_low
       )
+      # No sample ranks above a perfect sample it can be corrected into.
+      perfect_low <- perfect_sample_lower(
+        usable, co, weights, label_levels, counts, conf_level
+      )
       # irrCAC rounds the estimate to five decimals; the bound never exceeds it.
-      min(chance_mapped(low, fits[[i]]$chance), co_estimate)
+      min(chance_mapped(low, fits[[i]]$chance), perfect_low, co_estimate)
     } else {
       NA_real_
     }
@@ -510,6 +542,236 @@ bernoulli_kl <- function(x, q) {
   up <- if (x > 0) x * log(x / q) else 0
   down <- if (x < 1) (1 - x) * log((1 - x) / (1 - q)) else 0
   up + down
+}
+
+# The bound of the worst perfect sample `usable` could be corrected into. A
+# correction gives every item whose ratings disagree one of its own ratings
+# for all of them (the judge matching the human, say) and leaves the other
+# items and the missing ratings as they are. Holding the sample's `pe` fixed
+# would otherwise let an error rank above the correction it came from: a
+# rating moved into a rarer category raises the chance disagreement
+# `1 - pe` that divides the bound's margin, and one in a category the
+# correction lacks changes the chance categories outright. A perfect sample
+# has `pa` = 1, so its bound is `chance_mapped(L1, pe)` with `L1` the same
+# route's bound at `pa` = 1, which depends only on the items and their
+# rating counts; it falls as `pe` rises, so the worst correction is the one
+# with the largest `pe`. `Inf` when no item disagrees.
+perfect_sample_lower <- function(usable,
+                                 coefficient,
+                                 weights,
+                                 label_levels,
+                                 counts,
+                                 conf_level) {
+  chance <- perfect_chance_max(usable, coefficient, weights, label_levels)
+  if (!is.finite(chance)) return(Inf)
+  binary_low <- if (ncol(usable) == 2L && weights == "unweighted") {
+    exact_binom_interval(nrow(usable), nrow(usable), conf_level)[[1]]
+  }
+  # irrCAC can report a perfect sample's alpha `pa` a few ulps below 1, so
+  # the bound is taken just below it.
+  low <- observed_agreement_lower(
+    1 - 1e-12, coefficient, counts, ncol(usable), conf_level, binary_low
+  )
+  # A chance term of 1 has no coefficient; corrections keep two categories,
+  # so these weights never reach it, and no cap is the safe reading.
+  bound <- chance_mapped(low, chance)
+  if (is.na(bound)) Inf else bound
+}
+
+# An upper bound on the chance term `pe` over the corrections of `ratings`
+# that use at least two categories (one category has no coefficient). On a
+# perfect sample `pe` depends only on each category's share `p`: of items
+# for kappa and Gwet, of ratings for alpha. NA when no item disagrees. The
+# small allowance keeps rounding from putting it below the exact maximum.
+perfect_chance_max <- function(ratings,
+                               coefficient,
+                               weights,
+                               label_levels,
+                               max_vertices = 1e5) {
+  ratings <- as.matrix(ratings)
+  q <- length(label_levels)
+  values <- lapply(seq_len(nrow(ratings)), function(i) {
+    sort(unique(match(ratings[i, !is.na(ratings[i, ])], label_levels)))
+  })
+  mass <- if (coefficient == "krippendorff_alpha") {
+    rowSums(!is.na(ratings))
+  } else {
+    rep(1, nrow(ratings))
+  }
+  agree <- lengths(values) == 1L
+  if (all(agree)) return(NA_real_)
+  base <- vapply(seq_len(q), function(k) {
+    sum(mass[agree][unlist(values[agree]) == k])
+  }, numeric(1))
+  # Items with the same set of ratings form one group.
+  disagree <- which(!agree)
+  key <- vapply(values[disagree], paste, character(1), collapse = ",")
+  groups <- lapply(split(disagree, key), function(items) {
+    list(
+      values = values[[items[[1]]]],
+      mass = sum(mass[items]),
+      min_mass = min(mass[items])
+    )
+  })
+  weight_mat <- agreement_weight_matrix(weights, q)
+  chance <- if (coefficient %in% c("gwet_ac1", "gwet_ac2")) {
+    gwet_chance_max(base, groups, sum(mass), weight_mat)
+  } else {
+    quadratic_chance_max(base, groups, sum(mass), weight_mat, max_vertices)
+  }
+  chance + 64 * .Machine$double.eps
+}
+
+# Kappa (two raters, whose shares match on a perfect sample) and alpha:
+# pe = p' W p. For these weights 1 - W is a distance of negative type, so pe
+# is convex in p. Relax each group to any split of its mass over its
+# ratings: the relaxed set's vertices send each group whole to one rating,
+# which real corrections do, and a convex function peaks at a vertex.
+quadratic_chance_max <- function(base, groups, total, weight_mat, max_vertices) {
+  # Merging the two lightest groups over the union of their ratings only
+  # adds corrections, so the maximum stays an upper bound.
+  while (length(groups) > 1L &&
+         prod(lengths(lapply(groups, `[[`, "values"))) > max_vertices) {
+    lightest <- order(vapply(groups, `[[`, numeric(1), "mass"))[1:2]
+    a <- groups[[lightest[[1]]]]
+    b <- groups[[lightest[[2]]]]
+    groups <- c(groups[-lightest], list(list(
+      values = sort(union(a$values, b$values)),
+      mass = a$mass + b$mass,
+      min_mass = min(a$min_mass, b$min_mass)
+    )))
+  }
+  q <- length(base)
+  choice <- as.matrix(expand.grid(lapply(groups, `[[`, "values")))
+  totals <- matrix(base, nrow(choice), q, byrow = TRUE)
+  for (g in seq_along(groups)) {
+    cell <- cbind(seq_len(nrow(choice)), choice[, g])
+    totals[cell] <- totals[cell] + groups[[g]]$mass
+  }
+  totals <- totals[rowSums(totals > 0) >= 2L, , drop = FALSE]
+  shares <- totals / total
+  best <- if (nrow(shares) > 0L) {
+    max(rowSums((shares %*% weight_mat) * shares))
+  } else {
+    NA_real_
+  }
+  # A vertex with every item in category k is not a valid correction. When
+  # the others cannot reach it either (only k among the agreeing items, and
+  # k among every group's ratings), the valid corrections nearest it move
+  # the lightest item of one group to another of its ratings; convexity
+  # along that group's split puts the maximum there or at a valid vertex.
+  # Each has two categories, so its pe is found directly: there can be
+  # q (q - 1) of them.
+  for (k in seq_len(q)) {
+    reachable <- vapply(groups, function(g) k %in% g$values, logical(1))
+    if (any(base[-k] > 0) || !all(reachable)) next
+    for (g in groups) {
+      if (g$min_mass >= total) next
+      j <- setdiff(g$values, k)
+      a <- (total - g$min_mass) / total
+      b <- g$min_mass / total
+      near <- a^2 * weight_mat[k, k] + b^2 * weight_mat[cbind(j, j)] +
+        2 * a * b * weight_mat[k, j]
+      best <- max(best, near, na.rm = TRUE)
+    }
+  }
+  best
+}
+
+# Gwet's AC1 and AC2: pe = sum(W_S) / (q_S (q_S - 1)) * (1 - sum(p^2)) over
+# the chance categories S, which a correction can shrink by dropping a
+# category only disagreeing items used. For each possible S the concave part
+# is bounded from above by Frank-Wolfe; letting a category of S go empty
+# only adds candidates.
+gwet_chance_max <- function(base, groups, total, weight_mat,
+                            max_subsets = 256L) {
+  fixed <- which(base > 0)
+  optional <- setdiff(unlist(lapply(groups, `[[`, "values")), fixed)
+  mass <- vapply(groups, `[[`, numeric(1), "mass")
+  if (2^length(optional) > max_subsets) {
+    return(gwet_chance_ceiling(base, groups, mass, total, weight_mat, fixed,
+                               optional))
+  }
+  best <- NA_real_
+  for (bits in seq_len(2^length(optional)) - 1L) {
+    extra <- optional[bitwAnd(bits, 2^(seq_along(optional) - 1L)) > 0]
+    s <- sort(c(fixed, extra))
+    allowed <- lapply(groups, function(g) intersect(g$values, s))
+    if (length(s) < 2L || any(lengths(allowed) == 0L)) next
+    scale <- sum(weight_mat[s, s]) / (length(s) * (length(s) - 1L))
+    spread <- balanced_share_max(base, allowed, mass, total)
+    best <- max(best, scale * spread, na.rm = TRUE)
+  }
+  best
+}
+
+# The subsets of categories only disagreeing items used grow exponentially
+# (a 0-100 score scale can have dozens), so past a few the two factors are
+# bounded apart. The share term is largest with every category allowed and
+# is at most 1 - 1/m over m categories. A set of m categories holds every
+# fixed one and m - |fixed| optional ones, so its weight term is at most
+# (m + rows) / (m (m - 1)) with rows bounding its off-diagonal weights row
+# by row: a fixed row's weights to the other fixed categories and its
+# m - |fixed| largest to optional ones, and the m - |fixed| largest of the
+# optional rows' weights to every fixed category and their m - |fixed| - 1
+# largest to other optional ones. With no optional category it is exact.
+gwet_chance_ceiling <- function(base, groups, mass, total, weight_mat, fixed,
+                                optional) {
+  spread <- balanced_share_max(
+    base, lapply(groups, `[[`, "values"), mass, total
+  )
+  off <- weight_mat
+  diag(off) <- 0
+  top_sum <- function(w, k) sum(sort(w, decreasing = TRUE)[seq_len(k)])
+  fixed_within <- sum(off[fixed, fixed])
+  best <- NA_real_
+  for (m in max(2L, length(fixed)):(length(fixed) + length(optional))) {
+    extra <- m - length(fixed)
+    rows <- fixed_within
+    if (extra > 0L) {
+      fixed_rows <- vapply(fixed, function(f) {
+        top_sum(off[f, optional], extra)
+      }, numeric(1))
+      optional_rows <- vapply(optional, function(o) {
+        sum(off[o, fixed]) + top_sum(off[o, setdiff(optional, o)], extra - 1L)
+      }, numeric(1))
+      rows <- rows + sum(fixed_rows) + top_sum(optional_rows, extra)
+    }
+    scale <- (m + rows) / (m * (m - 1))
+    best <- max(best, scale * min(spread, 1 - 1 / m), na.rm = TRUE)
+  }
+  best
+}
+
+# Upper bound on the largest 1 - sum(((base + y) / total)^2), y the groups'
+# masses split over their allowed categories. The objective is concave, so
+# at every iterate its value plus the Frank-Wolfe gap bounds the maximum.
+balanced_share_max <- function(base, allowed, mass, total, tol = 1e-12,
+                               max_iter = 500L) {
+  q <- length(base)
+  place <- function(target) {
+    y <- numeric(q)
+    for (g in seq_along(allowed)) y[target[[g]]] <- y[target[[g]]] + mass[[g]]
+    y
+  }
+  y <- numeric(q)
+  for (g in seq_along(allowed)) {
+    y[allowed[[g]]] <- y[allowed[[g]]] + mass[[g]] / length(allowed[[g]])
+  }
+  upper <- Inf
+  for (iter in seq_len(max_iter)) {
+    current <- base + y
+    # The linearisation is largest when each group joins its emptiest
+    # allowed category.
+    vertex <- place(lapply(allowed, function(v) v[which.min(current[v])]))
+    direction <- vertex - y
+    gap <- -2 * sum(current * direction) / total^2
+    upper <- min(upper, 1 - sum(current^2) / total^2 + gap)
+    if (gap <= tol) break
+    step <- -sum(current * direction) / sum(direction^2)
+    y <- y + min(1, max(0, step)) * direction
+  }
+  upper
 }
 
 # A coefficient is `(pa - pe) / (1 - pe)`; holding the sample's chance term

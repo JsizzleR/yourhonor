@@ -273,10 +273,18 @@ extract_vitals_samples <- function(task) {
 #' @section JSON schema (`yourhonor.audit.v1`):
 #' The JSON artifact is written at full numeric precision: doubles carry 17
 #' significant digits, so every value round-trips exactly (a reader may see
-#' `0.94999999999999996` for `0.95`). Every absent value is `null`: an `NA`
-#' and an R `NULL` are indistinguishable to a reader, but neither ever appears
-#' as `{}` or is dropped. Fields that are vectors by contract are always JSON
-#' arrays, even when they hold one value. Top-level members:
+#' `0.94999999999999996` for `0.95`). That is the precision of the stored
+#' doubles, not of the estimates: irrCAC rounds each agreement and stability
+#' coefficient to five decimals, so every `estimate` (and stability's
+#' `gwet_agreement`) and every bootstrap draw sits on that grid, and the
+#' bootstrap bounds interpolated between draws are no more precise.
+#' `conf_low_exact` is computed from irrCAC's unrounded observed and chance
+#' agreement and is capped at the rounded `estimate` (and at the bound of the
+#' perfect samples it can be corrected into; see [agreement()]). Every absent
+#' value is `null`: an `NA` and an R `NULL` are indistinguishable to a reader,
+#' but neither ever appears as `{}` or is dropped. Fields that are vectors by
+#' contract are always JSON arrays, even when they hold one value. Top-level
+#' members:
 #' * `schema_version`: `"yourhonor.audit.v1"`.
 #' * `created_at`: UTC timestamp in RFC 3339 form, e.g.
 #'   `"2026-01-31T12:00:00Z"`.
@@ -290,7 +298,12 @@ extract_vitals_samples <- function(task) {
 #'   `min_recall` and `min_precision` are a number when global or an object
 #'   keyed by class name when class-specific; unset thresholds are `null`.
 #' * `checks`: array of objects, one per policy check, with `check`, `status`,
-#'   `value` (the observed number, `null` when unavailable), `op` (the
+#'   `value` (the number compared with `threshold`, `null` when
+#'   unavailable: the observed value, or for an interval check the bound
+#'   assessed, which for a bias probe's flip-rate and directional checks
+#'   counts every unscored item against the probe over `n_input`: as a flip
+#'   for the flip rate, towards the worse direction for the directional
+#'   rate), `op` (the
 #'   comparison the check encodes: `">="`, `"<="`, `"lower >="`,
 #'   `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without a
 #'   policy the single placeholder check has `null` `op` and `threshold`.

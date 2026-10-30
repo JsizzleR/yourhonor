@@ -737,3 +737,239 @@ test_that("the exact bound does not assume an unobserved level never occurs", {
     tolerance = 1e-6
   )
 })
+
+test_that("no sample's exact bound ranks above a perfect sample it corrects to", {
+  # With the sample's chance term held fixed, one error ranked above the
+  # perfect sample it came from: a near miss into a rarer category raised
+  # the chance disagreement that divides the bound's margin (n = 30, AC2
+  # 0.651 against 0.649), and a rating in a category the perfect sample
+  # never used changed the chance categories (n = 13, AC2 0.364 against
+  # -0.156). A policy decides a perfect sample on this bound alone.
+  levels <- c("1", "2", "3", "4")
+  coefficients <- c("cohen_kappa", "krippendorff_alpha", "gwet_ac2")
+  cases <- list(
+    list(human = "333244344443334444443343244444", item = 25L, judge = "3"),
+    list(human = "1312322111212", item = 2L, judge = "4")
+  )
+  for (case in cases) {
+    human <- strsplit(case$human, "")[[1]]
+    perfect <- data.frame(human = human, judge = human)
+    error <- perfect
+    error$judge[[case$item]] <- case$judge
+    bound <- function(d) {
+      agreement(
+        d, coefficients = coefficients, n_boot = 20, seed = 1,
+        label_levels = levels, weights = "quadratic"
+      )$conf_low_exact
+    }
+    expect_true(all(bound(error) <= bound(perfect)))
+    # The perfect sample's own bound is unchanged.
+    expect_equal(
+      bound(perfect),
+      vapply(coefficients, function(co) {
+        uncapped_exact_low(perfect, co, "quadratic", levels)
+      }, numeric(1), USE.NAMES = FALSE)
+    )
+  }
+})
+
+test_that("the exact bound is at most every correction's, on every route", {
+  # Every correction of each sample is enumerated through agreement(): two
+  # and three raters, all four weightings, missing ratings (alpha's ratio
+  # route) and the Clopper-Pearson route.
+  set.seed(20261029)
+  levels <- c("1", "2", "3", "4")
+  checked <- 0L
+  for (k in 1:30) {
+    n <- sample(c(6L, 10L), 1)
+    n_raters <- sample(2:3, 1)
+    weights <- sample(c("unweighted", "linear", "quadratic", "ordinal"), 1)
+    coefficients <- c(
+      if (n_raters == 2L) "cohen_kappa", "krippendorff_alpha",
+      if (weights == "unweighted") "gwet_ac1" else "gwet_ac2"
+    )
+    human <- sample(levels, n, TRUE, prob = c(0.5, 0.3, 0.15, 0.05))
+    x <- as.data.frame(replicate(n_raters, human), stringsAsFactors = FALSE)
+    if (n_raters == 3L && k %% 2L == 0L) x[sample(n, 2), 3] <- NA
+    for (i in sample(n, sample(1:3, 1))) x[i, 2] <- sample(levels, 1)
+    disagree <- which(apply(x, 1, function(r) length(unique(stats::na.omit(r))) > 1L))
+    if (length(disagree) == 0L) next
+    choices <- expand.grid(
+      lapply(disagree, function(i) unique(stats::na.omit(unlist(x[i, ])))),
+      stringsAsFactors = FALSE
+    )
+    run <- function(d) {
+      agreement(
+        d, coefficients = coefficients, n_boot = 1, seed = 1,
+        label_levels = levels, weights = weights, rater_cols = names(d)
+      )
+    }
+    out <- run(x)
+    for (j in seq_len(nrow(choices))) {
+      corrected <- x
+      for (d in seq_along(disagree)) {
+        rated <- !is.na(corrected[disagree[[d]], ])
+        corrected[disagree[[d]], rated] <- choices[j, d]
+      }
+      fixed <- run(corrected)
+      ok <- out$status == "ok" & fixed$status == "ok"
+      expect_true(all(out$conf_low_exact[ok] <= fixed$conf_low_exact[ok] + 1e-12))
+      checked <- checked + sum(ok)
+    }
+  }
+  expect_gt(checked, 100L)
+})
+
+test_that("kappa's and alpha's worst correction is found exactly", {
+  # Eight items agree on "a" and two disagree between "a" and "b": the
+  # all-"a" correction has no coefficient, and the worst valid one keeps a
+  # single "b" (pe = 0.9^2 + 0.1^2 for kappa).
+  x <- data.frame(
+    human = c(rep("a", 8), "a", "b"), judge = c(rep("a", 8), "b", "a")
+  )
+  expect_equal(
+    yourhonor:::perfect_chance_max(x, "cohen_kappa", "unweighted", c("a", "b")),
+    0.82, tolerance = 1e-12
+  )
+  # Merging groups only enlarges the search.
+  set.seed(5)
+  levels <- c("1", "2", "3", "4", "5")
+  many <- as.data.frame(matrix(sample(levels, 120, TRUE), 40), stringsAsFactors = FALSE)
+  for (co in c("cohen_kappa", "krippendorff_alpha")) {
+    d <- if (co == "cohen_kappa") many[, 1:2] else many
+    exact <- yourhonor:::perfect_chance_max(d, co, "linear", levels)
+    merged <- yourhonor:::perfect_chance_max(d, co, "linear", levels, max_vertices = 1)
+    expect_gte(merged, exact)
+  }
+})
+
+test_that("the worst correction matches irrCAC's chance term, kappa and alpha", {
+  # Every correction of a small sample with a missing rating, scored by
+  # irrCAC itself: the search must find the largest `pe` of them.
+  levels <- c("1", "2", "3")
+  x <- data.frame(
+    a = c("1", "1", "2", "3", "1", "2", "3", "2"),
+    b = c("1", "1", "2", "3", "2", "3", "1", NA),
+    c = c("1", NA, "2", "3", "1", "2", "2", "2"),
+    stringsAsFactors = FALSE
+  )
+  worst <- function(d, co) {
+    d <- as.matrix(d)
+    picks <- lapply(seq_len(nrow(d)), function(i) unique(stats::na.omit(d[i, ])))
+    choices <- as.matrix(expand.grid(picks, stringsAsFactors = FALSE))
+    best <- -Inf
+    for (row in seq_len(nrow(choices))) {
+      choice <- choices[row, ]
+      fixed <- d
+      for (i in seq_len(nrow(d))) fixed[i, !is.na(d[i, ])] <- choice[[i]]
+      chance_levels <- yourhonor:::chance_categories(fixed, levels)
+      if (length(chance_levels) < 2L) next
+      fit <- yourhonor:::coeff_fit(fixed, co, "linear", levels, chance_levels)
+      best <- max(best, fit$chance)
+    }
+    best
+  }
+  for (co in c("cohen_kappa", "krippendorff_alpha")) {
+    d <- if (co == "cohen_kappa") x[1:7, 1:2] else x
+    expect_equal(
+      yourhonor:::perfect_chance_max(d, co, "linear", levels),
+      worst(d, co),
+      tolerance = 1e-9
+    )
+  }
+})
+
+test_that("kappa's and alpha's cap stays cheap when one group spans the scale", {
+  # Every item uses every level of a 0-100 scale and none agrees, so the
+  # corrections nearest the excluded one-category ones number q (q - 1).
+  levels <- as.character(0:100)
+  x <- as.data.frame(rbind(levels, rev(levels), levels), stringsAsFactors = FALSE)
+  elapsed <- system.time(
+    chance <- yourhonor:::perfect_chance_max(
+      x, "krippendorff_alpha", "quadratic", levels
+    )
+  )[["elapsed"]]
+  expect_lt(elapsed, 2)
+  # Two items on one level, one on its neighbour (weight 1 - 1 / 100^2).
+  expect_equal(chance, 1 - 4e-4 / 9, tolerance = 1e-12)
+})
+
+test_that("conf_low_exact stays at or below an estimate irrCAC rounded down", {
+  # irrCAC rounds each coefficient to five decimals, while the exact bound
+  # works from its unrounded pa and pe. Here kappa is 0.857142857..., reported
+  # as 0.85714; a bound equal to the unrounded value must still be capped.
+  human <- c("a", "a", "b", "b", "c", "a", "a", "c", "a", "a", "b", "b")
+  judge <- replace(human, 5, "a")
+  d <- data.frame(human = human, judge = judge)
+  local_mocked_bindings(
+    observed_agreement_lower = function(pa, ...) pa,
+    .package = "yourhonor"
+  )
+  out <- agreement(d, coefficients = "cohen_kappa", n_boot = 20, seed = 1)
+  expect_equal(out$estimate, 0.85714)
+  expect_gt(6 / 7, out$estimate)
+  expect_identical(out$conf_low_exact, out$estimate)
+})
+
+test_that("Gwet's cap stays cheap with many categories only errors used", {
+  # Human scores on round values and judge misses of a few points leave
+  # dozens of scores seen only in disagreements; enumerating their subsets
+  # ran out of memory. Past a few, the chance term is bounded in two parts.
+  set.seed(7)
+  human <- sample(seq(0, 100, by = 10), 300, TRUE)
+  judge <- human
+  off <- sample(300, 60)
+  judge[off] <- pmin(100, pmax(0, human[off] + sample(c(-4:-1, 1:4), 60, TRUE)))
+  d <- data.frame(human = human, judge = judge)
+  out <- agreement(
+    d, coefficients = "gwet_ac1", n_boot = 20, seed = 1, label_levels = 0:100
+  )
+  expect_identical(out$status, "ok")
+  expect_true(is.finite(out$conf_low_exact))
+  expect_lte(out$conf_low_exact, out$estimate)
+  # The two-part bound is never below the exact enumeration.
+  x <- data.frame(
+    human = c(rep(c("1", "3", "5"), 6), "1", "3", "5", "1"),
+    judge = c(rep(c("1", "3", "5"), 6), "2", "4", "6", "7")
+  )
+  levels <- as.character(1:7)
+  for (weights in c("unweighted", "quadratic")) {
+    co <- if (weights == "unweighted") "gwet_ac1" else "gwet_ac2"
+    exact <- yourhonor:::perfect_chance_max(x, co, weights, levels)
+    m <- as.matrix(x)
+    groups <- lapply(19:22, function(i) {
+      list(values = sort(match(m[i, ], levels)), mass = 1, min_mass = 1)
+    })
+    base <- tabulate(match(m[1:18, 1], levels), 7)
+    ceiling <- yourhonor:::gwet_chance_max(
+      base, groups, 22, yourhonor:::agreement_weight_matrix(weights, 7),
+      max_subsets = 1L
+    )
+    expect_gte(ceiling, exact - 64 * .Machine$double.eps)
+    expect_lt(ceiling, 1)
+  }
+})
+
+test_that("Gwet's two-part bound stays near the exact one on a wide scale", {
+  # Human scores on round values of 0-100 and eight near misses: bounding
+  # each fixed score's weights by its nearest neighbours, which a set of
+  # chance categories need not hold, put the ceiling 0.11 above the exact
+  # maximum and the AC2 cap far below the uncapped bound.
+  levels <- 0:100
+  base <- tabulate(match(rep(seq(0, 100, 10), each = 3), levels), 101)
+  pairs <- list(c(0, 1), c(10, 12), c(20, 23), c(30, 34), c(50, 46),
+                c(60, 57), c(70, 68), c(80, 79))
+  groups <- lapply(pairs, function(p) {
+    list(values = sort(match(p, levels)), mass = 1, min_mass = 1)
+  })
+  total <- sum(base) + length(groups)
+  for (weights in c("linear", "quadratic", "ordinal")) {
+    w <- yourhonor:::agreement_weight_matrix(weights, 101)
+    exact <- yourhonor:::gwet_chance_max(base, groups, total, w)
+    ceiling <- yourhonor:::gwet_chance_max(
+      base, groups, total, w, max_subsets = 1L
+    )
+    expect_gte(ceiling, exact - 64 * .Machine$double.eps)
+    expect_lt(ceiling - exact, 0.05)
+  }
+})

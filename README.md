@@ -152,7 +152,8 @@ report(cal, policy = policy, output = "console")
 #> PASS: calibration_missing_rate = 0 (<= 0.01) - Criterion met.
 #> INDETERMINATE: agreement_gwet_ac2 = -0.00832 (lower >= 0.75) - Interval
 #> overlaps threshold. The lower bound is conf_low_exact (the exact bound on
-#> observed agreement, mapped onto the coefficient's scale).
+#> observed agreement mapped onto the coefficient's scale, capped at the bound of
+#> the perfect samples the ratings can be corrected into).
 #> INDETERMINATE: class_support = 2 (>= 20) - Insufficient reference support for:
 #> I, P, C
 #> INDETERMINATE: recall_I = 0.0126 (lower >= 0.9) - Interval overlaps threshold.
@@ -299,7 +300,9 @@ JSON artifacts omit `cal$items`, but caller-supplied provenance is written
 verbatim. Do not place secrets or raw item content in provenance fields. The
 `yourhonor.audit.v1` schema is documented in `?write_audit`: numbers are
 written at full precision (17 significant digits, so every double round-trips
-exactly), absent values are `null`, and vector fields are always arrays.
+exactly), absent values are `null`, and vector fields are always arrays. The
+precision is the stored doubles', not the estimates': irrCAC rounds each
+agreement coefficient to five decimals.
 
 ## Working with raw rating frames
 

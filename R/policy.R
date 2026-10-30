@@ -544,7 +544,8 @@ coefficient_interval_check <- function(check,
     result$reason <- paste(
       result$reason,
       "The lower bound is conf_low_exact (the exact bound on observed",
-      "agreement, mapped onto the coefficient's scale)."
+      "agreement mapped onto the coefficient's scale, capped at the bound of",
+      "the perfect samples the ratings can be corrected into)."
     )
   }
   result

@@ -86,7 +86,8 @@ category still contributes its coefficient.
 
 \code{conf_low_exact} is a resampling-free lower bound on the coefficient's
 own observed agreement \code{pa}, mapped onto its scale as
-\code{(lower - pe) / (1 - pe)} with the sample's chance term \code{pe} held fixed.
+\code{(lower - pe) / (1 - pe)} with the sample's chance term \code{pe} held
+fixed, then capped as described below.
 \code{pa} is the mean over items of each item's weighted pairwise agreement,
 so a near miss under weights earns its partial credit; Krippendorff's
 alpha's \code{pa} is \code{(1 - eps) * A + eps}, with \code{A} the mean weighted by
@@ -106,10 +107,37 @@ with three or more rater columns it bounds alpha's ratio of
 rating-weighted agreement by inverting Hoeffding's relative-entropy
 test, so missing ratings widen it. On a perfect sample every route gives
 Clopper-Pearson's \code{((1 - conf_level) / 2)^(1 / n)} for \code{n} items,
-except alpha with missing ratings, which is lower. As items accumulate
-the bound approaches the estimate, at a rate of about \code{1 / sqrt(n)},
-for every coefficient, weighting and number of raters, provided
-\code{1 - pe} stays away from 0.
+except alpha with missing ratings, which is lower.
+
+No sample's bound ranks above that of a perfect sample it can be
+corrected into: a correction gives every item whose ratings disagree
+one of its own ratings for all of them (in a calibration, the judge
+matching the human reference) and keeps the other items and the missing
+ratings, and the bound is capped at the worst such perfect sample's
+(for Gwet's coefficients, at or below it: their chance term is bounded
+from above rather than found exactly).
+Without the cap an error could rank above its own correction, because
+a rating moved into a rarer category, or into one the perfect sample
+never used, raises the chance disagreement \code{1 - pe} that divides the
+bound's margin. The cap costs most at small \code{n} with rare categories,
+where a rare category seen only in disagreements lets a correction drop
+it: in simulation with 20 to 30 items and end categories of 1\% to 3\%,
+the share of samples whose AC2 bound reached 0.6 fell from 12\% to 1\%
+in the worst scenario (three raters, end categories of 3\%, 30 items),
+while coverage was unchanged; from 100 items it moved the mean bound by
+about 0.004 at most. Two imperfect samples keep no such guarantee:
+correcting an error can lower the estimate itself (when it removes the
+only rating in a category from the chance term), so no bound that
+tracks the estimate can always rise with a correction.
+
+As items accumulate the bound approaches the estimate, at a rate of
+about \code{1 / sqrt(n)}, for every coefficient, weighting and number of
+raters, provided \code{1 - pe} stays away from 0, for the corrections too.
+For kappa and alpha that holds when the items the raters agree on use
+at least two categories in non-vanishing shares. Gwet's chance term for
+a correction always stays below 1, but on a wide quadratic scale the
+gap can be small (about 0.02 with six levels), so the cap can hold the
+bound down until a few thousand items.
 
 It is exact (a finite-sample bound, not an asymptotic one) for observed
 agreement, not for the coefficient, because \code{pe} is itself estimated;

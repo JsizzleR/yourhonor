@@ -228,9 +228,12 @@ verdict needs both a small adjusted p-value and a `directional_rate` above
 flagged.
 
 Missingness is reported on two denominators. `missing_rate` is the share of
-individual judgments that came back `NA` and is the quantity a policy gates;
+individual judgments that came back `NA` and is gated directly;
 `unscored_rate` is the share of items that could not be scored, which for the
-position probe also includes within-condition ties.
+position probe also includes within-condition ties. A policy's upper bounds
+count every unscored item against the judge, over all supplied items: as a
+flip in the flip-rate bound, and as a flip in whichever single direction gives
+the larger bound in the directional one.
 
 ```{r}
 bias[, c("probe", "n_scored", "n_unscored", "unscored_rate", "missing_rate")]
@@ -371,6 +374,8 @@ unlink(path)
 
 The JSON artifact contains aggregate calibration evidence, policy checks, and
 provenance at full numeric precision, with `null` for every absent value.
+Full precision is the stored doubles', not the estimates': irrCAC rounds each
+agreement coefficient to five decimals, and its bootstrap bounds inherit that.
 Calibration item rows are omitted, but caller-supplied provenance is written
 verbatim; keep secrets and raw item content out of provenance fields.
 

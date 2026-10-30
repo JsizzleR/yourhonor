@@ -49,10 +49,18 @@ provenance fields.
 
 The JSON artifact is written at full numeric precision: doubles carry 17
 significant digits, so every value round-trips exactly (a reader may see
-\code{0.94999999999999996} for \code{0.95}). Every absent value is \code{null}: an \code{NA}
-and an R \code{NULL} are indistinguishable to a reader, but neither ever appears
-as \code{{}} or is dropped. Fields that are vectors by contract are always JSON
-arrays, even when they hold one value. Top-level members:
+\code{0.94999999999999996} for \code{0.95}). That is the precision of the stored
+doubles, not of the estimates: irrCAC rounds each agreement and stability
+coefficient to five decimals, so every \code{estimate} (and stability's
+\code{gwet_agreement}) and every bootstrap draw sits on that grid, and the
+bootstrap bounds interpolated between draws are no more precise.
+\code{conf_low_exact} is computed from irrCAC's unrounded observed and chance
+agreement and is capped at the rounded \code{estimate} (and at the bound of the
+perfect samples it can be corrected into; see \code{\link[=agreement]{agreement()}}). Every absent
+value is \code{null}: an \code{NA} and an R \code{NULL} are indistinguishable to a reader,
+but neither ever appears as \code{{}} or is dropped. Fields that are vectors by
+contract are always JSON arrays, even when they hold one value. Top-level
+members:
 \itemize{
 \item \code{schema_version}: \code{"yourhonor.audit.v1"}.
 \item \code{created_at}: UTC timestamp in RFC 3339 form, e.g.
@@ -67,7 +75,12 @@ check names. \code{required_probes} is an array;
 \code{min_recall} and \code{min_precision} are a number when global or an object
 keyed by class name when class-specific; unset thresholds are \code{null}.
 \item \code{checks}: array of objects, one per policy check, with \code{check}, \code{status},
-\code{value} (the observed number, \code{null} when unavailable), \code{op} (the
+\code{value} (the number compared with \code{threshold}, \code{null} when
+unavailable: the observed value, or for an interval check the bound
+assessed, which for a bias probe's flip-rate and directional checks
+counts every unscored item against the probe over \code{n_input}: as a flip
+for the flip rate, towards the worse direction for the directional
+rate), \code{op} (the
 comparison the check encodes: \code{">="}, \code{"<="}, \code{"lower >="},
 \code{"upper <="}, or \code{"="}), a numeric \code{threshold}, and \code{reason}. Without a
 policy the single placeholder check has \code{null} \code{op} and \code{threshold}.
