@@ -305,3 +305,11 @@ User-visible changes made while addressing the pre-release code review.
   probes are assessed exactly as before.
 * `probe_position()` documents that even `repeats` can tie, and that taking
   the mode attenuates a per-call bias.
+* `conf_low_exact` is now capped at the bound of the perfect samples a
+  sample can be corrected into, so a judge is never assessed above a judge
+  that matches the human reference on the same items. The cap costs most at
+  small `n` with rare categories; coverage is unchanged. Inversions between
+  two imperfect samples remain possible, since correcting an error can lower
+  the estimate itself.
+* The `write_audit()` documentation says that "full precision" refers to the
+  stored doubles: irrCAC rounds each coefficient to five decimals.
