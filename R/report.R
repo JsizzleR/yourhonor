@@ -288,7 +288,7 @@ validate_report_evidence <- function(x, bias, stability) {
     required <- c(
       "probe", "flip_rate", "directional_rate", "directional_conf_low",
       "directional_conf_high", "conf_low", "conf_high",
-      "n_scored", "n_input",
+      "n_scored", "n_input", "n_unscored", "statistic", "n_directional_items",
       "missing_rate", "n_discordant", "p_value", "verdict", "status",
       "conf_level"
     )

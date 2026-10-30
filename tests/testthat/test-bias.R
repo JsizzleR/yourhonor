@@ -217,6 +217,44 @@ test_that("directional interval never exceeds the flip-rate interval", {
   expect_true(all(mixed$directional_conf_low <= mixed$directional_conf_high))
 })
 
+test_that("worst-case bounds put unscored items on the worse side", {
+  bound <- function(positive, negative, n) {
+    yourhonor:::directional_magnitude_interval(
+      positive, negative, n, 0.95,
+      upper_cap = stats::binom.test(32L, 100L)$conf.int[[2]]
+    )[[2]]
+  }
+  # 2 items moved one way and 20 the other over 90 scored, 10 unscored: the
+  # unscored items must join the 20, and the bound must stay below the cap.
+  row <- tibble::tibble(
+    n_input = 100L, n_scored = 90L, n_unscored = 10L, n_discordant = 22L,
+    statistic = 2L, n_directional_items = 22L, conf_level = 0.95
+  )
+  upper <- yourhonor:::worst_case_upper_bounds(row)
+  expect_equal(upper$flip, stats::binom.test(32L, 100L)$conf.int[[2]])
+  expect_identical(upper$directional, bound(2L, 30L, 100L))
+  expect_gt(upper$directional, bound(12L, 20L, 100L))
+  expect_lt(upper$directional, upper$flip)
+  mirrored <- row
+  mirrored$statistic <- 20L
+  expect_identical(
+    yourhonor:::worst_case_upper_bounds(mirrored)$directional,
+    upper$directional
+  )
+
+  # Fully scored with movement both ways: the row's own bounds, exactly.
+  mixed <- probe_bias(
+    family_data(), family_judge,
+    probes = c("verbosity", "self_preference", "bandwagon"), seed = 1
+  )
+  for (i in seq_len(nrow(mixed))) {
+    expect_identical(mixed$n_unscored[[i]], 0L)
+    scored <- yourhonor:::worst_case_upper_bounds(mixed[i, ])
+    expect_identical(scored$flip, mixed$conf_high[[i]])
+    expect_identical(scored$directional, mixed$directional_conf_high[[i]])
+  }
+})
+
 test_that("pointwise abstention is counted as unscored and missing items", {
   abstaining <- function(d) {
     ifelse(grepl("answer (1|2|3)$", d$input), NA_character_, "C")

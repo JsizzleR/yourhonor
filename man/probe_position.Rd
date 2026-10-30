@@ -37,7 +37,16 @@ candidates A and B.}
 
 \item{tie_label}{Optional tie label.}
 
-\item{repeats}{Number of original/swapped replications per item.}
+\item{repeats}{Number of original/swapped replications per item. Each
+condition's judgment is the mode across repeats, so with an even number
+a split vote ties and leaves the item unscored. An odd number avoids
+two-way ties when the judge returns no tie label and no \code{NA}; an
+acceptance policy counts unscored items against the probe (see
+\code{\link[=acceptance_policy]{acceptance_policy()}}'s \code{max_probe_flip_rate}). Taking the mode also
+attenuates a bias that appears on a minority of calls: a judge that,
+independently on each call, takes the first slot with probability
+\code{q < 0.5} and otherwise picks the better candidate shows a modal flip
+rate of \verb{3q^2 - 2q^3} with three repeats, against \code{q} with one.}
 
 \item{seed}{Optional R random seed used to randomize condition order.}
 
@@ -106,8 +115,11 @@ with the order (a tie commits to neither slot).
 can exceed \code{n_items_missing}.
 \item \code{n_items_missing}: items with at least one \code{NA} judgment.
 \item \code{n_judgments}, \code{n_judgments_missing}, \code{missing_rate}: individual judge
-outputs, how many were \code{NA}, and their share. \code{missing_rate} is the
-quantity gated by \code{\link[=acceptance_policy]{acceptance_policy()}}.
+outputs, how many were \code{NA}, and their share. \code{missing_rate} is gated
+directly by \code{\link[=acceptance_policy]{acceptance_policy()}}'s \code{max_probe_missing_rate}; unscored
+items also enter the policy's flip-rate and directional upper bounds as
+worst-case flips, so the bounds a policy assesses can exceed this row's
+\code{conf_high} and \code{directional_conf_high}, which describe the scored items.
 \item \code{n_comparisons}: condition pairs judged (\code{n_input} pointwise;
 \code{n_input * repeats} position).
 \item \code{p_value}: exact sign-test p-value over \code{n_directional_items}; \code{1} when

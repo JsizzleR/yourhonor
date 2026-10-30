@@ -70,12 +70,19 @@ bias probe. Required when \code{required_probes} is non-empty and rejected
 otherwise.}
 
 \item{max_probe_flip_rate}{Maximum upper confidence bound for a required
-probe's flip rate. Required when \code{required_probes} is non-empty and
-rejected otherwise.}
+probe's flip rate. The upper bound assessed counts every unscored item
+(one without a usable judgment in both conditions; for the position
+probe this includes items lost to a within-condition tie) as a flip over
+all \code{n_input} items, so it can exceed the probe's own \code{conf_high}; the
+lower bound is the scored items' \code{conf_low}. Counting them can turn this
+check's \code{PASS} into \code{INDETERMINATE} but never into \code{FAIL}. Required when
+\code{required_probes} is non-empty and rejected otherwise.}
 
 \item{max_probe_directional_rate}{Maximum practically tolerable net
-directional effect, assessed against a conservative confidence interval.
-Required when \code{required_probes} is non-empty and rejected otherwise.}
+directional effect, assessed against a conservative confidence interval
+whose upper bound counts every unscored item towards the worse direction,
+as for \code{max_probe_flip_rate}. Required when \code{required_probes} is
+non-empty and rejected otherwise.}
 
 \item{max_probe_missing_rate}{Maximum fraction of individual probe judgments
 that may be missing. Required when \code{required_probes} is non-empty so

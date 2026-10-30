@@ -75,8 +75,11 @@
 #'   can exceed `n_items_missing`.
 #' * `n_items_missing`: items with at least one `NA` judgment.
 #' * `n_judgments`, `n_judgments_missing`, `missing_rate`: individual judge
-#'   outputs, how many were `NA`, and their share. `missing_rate` is the
-#'   quantity gated by [acceptance_policy()].
+#'   outputs, how many were `NA`, and their share. `missing_rate` is gated
+#'   directly by [acceptance_policy()]'s `max_probe_missing_rate`; unscored
+#'   items also enter the policy's flip-rate and directional upper bounds as
+#'   worst-case flips, so the bounds a policy assesses can exceed this row's
+#'   `conf_high` and `directional_conf_high`, which describe the scored items.
 #' * `n_comparisons`: condition pairs judged (`n_input` pointwise;
 #'   `n_input * repeats` position).
 #' * `p_value`: exact sign-test p-value over `n_directional_items`; `1` when
@@ -201,7 +204,16 @@ probe_bias <- function(data,
 #' @param context_cols Optional context columns passed through unchanged.
 #' @param choice_levels Two display labels for the first and second candidate.
 #' @param tie_label Optional tie label.
-#' @param repeats Number of original/swapped replications per item.
+#' @param repeats Number of original/swapped replications per item. Each
+#'   condition's judgment is the mode across repeats, so with an even number
+#'   a split vote ties and leaves the item unscored. An odd number avoids
+#'   two-way ties when the judge returns no tie label and no `NA`; an
+#'   acceptance policy counts unscored items against the probe (see
+#'   [acceptance_policy()]'s `max_probe_flip_rate`). Taking the mode also
+#'   attenuates a bias that appears on a minority of calls: a judge that,
+#'   independently on each call, takes the first slot with probability
+#'   `q < 0.5` and otherwise picks the better candidate shows a modal flip
+#'   rate of `3q^2 - 2q^3` with three repeats, against `q` with one.
 #' @param seed Optional R random seed used to randomize condition order.
 #' @param conf_level Confidence level for exact binomial intervals.
 #' @param alpha Significance level for first-position preference.
@@ -749,6 +761,51 @@ directional_magnitude_interval <- function(positive,
   # |p+ - p-| <= p+ + p-, so a bound on the any-direction rate over the same
   # denominator is also a valid, usually tighter, bound on the net rate.
   c(low, min(1, max(abs(signed)), upper_cap))
+}
+
+# Upper bounds on a bias row's flip and net directional rates over every
+# supplied item, counting each unscored item as a flip in whichever direction
+# is worse. An unscored item (a missing judgment, or a position item lost to a
+# within-condition tie) is one the probe could not resolve, and a judge's
+# indecision can carry the very bias the probe measures, so the policy cannot
+# treat it as agreement. With nothing unscored these equal the row's own
+# `conf_high` and `directional_conf_high`. Counts that are missing or do not
+# add up give `NA` bounds, which the policy reads as an unusable interval.
+worst_case_upper_bounds <- function(row) {
+  unusable <- list(flip = NA_real_, directional = NA_real_)
+  n_input <- row$n_input[[1]]
+  n_scored <- row$n_scored[[1]]
+  n_unscored <- row$n_unscored[[1]]
+  n_discordant <- row$n_discordant[[1]]
+  conf_level <- row$conf_level[[1]]
+  positive <- row$statistic[[1]]
+  negative <- row$n_directional_items[[1]] - positive
+  counts <- c(n_input, n_scored, n_unscored, n_discordant, positive, negative)
+  if (!all(is.finite(counts)) || any(counts != floor(counts)) ||
+      any(counts < 0) || n_scored < 1L ||
+      n_unscored != n_input - n_scored || n_discordant > n_scored ||
+      positive + negative > n_discordant) {
+    return(unusable)
+  }
+  flip_high <- exact_binom_interval(
+    n_discordant + n_unscored, n_input, conf_level
+  )[[2]]
+  # Moving an item from the negative cell to the positive one raises both
+  # signed endpoints, so the most positive upper endpoint is at the
+  # all-positive split and the most negative lower endpoint at the
+  # all-negative one: the larger absolute endpoint of those two bounds every
+  # split.
+  directional_high <- max(
+    directional_magnitude_interval(
+      positive + n_unscored, negative, n_input, conf_level,
+      upper_cap = flip_high
+    )[[2]],
+    directional_magnitude_interval(
+      positive, negative + n_unscored, n_input, conf_level,
+      upper_cap = flip_high
+    )[[2]]
+  )
+  list(flip = flip_high, directional = directional_high)
 }
 
 # Position helpers -------------------------------------------------------------

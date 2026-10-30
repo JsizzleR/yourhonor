@@ -70,8 +70,11 @@ with the order (a tie commits to neither slot).
 can exceed \code{n_items_missing}.
 \item \code{n_items_missing}: items with at least one \code{NA} judgment.
 \item \code{n_judgments}, \code{n_judgments_missing}, \code{missing_rate}: individual judge
-outputs, how many were \code{NA}, and their share. \code{missing_rate} is the
-quantity gated by \code{\link[=acceptance_policy]{acceptance_policy()}}.
+outputs, how many were \code{NA}, and their share. \code{missing_rate} is gated
+directly by \code{\link[=acceptance_policy]{acceptance_policy()}}'s \code{max_probe_missing_rate}; unscored
+items also enter the policy's flip-rate and directional upper bounds as
+worst-case flips, so the bounds a policy assesses can exceed this row's
+\code{conf_high} and \code{directional_conf_high}, which describe the scored items.
 \item \code{n_comparisons}: condition pairs judged (\code{n_input} pointwise;
 \code{n_input * repeats} position).
 \item \code{p_value}: exact sign-test p-value over \code{n_directional_items}; \code{1} when

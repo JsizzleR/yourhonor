@@ -42,11 +42,18 @@
 #'   bias probe. Required when `required_probes` is non-empty and rejected
 #'   otherwise.
 #' @param max_probe_flip_rate Maximum upper confidence bound for a required
-#'   probe's flip rate. Required when `required_probes` is non-empty and
-#'   rejected otherwise.
+#'   probe's flip rate. The upper bound assessed counts every unscored item
+#'   (one without a usable judgment in both conditions; for the position
+#'   probe this includes items lost to a within-condition tie) as a flip over
+#'   all `n_input` items, so it can exceed the probe's own `conf_high`; the
+#'   lower bound is the scored items' `conf_low`. Counting them can turn this
+#'   check's `PASS` into `INDETERMINATE` but never into `FAIL`. Required when
+#'   `required_probes` is non-empty and rejected otherwise.
 #' @param max_probe_directional_rate Maximum practically tolerable net
-#'   directional effect, assessed against a conservative confidence interval.
-#'   Required when `required_probes` is non-empty and rejected otherwise.
+#'   directional effect, assessed against a conservative confidence interval
+#'   whose upper bound counts every unscored item towards the worse direction,
+#'   as for `max_probe_flip_rate`. Required when `required_probes` is
+#'   non-empty and rejected otherwise.
 #' @param max_probe_missing_rate Maximum fraction of individual probe judgments
 #'   that may be missing. Required when `required_probes` is non-empty so
 #'   selective abstention cannot make a probe look clean; rejected otherwise.
@@ -611,8 +618,11 @@ class_metric_checks <- function(x, policy, level_ok) {
 # the two interval checks: when one stops the assessment the outcome is
 # reported under `bias_<probe>` with the flip-rate threshold so that check
 # name keeps one meaning. The missingness gate is an independent check: it
-# can `FAIL` the policy on its own, but the interval checks are still
-# assessed on the scored items. A probe at another confidence level reports
+# can `FAIL` the policy on its own, and the interval checks are still
+# assessed. Their lower bounds are the scored items' own; their upper bounds
+# count every unscored item as a flip (worst_case_upper_bounds()), so items
+# lost to abstention or position ties can widen a bound but never clear it.
+# A probe at another confidence level reports
 # `bias_<probe>_confidence_level` in place of the interval checks while its
 # rate and count checks are still assessed.
 probe_checks <- function(x, bias, policy) {
@@ -680,14 +690,32 @@ single_probe_checks <- function(probe, x, bias, policy) {
       )
     )))
   }
-  c(rows, list(
+  upper <- worst_case_upper_bounds(row)
+  interval_rows <- list(
     interval_max_check(
       paste0(check, "_direction"),
-      row$directional_conf_low[[1]], row$directional_conf_high[[1]],
+      row$directional_conf_low[[1]], upper$directional,
       policy$max_probe_directional_rate
     ),
-    interval_max_check(check, row$conf_low[[1]], row$conf_high[[1]], threshold)
-  ))
+    interval_max_check(check, row$conf_low[[1]], upper$flip, threshold)
+  )
+  n_unscored <- row$n_unscored[[1]]
+  if (is.finite(upper$flip) && n_unscored > 0L) {
+    items <- paste0(
+      n_unscored, " unscored item", if (n_unscored == 1L) "" else "s"
+    )
+    counted_as <- c(
+      paste("towards the worse direction over all", row$n_input[[1]], "items."),
+      paste("as flips over all", row$n_input[[1]], "items.")
+    )
+    for (i in seq_along(interval_rows)) {
+      interval_rows[[i]]$reason <- paste(
+        interval_rows[[i]]$reason, "The upper bound counts the", items,
+        counted_as[[i]]
+      )
+    }
+  }
+  c(rows, interval_rows)
 }
 
 stability_checks <- function(x, stability, policy) {
