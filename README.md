@@ -99,18 +99,24 @@ confusion_metrics(cal)
 #> # ℹ 3 more variables: recall <dbl>, recall_conf_low <dbl>,
 #> #   recall_conf_high <dbl>
 
+plot_confusion(cal)
+```
+
+<p align="center"><img src="man/figures/confusion.png" width="500" alt="A 3 by 3 confusion matrix, human label on the rows and judge label on the columns, in the declared order I, P, C. Counts: I rated I once and P once; P rated P once and C once; C rated C four times. Cells are shaded by row proportion, the C/C cell darkest."></p>
+
+```r
 # Evidence alone is not a deployment decision.
 rep <- report(cal, output = "md")
 rep$decision
 #> [1] "NOT_ASSESSED"
 ```
 
-> **Real output.** Every `#>` block in this file was produced by the code
-> above it, run against the source at this commit (`seed = 1`, console width
-> 80). The eight-item frames are synthetic API demonstrations, which is why
-> the intervals are wide and the decisions below are indeterminate; nothing
-> here is a benchmark. The README is maintained by hand, so re-run the chunks
-> after a change to an estimator.
+> **Real output.** Every `#>` block in this file, and the plot above, was
+> produced by the code above it, run against the source at this commit
+> (`seed = 1`, console width 80). The eight-item frames are synthetic API
+> demonstrations, which is why the intervals are wide and the decisions below
+> are indeterminate; nothing here is a benchmark. The README is maintained by
+> hand, so re-run the chunks after a change to an estimator.
 
 `report()` returns the same `yourhonor_report` whichever `output` you choose;
 `output` only sets how it prints. `rep$checks` is a tibble with one row per
@@ -190,6 +196,13 @@ A judge function receives a shuffled, redacted data frame with a fresh opaque
 `.item_id`. Returning that key with the label lets `yourhonor` verify and
 restore row order. A caller ID is never exposed unless it is listed in
 `input_cols`.
+
+![The blind-judge contract. Left, what the caller holds: the gold frame with id (validated, never sent), input and target (in input_cols, sent), human_label and judge_label (protected), and .item_id (reserved); naming a protected column in input_cols is an error, not a convention. Middle, the path a row takes: redact to the input columns, sanitize away row-aligned names and attributes, shuffle with sample.int, key with .item_id 1..n assigned after the shuffle, validate that every issued key comes back exactly once with a label in label_levels, restore the labels to source order. Right, what the judge sees: .item_id, input, target and nothing else, and what it returns: a data frame keyed by the issued key or one bare label per row. Bottom: the result keeps both keys, .item_id for the source row and .judge_item_id for the key the judge saw, with a blinding map between them.](man/figures/blind-judge.svg)
+
+> **A drawing, nothing captured** (hand-authored 2026-11-02, from the
+> blind-grading path in `R/calibrate.R`). The one rule it shows: the judge
+> gets the input columns and a key, and the key is minted after the shuffle,
+> so neither source order nor an id can carry a label across.
 
 ```r
 model_judge <- function(data) {
