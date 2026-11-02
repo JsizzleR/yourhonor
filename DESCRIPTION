@@ -17,7 +17,7 @@ Description: Treat a large language model used as an evaluator (an
     complements the 'ellmer' and 'vitals' evaluation stack: it does not
     run evaluations, it measures the judge that scores them.
 License: MIT + file LICENSE
-URL: https://github.com/JsizzleR/yourhonor
+URL: https://github.com/JsizzleR/yourhonor, https://jsizzler.github.io/yourhonor/
 BugReports: https://github.com/JsizzleR/yourhonor/issues
 Depends:
     R (>= 4.1.0)
