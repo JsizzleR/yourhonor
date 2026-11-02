@@ -13,6 +13,7 @@
 <script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Calibrate Large Language Model Judges">
 <meta name="description" content="Treat a large language model used as an evaluator (an &quot;LLM-as-judge&quot;) as a measurement instrument and report its psychometric properties. Given a judge and a set of human-labeled examples, yourhonor reports chance-corrected agreement between the judge and humans (Cohens kappa, Krippendorffs alpha and Gwets AC1 and weighted AC2) with bootstrap confidence intervals, human-human reliability when several raters are supplied, per-class error intervals, structured paired bias probes and test-retest stability. Explicit acceptance policies turn evidence into conservative decisions, and versioned artifacts support portable aggregate audit review. It complements the ellmer and vitals' evaluation stack: it does not run evaluations, it measures the judge that scores them.">
 <meta property="og:description" content="Treat a large language model used as an evaluator (an &quot;LLM-as-judge&quot;) as a measurement instrument and report its psychometric properties. Given a judge and a set of human-labeled examples, yourhonor reports chance-corrected agreement between the judge and humans (Cohens kappa, Krippendorffs alpha and Gwets AC1 and weighted AC2) with bootstrap confidence intervals, human-human reliability when several raters are supplied, per-class error intervals, structured paired bias probes and test-retest stability. Explicit acceptance policies turn evidence into conservative decisions, and versioned artifacts support portable aggregate audit review. It complements the ellmer and vitals' evaluation stack: it does not run evaluations, it measures the judge that scores them.">
+<meta property="og:image" content="https://jsizzler.github.io/yourhonor/logo.svg">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -47,17 +48,19 @@
   </div>
 </nav><div class="container template-home">
 <div class="row">
-  <main id="main" class="col-md-9"><p align="center">
-<img src="reference/figures/wordmark.svg" width="330" alt="yourhonor"></p>
-<p align="center">
-<b>An LLM-as-judge is a measurement instrument. Calibrate it blind against human raters, put an interval on every estimate, probe it for bias, and let an explicit policy say what the evidence shows before its grades decide anything.</b>
-</p>
+  <main id="main" class="col-md-9"><div class="section level1">
+<div class="page-header">
+<img src="logo.svg" class="logo" alt=""><h1 id="yourhonor-">yourhonor 
+<a class="anchor" aria-label="anchor" href="#yourhonor-"></a>
+</h1>
+</div>
 <!-- badges: start -->
 
 <div class="section level2">
 <h2 id="overview">Overview<a class="anchor" aria-label="anchor" href="#overview"></a>
 </h2>
-<p>yourhonor fills a gap around the <a href="https://ellmer.tidyverse.org" class="external-link">ellmer</a> and <a href="https://vitals.tidyverse.org" class="external-link">vitals</a> workflow. It does not run evaluations and it calls no model unless you hand it a judge function; it measures the judge that scores them, and says in plain terms what that measurement does and does not support.</p>
+<p>An LLM-as-judge is a measurement instrument. yourhonor calibrates it blind against human raters, puts an interval on every estimate, probes it for bias, and lets an explicit policy say what the evidence shows before its grades decide anything.</p>
+<p>It fills a gap around the <a href="https://ellmer.tidyverse.org" class="external-link">ellmer</a> and <a href="https://vitals.tidyverse.org" class="external-link">vitals</a> workflow. It does not run evaluations and it calls no model unless you hand it a judge function; it measures the judge that scores them, and says in plain terms what that measurement does and does not support.</p>
 <ul>
 <li>
 <strong>Blind calibration.</strong> <code><a href="reference/calibrate_judge.html">calibrate_judge()</a></code> compares judge labels with one or more human raters. A live judge sees only the columns listed in <code>input_cols</code>, never the human labels: rows are shuffled before opaque keys are assigned, keyed output is validated and restored to source order, and the judge-side key is kept so logs can be joined back without un-blinding the run.</li>
@@ -285,7 +288,7 @@ The blind-judge contract. Left, what the caller holds: the gold frame with id (v
 </h2>
 <p><a href="LICENSE.html">MIT</a> © yourhonor authors</p>
 </div>
-
+</div>
   </main><aside class="col-md-3"><div class="links">
 <h2 data-toc-skip>Links</h2>
 <ul class="list-unstyled">

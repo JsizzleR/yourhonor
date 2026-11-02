@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 231" width="240" height="277" role="img" aria-labelledby="t">
+<title id="t">yourhonor hex logo: a gavel coming down on a confidence interval</title>
+<!-- Hand-drawn. Pointy-top hexagon at the R hex-sticker ratio (2 : 1.7321),
+     no external fonts or scripts. Colours are the wordmark's. -->
+<style>
+text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace; }
+</style>
+<polygon points="100,3 197,59 197,172 100,228 3,172 3,59" fill="#161b22" stroke="#8957e5" stroke-width="5" stroke-linejoin="round"/>
+<!-- gavel: head upper-left, handle down to the right -->
+<g transform="rotate(40 92 82)">
+  <rect x="62" y="76" width="82" height="13" rx="6.5" fill="#4493f8"/>
+  <rect x="44" y="54" width="34" height="57" rx="8" fill="#e6edf3"/>
+  <rect x="50" y="54" width="6" height="57" fill="#c9d1d9"/>
+  <rect x="66" y="54" width="6" height="57" fill="#c9d1d9"/>
+</g>
+<!-- the sound block is a confidence interval: a bar, end caps, a point estimate -->
+<line x1="52" y1="140" x2="148" y2="140" stroke="#4493f8" stroke-width="5" stroke-linecap="round"/>
+<line x1="52" y1="131" x2="52" y2="149" stroke="#4493f8" stroke-width="5" stroke-linecap="round"/>
+<line x1="148" y1="131" x2="148" y2="149" stroke="#4493f8" stroke-width="5" stroke-linecap="round"/>
+<circle cx="112" cy="140" r="7.5" fill="#8957e5" stroke="#161b22" stroke-width="2.5"/>
+<!-- name, set as the wordmark is -->
+<text x="100" y="178" font-size="23" text-anchor="middle" letter-spacing="-0.5"><tspan font-weight="700" fill="#8957e5">your</tspan><tspan font-weight="300" fill="#4493f8">honor</tspan></text>
+</svg>
