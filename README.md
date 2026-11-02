@@ -1,59 +1,68 @@
-# yourhonor
+<p align="center">
+  <img src="man/figures/wordmark.svg" width="330" alt="yourhonor">
+</p>
 
-<!-- badges: start -->
-[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
-<!-- badges: end -->
+<p align="center"><b>An LLM-as-judge is a measurement instrument. Calibrate it blind against human raters, put an interval on every estimate, probe it for bias, and let an explicit policy say what the evidence shows before its grades decide anything.</b></p>
 
-**Your honor depends on the judge being accurate.** `yourhonor` audits an
-LLM-as-judge as a measurement instrument before its grades are used to make a
-decision.
+<p align="center">
+  <a href="https://github.com/JsizzleR/yourhonor/actions/workflows/R-CMD-check.yaml"><img src="https://github.com/JsizzleR/yourhonor/actions/workflows/R-CMD-check.yaml/badge.svg" alt="R-CMD-check"></a>
+  <a href="https://lifecycle.r-lib.org/articles/stages.html#experimental"><img src="https://img.shields.io/badge/lifecycle-experimental-orange.svg" alt="Lifecycle: experimental"></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="DESCRIPTION"><img src="https://img.shields.io/badge/R-%E2%89%A5%204.1-276DC3.svg" alt="R >= 4.1"></a>
+</p>
 
-The package is deliberately R-native. It fills a gap around the
-[ellmer](https://ellmer.tidyverse.org) and
-[vitals](https://vitals.tidyverse.org) workflow: blind calibration, uncertainty,
-structured bias probes, explicit acceptance policy, and a language-neutral JSON
-audit summary. It does not replace an evaluation runner and it does not call a
-model unless you give it a judge function.
+## What it measures
 
-## What it adds
+`yourhonor` fills a gap around the [ellmer](https://ellmer.tidyverse.org) and
+[vitals](https://vitals.tidyverse.org) workflow. It does not run evaluations
+and it calls no model unless you hand it a judge function; it measures the
+judge that scores them, and says in plain terms what that measurement does and
+does not support.
 
-- `calibrate_judge()` compares judge grades with one or more human raters. A
-  live judge sees only the columns explicitly listed in `input_cols`, never the
-  human labels. Rows are shuffled before opaque keys are assigned; keyed output
-  is validated and restored, and the result keeps the judge-side key so logs
-  can be joined back without un-blinding the run.
-- `agreement()` reports Cohen's kappa, Krippendorff's alpha, and Gwet's AC1
-  (nominal) or AC2 (weighted) with item-bootstrap intervals, fixed category
-  levels, and explicit missingness. Weighted analyses require a declared order.
-- `confusion_metrics()` reports class support, precision, and recall with exact
-  intervals. This prevents a high aggregate agreement score from hiding failure
-  on a rare but important class.
-- `probe_bias()` tests pointwise verbosity, self-preference, and bandwagon
-  effects. `probe_position()` swaps separate candidate columns and maps display
-  choices from neutral display slots back to stable candidate identity. Both
-  return the same schema, record raw missingness, and report conservative
-  directional-effect intervals.
-- `test_retest()` reports pairwise run disagreement with a conservative
-  interval, rather than relying on an any-flip rate that rises mechanically
-  with the number of runs.
-- `acceptance_policy()` makes thresholds explicit. `report()` returns a
-  `yourhonor_report` whose `$decision` is `PASS`, `FAIL`, `NOT_ASSESSED`, or
-  `INDETERMINATE`; without a policy, it is descriptive and never implies that
-  missing evidence passed.
-- `audit_vitals()` consumes grades already present in a vitals task without
-  paying for another model call. `stability_vitals()` handles invariant content
-  across repeated epochs. `write_audit()` writes Markdown or a versioned
-  aggregate JSON summary without automatically serializing item rows, and
-  never overwrites an existing file unless told to.
+- **Blind calibration.** `calibrate_judge()` compares judge labels with one or
+  more human raters. A live judge sees only the columns listed in
+  `input_cols`, never the human labels: rows are shuffled before opaque keys
+  are assigned, keyed output is validated and restored to source order, and
+  the judge-side key is kept so logs can be joined back without un-blinding
+  the run.
+- **Agreement with intervals.** `agreement()` reports Cohen's kappa,
+  Krippendorff's alpha, and Gwet's AC1 (nominal) or AC2 (weighted) with
+  item-bootstrap intervals, a fixed label universe, and explicit missingness.
+  Weighted analyses require a declared order.
+- **Per-class error.** `confusion_metrics()` reports class support, precision,
+  and recall with exact intervals, so a high aggregate score cannot hide
+  failure on a rare but important class.
+- **Bias probes.** `probe_bias()` tests pointwise verbosity, self-preference,
+  and bandwagon effects. `probe_position()` swaps separate candidate columns
+  through neutral display slots and maps choices back to stable candidate
+  identity. Both return one schema, record raw missingness, and report
+  conservative directional-effect intervals.
+- **Test-retest stability.** `test_retest()` reports pairwise run disagreement
+  with a conservative interval, rather than an any-flip rate that rises
+  mechanically with the number of runs.
+- **An explicit policy.** `acceptance_policy()` makes every threshold a
+  declared parameter. `report()` returns a `yourhonor_report` whose
+  `$decision` is `PASS`, `FAIL`, `NOT_ASSESSED`, or `INDETERMINATE`; without a
+  policy it is descriptive, and it never implies that missing evidence passed.
+- **vitals and artifacts.** `audit_vitals()` consumes grades already present in
+  a vitals task without another model call; `stability_vitals()` reuses
+  epochs whose judge-visible content stayed invariant. `write_audit()` writes
+  Markdown or a versioned, language-neutral JSON summary, never item rows, and
+  never over an existing file unless told to.
 
-## Installation
+## Install
+
+Requires R 4.1 or later. `ggplot2` is needed only for `plot_confusion()`, and
+`jsonlite` only for JSON artifacts.
 
 ```r
 # install.packages("pak")
 pak::pak("JsizzleR/yourhonor")
 ```
 
-## Calibrate precomputed grades
+## What a run looks like
+
+Grades already in hand: a data frame with a human column and a judge column.
 
 ```r
 library(yourhonor)
@@ -96,12 +105,22 @@ rep$decision
 #> [1] "NOT_ASSESSED"
 ```
 
-`report()` returns the same `yourhonor_report` object whichever `output` you
-choose; `output` only sets how it prints. `rep$checks` is a tibble with one row
-per policy check, and `format(rep, output = "md")` gives the Markdown lines.
+> **Real output.** Every `#>` block in this file was produced by the code
+> above it, run against the source at this commit (`seed = 1`, console width
+> 80). The eight-item frames are synthetic API demonstrations, which is why
+> the intervals are wide and the decisions below are indeterminate; nothing
+> here is a benchmark. The README is maintained by hand, so re-run the chunks
+> after a change to an estimator.
+
+`report()` returns the same `yourhonor_report` whichever `output` you choose;
+`output` only sets how it prints. `rep$checks` is a tibble with one row per
+policy check, and `format(rep, output = "md")` gives the Markdown lines.
+
+## A policy turns evidence into a decision
 
 Declare thresholds from the task's error costs, not from a package-wide notion
-of a "good" score:
+of a "good" score. Required evidence that was never supplied is reported as
+`NOT_ASSESSED`, never silently passed:
 
 ```r
 policy <- acceptance_policy(
@@ -124,7 +143,6 @@ policy <- acceptance_policy(
   coefficient = "gwet_ac2"
 )
 
-# Missing required probes or stability are shown as NOT_ASSESSED.
 report(cal, policy = policy, output = "console")
 #> ── yourhonor assessment: NOT_ASSESSED ──────────────────────────────────────────
 #> Judge evidence: n = 8 of 8.
@@ -166,11 +184,11 @@ Stability and probe thresholds live behind their gates
 (`max_pairwise_disagreement` and `required_probes`). Supplying one without its
 gate is an error, so a policy never carries a threshold that is not assessed.
 
-## Calibrate a live judge without label leakage
+## A live judge sees no labels
 
 A judge function receives a shuffled, redacted data frame with a fresh opaque
-`.item_id`. Returning that key with the label lets `yourhonor` verify and restore
-row order. A caller ID is never exposed unless it is explicitly listed in
+`.item_id`. Returning that key with the label lets `yourhonor` verify and
+restore row order. A caller ID is never exposed unless it is listed in
 `input_cols`.
 
 ```r
@@ -248,7 +266,7 @@ column and its denominator. Two items cannot reach significance, so the verdict
 here is `no_signal` despite a total preference for the first slot: use
 `min_probe_n` in a policy to require a real sample.
 
-## Use grades already produced by vitals
+## Grades already in a vitals task
 
 ```r
 # task$eval() has already populated task$get_samples()$score.
@@ -290,14 +308,14 @@ If solver output changes between epochs, this adapter refuses the claim: those
 rows measure end-to-end evaluation variation, not judge test-retest stability.
 
 JSON artifacts omit `cal$items`, but caller-supplied provenance is written
-verbatim. Do not place secrets or raw item content in provenance fields. The
-`yourhonor.audit.v1` schema is documented in `?write_audit`: numbers are
+verbatim: do not place secrets or raw item content in provenance fields. The
+`yourhonor.audit.v1` schema is documented in `?write_audit`. Numbers are
 written at full precision (17 significant digits, so every double round-trips
 exactly), absent values are `null`, and vector fields are always arrays. The
 precision is the stored doubles', not the estimates': irrCAC rounds each
 agreement coefficient to five decimals.
 
-## Working with raw rating frames
+## Raw rating frames
 
 `agreement()`, `confusion()`, and `plot_confusion()` also accept a plain data
 frame. Name the columns explicitly (`rater_cols` for `agreement()`,
@@ -329,7 +347,30 @@ confusion(ratings, label_levels = c("I", "P", "C"))
 #> 9 C           C               1  0.25
 ```
 
-## Interpreting the evidence
+## How it holds together
+
+Each function returns an evidence object (`calibrate_judge()`, the probes,
+`test_retest()`, the vitals adapters) that prints descriptively and carries its
+own missingness and provenance. `acceptance_policy()` is the only place a
+threshold lives. `report()` joins the two into a decision and a tibble of
+checks; `write_audit()` serialises that report, not the items. Three rules run
+through all of it:
+
+- **Evidence is never a decision.** Without a policy every object is
+  descriptive; with one, evidence a policy requires but was not given is
+  `NOT_ASSESSED`, and an interval that straddles its threshold is
+  `INDETERMINATE`. Acceptance is an all-criteria gate.
+- **The judge never sees the answer key.** Redaction is enforced by the API,
+  not by convention: label columns passed to a live judge are an error,
+  shuffling precedes keying, and keyed output is checked before it is
+  restored.
+- **Intervals err toward the user.** Zero-width bootstraps at empirically
+  perfect agreement are flagged unreliable rather than reported as certainty;
+  the stability interval is widened by a Wilson bound, never narrowed; the
+  policy's agreement check uses an exact lower bound mapped onto the
+  coefficient's scale.
+
+### Reading the evidence
 
 - Human-human agreement is a reliability benchmark, not a ceiling. A judge can
   agree with a consensus more strongly than individual humans agree with each
@@ -352,36 +393,45 @@ confusion(ratings, label_levels = c("I", "P", "C"))
   `flip_threshold`; a large but balanced flip rate is reported, not flagged.
 - A single observed class cannot identify chance-corrected agreement. Such
   results are `INDETERMINATE`, not perfect.
-- A finite sample with empirically perfect varied agreement produces a
-  zero-width item bootstrap. `yourhonor` flags that interval as unreliable
-  rather than treating `[1, 1]` as population certainty.
 - Aggregate agreement never substitutes for class-specific error requirements.
 
-## Statistical scope
+## Posture
 
-- Calibration and stability intervals treat rows/items as independent sampling
-  units. Repeated templates, conversations, users, or other clusters must be
-  reduced to independent units or analyzed with a cluster-aware method outside
-  this package. Vitals epochs are repeated measurements, not extra items.
-- Freeze a representative, held-out gold set before tuning the judge or prompt.
-  Record dataset split/version/hash and model/prompt versions in `provenance`.
-  Reusing a tuning set is not an independent audit.
-- Reported confidence levels apply to each interval, not to a simultaneous band
-  covering every displayed estimate. Policy acceptance is an all-criteria gate.
-- `support_gold` is an eight-item synthetic API demonstration, not a benchmark
-  or a basis for a deployment decision.
+**Cost.** The package makes no model calls of its own. A live judge runs only
+when you pass one to `calibrate_judge()`, `probe_bias()`, `probe_position()`
+or `test_retest()`; `audit_vitals()` and `stability_vitals()` reuse grades a
+task already paid for.
+**Scope.** Calibration and stability intervals treat rows as independent
+sampling units. Repeated templates, conversations, users, or other clusters
+must be reduced to independent units or analysed with a cluster-aware method
+outside this package; vitals epochs are repeated measurements, not extra
+items. Freeze a representative, held-out gold set before tuning the judge or
+prompt, and record the split, version, hash, and model and prompt versions in
+`provenance`: reusing a tuning set is not an independent audit. Confidence
+levels apply to each interval, not to a simultaneous band over every displayed
+estimate. `support_gold` is an eight-item synthetic API demonstration, not a
+benchmark.
+**Privacy.** A live judge sees only `input_cols`. JSON artifacts carry
+aggregates and provenance, never item rows; provenance is written verbatim, so
+it is the caller's to keep free of secrets and raw content.
+**Status.** Experimental and unreleased (`0.0.0.9000`). `R CMD check` with
+the test suite runs on every push and pull request. Agreement estimators are
+delegated to [irrCAC](https://cran.r-project.org/package=irrCAC); the
+package's own contribution is the judge-safe workflow, the conservative
+evidence model, and the R/vitals integration around them. A JSON artifact is a
+portable aggregate summary; independent reproduction still needs the frozen
+data, the judge configuration, and the code.
 
-See `vignette("yourhonor")` for an end-to-end walkthrough.
+## Documentation
 
-## Status
-
-Experimental and pre-release. The core audit surface is implemented and covered
-by regression tests. The package delegates agreement estimators to
-[irrCAC](https://cran.r-project.org/package=irrCAC); its value is the judge-safe
-workflow, conservative evidence model, and R/vitals integration around those
-estimators. JSON files are portable aggregate audit summaries; independent
-reproduction still requires the frozen data, judge configuration, and code.
+| Document | What it is |
+| --- | --- |
+| [`vignette("yourhonor")`](vignettes/yourhonor.Rmd) | The end-to-end walkthrough: a gold set, the blind judge contract, rare classes, several raters, pointwise probes, repeatability, a policy decision, an artifact, vitals scores, statistical scope |
+| `?acceptance_policy`, `?report` | Every threshold, its gate, and how a check becomes `PASS`, `FAIL`, `NOT_ASSESSED` or `INDETERMINATE` |
+| `?probe_bias`, `?probe_position` | Every probe column and its denominator |
+| `?write_audit` | The `yourhonor.audit.v1` JSON schema |
+| [NEWS.md](NEWS.md) | The feature set as it stands and the review fixes early adopters should know about |
 
 ## License
 
-MIT © yourhonor authors
+[MIT](LICENSE.md) © yourhonor authors
