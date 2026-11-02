@@ -8,14 +8,7 @@
 LLM-as-judge as a measurement instrument before its grades are used to make a
 decision.
 
-The package is deliberately R-native. This is not a claim of category novelty:
-Python users should evaluate [judgecal](https://pypi.org/project/judgecal/),
-which already provides clustered inference, paired testing, power analysis,
-bias validation, and batch/Inspect workflows. The narrower
-[judgy](https://pypi.org/project/judgy/) estimates corrected success rates from
-human and test labels. A straight Python port of `yourhonor` would add little.
-
-`yourhonor` instead fills a narrower gap around the
+The package is deliberately R-native. It fills a gap around the
 [ellmer](https://ellmer.tidyverse.org) and
 [vitals](https://vitals.tidyverse.org) workflow: blind calibration, uncertainty,
 structured bias probes, explicit acceptance policy, and a language-neutral JSON
