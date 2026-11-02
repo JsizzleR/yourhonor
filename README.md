@@ -1,18 +1,7 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-<p align="center">
-
-<img src="man/figures/wordmark.svg" width="330" alt="yourhonor">
-</p>
-
-<p align="center">
-
-<b>An LLM-as-judge is a measurement instrument. Calibrate it blind
-against human raters, put an interval on every estimate, probe it for
-bias, and let an explicit policy say what the evidence shows before its
-grades decide anything.</b>
-</p>
+# yourhonor <a href="https://jsizzler.github.io/yourhonor/"><img src="man/figures/logo.png" align="right" height="138" alt="yourhonor website" /></a>
 
 <!-- badges: start -->
 
@@ -23,8 +12,13 @@ experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](h
 
 ## Overview
 
-yourhonor fills a gap around the [ellmer](https://ellmer.tidyverse.org)
-and [vitals](https://vitals.tidyverse.org) workflow. It does not run
+An LLM-as-judge is a measurement instrument. yourhonor calibrates it
+blind against human raters, puts an interval on every estimate, probes
+it for bias, and lets an explicit policy say what the evidence shows
+before its grades decide anything.
+
+It fills a gap around the [ellmer](https://ellmer.tidyverse.org) and
+[vitals](https://vitals.tidyverse.org) workflow. It does not run
 evaluations and it calls no model unless you hand it a judge function;
 it measures the judge that scores them, and says in plain terms what
 that measurement does and does not support.
