@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 576" width="960" height="576" role="img" aria-labelledby="t d">
+<title id="t">The blind-judge contract in calibrate_judge(): the caller holds the gold set with ids and human labels; the judge receives only the input columns, shuffled and keyed with a fresh .item_id assigned after the shuffle; its keyed output is validated and restored to source order; the result keeps both keys</title>
+<desc id="d">Hand-drawn static SVG, no external fonts or scripts, its own dark background so it reads on a light or a dark page. Left: the gold data frame the caller holds, with id validated but never sent, input and target sent because they are named in input_cols, and human_label and judge_label protected so that naming one in input_cols is an error. Middle: the path a row takes: redact to the input columns, sanitize away row-aligned names and attributes, shuffle, key with .item_id 1..n after the shuffle, call the judge, validate that every issued key comes back exactly once with a declared label, restore the labels to source order. Right: the table the judge sees, .item_id plus input and target and nothing else, and what it returns. Bottom: the result keeps .item_id as the source-row key and .judge_item_id as the key the judge saw, with a blinding map between them.</desc>
+<style>text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace; white-space: pre; }</style>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/></marker></defs>
+<rect width="960" height="576" rx="10" fill="#0d1117"/>
+<text x="24" y="30" fill="#8b949e" font-size="11">calibrate_judge(gold, judge = f, input_cols = c("input", "target"), id_col = "id"): what is held, what is seen, how labels return</text>
+
+<!-- left: the caller holds -->
+<rect x="12" y="46" width="300" height="372" rx="8" fill="#161b22" stroke="#30363d"/>
+<text x="24" y="66" fill="#8b949e" font-size="11">the caller holds</text>
+<rect x="24" y="78" width="276" height="196" rx="6" fill="#0d1117" stroke="#30363d"/>
+<text x="34" y="96" fill="#e6edf3" font-size="12" font-weight="bold">gold</text>
+<text x="34" y="112" fill="#8b949e" font-size="11">one row per item, source order</text>
+<line x1="24" y1="120" x2="300" y2="120" stroke="#30363d"/>
+<text x="34" y="138" fill="#c9d1d9" font-size="12">id</text>
+<text x="150" y="138" fill="#8b949e" font-size="11">validated, never sent</text>
+<text x="34" y="160" fill="#e6edf3" font-size="12" font-weight="bold">input</text>
+<text x="150" y="160" fill="#8b949e" font-size="11">in input_cols: sent</text>
+<text x="34" y="182" fill="#e6edf3" font-size="12" font-weight="bold">target</text>
+<text x="150" y="182" fill="#8b949e" font-size="11">in input_cols: sent</text>
+<text x="34" y="204" fill="#c9d1d9" font-size="12">human_label</text>
+<text x="150" y="204" fill="#8b949e" font-size="11">protected</text>
+<text x="34" y="226" fill="#c9d1d9" font-size="12">judge_label</text>
+<text x="150" y="226" fill="#8b949e" font-size="11">protected</text>
+<text x="34" y="248" fill="#c9d1d9" font-size="12">.item_id</text>
+<text x="150" y="248" fill="#8b949e" font-size="11">reserved: an error</text>
+<text x="24" y="296" fill="#ff7b72" font-size="11">input_cols = "human_label"</text>
+<text x="24" y="312" fill="#ff7b72" font-size="11">→ Protected label column cannot be</text>
+<text x="24" y="328" fill="#ff7b72" font-size="11">  judge inputs. An error, not a</text>
+<text x="24" y="344" fill="#ff7b72" font-size="11">  convention: leakage cannot be</text>
+<text x="24" y="360" fill="#ff7b72" font-size="11">  configured in.</text>
+<text x="24" y="390" fill="#8b949e" font-size="11" font-style="italic">the caller keeps every column;</text>
+<text x="24" y="406" fill="#8b949e" font-size="11" font-style="italic">redaction happens on a copy</text>
+
+<!-- middle: the path a row takes -->
+<text x="332" y="66" fill="#8b949e" font-size="11">the path a row takes</text>
+<rect x="332" y="78" width="276" height="48" rx="6" fill="#161b22" stroke="#30363d"/>
+<text x="342" y="96" fill="#e6edf3" font-size="12" font-weight="bold">redact</text>
+<text x="342" y="112" fill="#8b949e" font-size="11">keep gold[input_cols], nothing else</text>
+<line x1="470" y1="126" x2="470" y2="140" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<rect x="332" y="142" width="276" height="62" rx="6" fill="#161b22" stroke="#30363d"/>
+<text x="342" y="160" fill="#e6edf3" font-size="12" font-weight="bold">sanitize</text>
+<text x="342" y="176" fill="#8b949e" font-size="11">drop row-aligned names and attributes:</text>
+<text x="342" y="192" fill="#8b949e" font-size="11">names would carry labels through it</text>
+<line x1="470" y1="204" x2="470" y2="218" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<rect x="332" y="220" width="276" height="48" rx="6" fill="#161b22" stroke="#30363d"/>
+<text x="342" y="238" fill="#e6edf3" font-size="12" font-weight="bold">shuffle</text>
+<text x="342" y="254" fill="#8b949e" font-size="11">permutation &lt;- sample.int(n)</text>
+<line x1="470" y1="268" x2="470" y2="282" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<rect x="332" y="284" width="276" height="62" rx="6" fill="#161b22" stroke="#30363d"/>
+<text x="342" y="302" fill="#e6edf3" font-size="12" font-weight="bold">key</text>
+<text x="342" y="318" fill="#8b949e" font-size="11">.item_id = 1..n, assigned AFTER the</text>
+<text x="342" y="334" fill="#8b949e" font-size="11">shuffle: not the source row, not the id</text>
+<line x1="608" y1="315" x2="626" y2="315" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="470" y1="346" x2="470" y2="360" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<rect x="332" y="362" width="276" height="76" rx="6" fill="#161b22" stroke="#30363d"/>
+<text x="342" y="380" fill="#e6edf3" font-size="12" font-weight="bold">validate</text>
+<text x="342" y="396" fill="#8b949e" font-size="11">every issued key back exactly once;</text>
+<text x="342" y="412" fill="#8b949e" font-size="11">"01" or 1.0 matches no item; each label</text>
+<text x="342" y="428" fill="#8b949e" font-size="11">must be in label_levels, else an error</text>
+<line x1="626" y1="400" x2="610" y2="400" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="470" y1="438" x2="470" y2="452" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<rect x="332" y="454" width="276" height="48" rx="6" fill="#161b22" stroke="#30363d"/>
+<text x="342" y="472" fill="#e6edf3" font-size="12" font-weight="bold">restore</text>
+<text x="342" y="488" fill="#8b949e" font-size="11">restored[permutation] &lt;- label</text>
+
+<!-- right: the judge sees -->
+<rect x="628" y="46" width="320" height="372" rx="8" fill="#161b22" stroke="#30363d"/>
+<text x="640" y="66" fill="#8b949e" font-size="11">the judge sees</text>
+<rect x="640" y="78" width="296" height="130" rx="6" fill="#0d1117" stroke="#30363d"/>
+<text x="650" y="96" fill="#e6edf3" font-size="12" font-weight="bold">f(data)</text>
+<text x="650" y="112" fill="#8b949e" font-size="11">shuffled order, n rows</text>
+<line x1="640" y1="120" x2="936" y2="120" stroke="#30363d"/>
+<text x="650" y="138" fill="#e6edf3" font-size="12" font-weight="bold">.item_id</text>
+<text x="760" y="138" fill="#8b949e" font-size="11">1..n, fresh each call</text>
+<text x="650" y="160" fill="#e6edf3" font-size="12" font-weight="bold">input</text>
+<text x="650" y="182" fill="#e6edf3" font-size="12" font-weight="bold">target</text>
+<text x="760" y="182" fill="#8b949e" font-size="11">nothing else</text>
+<text x="640" y="236" fill="#8b949e" font-size="11">no id, no human label, no existing</text>
+<text x="640" y="252" fill="#8b949e" font-size="11">judge label, no source order, no</text>
+<text x="640" y="268" fill="#8b949e" font-size="11">names on any vector</text>
+<rect x="640" y="290" width="296" height="80" rx="6" fill="#0d1117" stroke="#30363d"/>
+<text x="650" y="308" fill="#e6edf3" font-size="12" font-weight="bold">the judge returns</text>
+<line x1="640" y1="316" x2="936" y2="316" stroke="#30363d"/>
+<text x="650" y="334" fill="#c9d1d9" font-size="12">.item_id   label</text>
+<text x="650" y="350" fill="#8b949e" font-size="11">a data frame keyed by the issued key,</text>
+<text x="650" y="364" fill="#8b949e" font-size="11">or one bare label per row, in its order</text>
+<text x="640" y="396" fill="#8b949e" font-size="11" font-style="italic">judge-side logs (prompts, completions)</text>
+<text x="640" y="410" fill="#8b949e" font-size="11" font-style="italic">carry this .item_id and nothing else</text>
+
+<!-- bottom: the result keeps both keys -->
+<rect x="12" y="514" width="936" height="50" rx="8" fill="#161b22" stroke="#30363d"/>
+<text x="24" y="530" fill="#e6edf3" font-size="12" font-weight="bold">the result keeps both keys</text>
+<text x="24" y="545" fill="#8b949e" font-size="11">items$.item_id: the source-row audit key.  items$.judge_item_id: the key the judge saw.  blinding_map joins them.</text>
+<text x="24" y="559" fill="#8b949e" font-size="11">Join judge-side logs (prompts, completions) on .judge_item_id, never on .item_id.</text>
+<line x1="470" y1="502" x2="470" y2="512" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+</svg>

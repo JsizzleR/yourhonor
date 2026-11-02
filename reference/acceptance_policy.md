@@ -1,0 +1,167 @@
+# Declare a judge acceptance policy
+
+A policy turns descriptive calibration evidence into a decision.
+Thresholds are intentionally supplied by the caller because acceptable
+error depends on the task and the cost of each class of mistake.
+
+## Usage
+
+``` r
+acceptance_policy(
+  min_agreement_lower,
+  min_n,
+  min_class_n,
+  min_recall,
+  max_missing_rate,
+  max_pairwise_disagreement,
+  min_stability_n = NULL,
+  min_stability_runs = NULL,
+  max_stability_missing_rate = NULL,
+  required_probes = character(0),
+  min_probe_n = NULL,
+  max_probe_flip_rate = NULL,
+  max_probe_directional_rate = NULL,
+  max_probe_missing_rate = NULL,
+  min_precision = NULL,
+  min_human_reliability_lower = NULL,
+  conf_level = 0.95,
+  coefficient = NULL,
+  max_abstention_rate = NULL
+)
+```
+
+## Arguments
+
+- min_agreement_lower:
+
+  Minimum acceptable lower confidence bound for the selected agreement
+  coefficient. The bound assessed is the smaller of the bootstrap
+  `conf_low` and the exact `conf_low_exact` reported by
+  [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md).
+  On a perfect sample the bootstrap interval is a zero-width point at 1
+  and only `conf_low_exact` is used, so a perfect sample is assessed on
+  the same footing as a near-perfect one rather than reading
+  `INDETERMINATE` where a single error could `PASS`. Comparing a
+  two-sided interval's lower bound with the threshold is a one-sided
+  test at level `(1 + conf_level) / 2`, and taking the smaller of two
+  lower bounds makes it more conservative than that.
+
+- min_n:
+
+  Minimum usable judge-human pairs.
+
+- min_class_n:
+
+  Minimum human-reference support for every class.
+
+- min_recall:
+
+  Minimum lower confidence bound for per-class recall. A scalar applies
+  to all classes; a named vector applies only to named classes.
+
+- max_missing_rate:
+
+  Maximum fraction of calibration rows without a usable judge-consensus
+  pair.
+
+- max_pairwise_disagreement:
+
+  Maximum stability disagreement. Set `NULL` explicitly when stability
+  is outside this policy.
+
+- min_stability_n:
+
+  Minimum independent items with at least two stability judgments.
+  Required when `max_pairwise_disagreement` is not `NULL` and rejected
+  otherwise.
+
+- min_stability_runs:
+
+  Minimum repeated judge runs. Required when `max_pairwise_disagreement`
+  is not `NULL` and rejected otherwise.
+
+- max_stability_missing_rate:
+
+  Maximum fraction of individual repeated judgments that may be missing.
+  Required when stability is in the policy and rejected otherwise.
+
+- required_probes:
+
+  Bias probes that must be present and free of detected signal.
+
+- min_probe_n:
+
+  Minimum paired comparisons required for every required bias probe.
+  Required when `required_probes` is non-empty and rejected otherwise.
+
+- max_probe_flip_rate:
+
+  Maximum upper confidence bound for a required probe's flip rate. The
+  upper bound assessed counts every unscored item (one without a usable
+  judgment in both conditions; for the position probe this includes
+  items lost to a within-condition tie) as a flip over all `n_input`
+  items, so it can exceed the probe's own `conf_high`; the lower bound
+  is the scored items' `conf_low`. Counting them can turn this check's
+  `PASS` into `INDETERMINATE` but never into `FAIL`. Required when
+  `required_probes` is non-empty and rejected otherwise.
+
+- max_probe_directional_rate:
+
+  Maximum practically tolerable net directional effect, assessed against
+  a conservative confidence interval whose upper bound counts every
+  unscored item towards the worse direction, as for
+  `max_probe_flip_rate`. Required when `required_probes` is non-empty
+  and rejected otherwise.
+
+- max_probe_missing_rate:
+
+  Maximum fraction of individual probe judgments that may be missing.
+  Required when `required_probes` is non-empty so selective abstention
+  cannot make a probe look clean; rejected otherwise.
+
+- min_precision:
+
+  Optional minimum lower confidence bound for per-class precision,
+  scalar or named.
+
+- min_human_reliability_lower:
+
+  Optional minimum lower confidence bound for human-rater Gwet AC1
+  (nominal) or AC2 (weighted). When supplied, a single-rater gold set is
+  `NOT_ASSESSED`, never accepted silently.
+
+- conf_level:
+
+  Confidence level required across calibration, bias, and stability
+  evidence.
+
+- coefficient:
+
+  Agreement coefficient used by the policy. `NULL` (the default) selects
+  the calibration's Gwet coefficient: `"gwet_ac1"` for an unweighted
+  (nominal) calibration and `"gwet_ac2"` for a weighted (ordinal) one.
+  When the calibration did not compute that default coefficient, the
+  agreement check is `NOT_ASSESSED` with the reason, and the other
+  checks are still assessed. A coefficient named here that the
+  calibration did not compute is an error when the policy is assessed,
+  never a silent `NOT_ASSESSED`.
+
+- max_abstention_rate:
+
+  Optional maximum upper confidence bound for the judge's abstention
+  rate: the share of items with a human reference that the judge left
+  `NA`. See the "Missing labels and abstentions" section of
+  [`calibrate_judge()`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md).
+
+## Value
+
+A `yourhonor_policy` object.
+
+## Details
+
+Stability and bias thresholds are grouped behind a parent gate:
+`max_pairwise_disagreement` switches the stability checks on and
+`required_probes` switches the bias checks on. The dependent thresholds
+must be supplied together with their gate and are rejected without it,
+so a policy can never carry a threshold that the assessment does not
+read.
