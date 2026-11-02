@@ -36,3 +36,4 @@ reference:
 - title: Data
   contents:
   - support_gold
+  - synthetic_gold
