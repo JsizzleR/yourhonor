@@ -43,7 +43,8 @@ calls.
 * `support_gold` is an eight-item synthetic dataset for API demonstration.
 * `synthetic_gold` is a 200-item synthetic dataset with three simulated
   raters, sized so an audit can reach a verdict; it drives the README's
-  end-to-end run. Every label is planted and the text is templated.
+  end-to-end run and the vignette. Every label is planted and the text is
+  templated.
 
 ## Review fixes
 

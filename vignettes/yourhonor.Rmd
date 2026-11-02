@@ -28,28 +28,20 @@ that tag. The judge is synthetic, so no model is called, but it has a flaw
 that a real judge might have: it reads long answers as more complete than short
 ones. The audit is designed to find that flaw.
 
-## Build a gold set
+## Start from a gold set
 
 A calibration set needs stable item IDs, content the judge may see, and blind
-human labels. This synthetic example makes the relationship between answer text
-and labels explicit.
+human labels. `synthetic_gold` is a 200-item set of support-style questions
+and answers with three simulated raters. Every label in it is planted: a true
+label was drawn per item, the answer text was written to match it (correct
+answers name a place and an action, partial answers hedge, incorrect answers
+deflect), and each rater reads the truth with a 6% chance of an adjacent-level
+slip. The text is templated, so no row is a real ticket; what is independent
+across rows, and what the item bootstrap relies on, is the draw of the label
+and of each rater's error (`?synthetic_gold`, `data-raw/synthetic_gold.R`).
 
 ```{r}
-labels <- sample(c("I", "P", "C"), 90, replace = TRUE, prob = c(.2, .3, .5))
-answer_text <- ifelse(
-  labels == "C", "This answer fully resolves the support question.",
-  ifelse(
-    labels == "P", "This answer helps but omits an important step.",
-    "This answer is unrelated to the support question."
-  )
-)
-answer_text <- sprintf("Synthetic case %03d: %s", seq_along(answer_text), answer_text)
-gold <- tibble::tibble(
-  id = sprintf("item-%03d", seq_along(labels)),
-  input = answer_text,
-  target = "Does the answer correctly and completely resolve the question?",
-  human_label = labels
-)
+synthetic_gold
 ```
 
 ## Use a blind judge contract
@@ -59,43 +51,45 @@ only a generated `.item_id` and those declared columns. Human labels are never
 passed to it. A keyed data-frame result is safest because row reordering becomes
 detectable.
 
-The judge below grades by keyword, adds a little random error so that repeated
-runs are not identical, and carries the deliberate flaw: any input longer than
-200 characters is graded one level more generously.
+The judge below grades by keyword (a hedge reads as partial, a concrete
+instruction as correct, anything else as incorrect), adds a little random
+error so that repeated runs are not identical, and carries the deliberate
+flaw: any input longer than 240 characters is graded one level more
+generously.
 
 ```{r}
-toy_judge <- function(data) {
-  label <- ifelse(
-    grepl("fully resolves", data$input), "C",
-    ifelse(grepl("omits", data$input), "P", "I")
-  )
-  # The flaw under audit: long answers look more complete to this judge.
-  long <- nchar(data$input) > 200
+keyword_judge <- function(data) {
+  hedged <- grepl("probably|somewhere|should be|I think|I believe|might|sometimes|could", data$input)
+  concrete <- grepl("Answer: (Open|Use|Yes)|click", data$input)
+  label <- ifelse(hedged, "P", ifelse(concrete, "C", "I"))
+  # The flaw under audit: a long input reads as one level more complete.
+  long <- nchar(data$input) > 240
   label[long & label == "P"] <- "C"
   label[long & label == "I"] <- "P"
-  # A small amount of run-to-run judge error.
-  change <- runif(nrow(data)) < 0.08
-  label[change] <- sample(c("I", "P", "C"), sum(change), replace = TRUE)
+  # A little run-to-run error, so repeated runs are not identical.
+  noise <- runif(nrow(data)) < 0.05
+  label[noise] <- sample(c("I", "P", "C"), sum(noise), replace = TRUE)
   tibble::tibble(.item_id = data$.item_id, label = label)
 }
 
 cal <- calibrate_judge(
-  gold,
-  judge = toy_judge,
+  synthetic_gold,
+  judge = keyword_judge,
+  human_cols = c("rater_1", "rater_2", "rater_3"),
   input_cols = c("input", "target"),
   id_col = "id",
   label_levels = c("I", "P", "C"),
   scale = "ordinal",
   n_boot = 200,
   seed = 1,
-  provenance = list(model = "synthetic", prompt_version = "v1"),
+  provenance = list(model = "synthetic keyword judge", prompt_version = "v1"),
   audit_id = "synthetic-judge-v1"
 )
 cal
 ```
 
-The gold inputs are all shorter than 200 characters, so calibration alone
-cannot see the flaw. That is the point of running probes as well.
+No input in `synthetic_gold` is longer than 180 characters, so calibration
+alone cannot see the flaw. That is the point of running probes as well.
 
 Items are shuffled before grading and the judge sees a fresh key. The result
 keeps both: `items$.item_id` is the source-row key and `items$.judge_item_id`
@@ -103,7 +97,7 @@ is the key the judge saw, so judge-side logs can be joined back without
 un-blinding the run.
 
 ```{r}
-head(cal$items[, c(".item_id", ".judge_item_id", "human_label", "judge_label")])
+head(cal$items[, c(".item_id", ".judge_item_id", "human_consensus", "judge_label")])
 ```
 
 `agreement()` returns chance-corrected estimates and bootstrap intervals. A
@@ -179,25 +173,13 @@ two raters every disagreement is a tie, so the judge is scored only on items
 the humans agreed about, which is optimistic. `per_rater_agreement` is the
 all-items counterpart, and human-human reliability is a benchmark, not a
 ceiling: agreement with a consensus can exceed pairwise human agreement.
+`synthetic_gold` has three raters, so the calibration above already carries
+this evidence:
 
 ```{r}
-multi <- tibble::tibble(
-  h1 = c("C", "C", "P", "I", "C", "P", "I", "C"),
-  h2 = c("C", "P", "P", "I", "C", "C", "I", "C"),
-  h3 = c("C", "C", "P", "P", "C", "P", "I", "C"),
-  judge_label = c("C", "C", "C", "I", "C", "P", "P", "C")
-)
-multi_cal <- calibrate_judge(
-  multi,
-  human_cols = c("h1", "h2", "h3"),
-  label_levels = c("I", "P", "C"),
-  scale = "ordinal",
-  n_boot = 100,
-  seed = 1
-)
-multi_cal$n_consensus_ties
-multi_cal$human_reliability
-multi_cal$per_rater_agreement
+cal$n_consensus_ties
+cal$human_reliability
+cal$per_rater_agreement
 ```
 
 ## Probe pointwise bias
@@ -210,8 +192,8 @@ absent.
 
 ```{r}
 bias <- probe_bias(
-  gold,
-  toy_judge,
+  synthetic_gold,
+  keyword_judge,
   input_cols = c("input", "target"),
   probes = c("verbosity", "self_preference", "bandwagon"),
   seed = 1,
@@ -220,7 +202,7 @@ bias <- probe_bias(
 bias[, c("probe", "flip_rate", "directional_rate", "direction", "p_value_adj", "verdict")]
 ```
 
-The padded answers cross the judge's 200-character threshold, so the verbosity
+The padded answers cross the judge's 240-character threshold, so the verbosity
 probe finds the flaw: labels move towards the perturbed (longer) version. The
 short framing prefixes do not, so those probes report `no_signal`. A `BIAS`
 verdict needs both a small adjusted p-value and a `directional_rate` above
@@ -289,8 +271,8 @@ number of runs.
 
 ```{r}
 stability <- test_retest(
-  gold,
-  toy_judge,
+  synthetic_gold,
+  keyword_judge,
   input_cols = c("input", "target"),
   n_runs = 5,
   label_levels = c("I", "P", "C"),
@@ -313,16 +295,17 @@ does not read.
 ```{r}
 policy <- acceptance_policy(
   min_agreement_lower = 0.75,
-  min_n = 75,
-  min_class_n = 10,
+  min_n = 150,
+  min_class_n = 20,
   min_recall = c(I = 0.80, P = 0.75, C = 0.85),
+  min_precision = c(C = 0.85),
   max_missing_rate = 0.01,
   max_pairwise_disagreement = 0.10,
-  min_stability_n = 75,
+  min_stability_n = 150,
   min_stability_runs = 3,
   max_stability_missing_rate = 0.01,
   required_probes = c("verbosity", "self_preference", "bandwagon"),
-  min_probe_n = 50,
+  min_probe_n = 150,
   max_probe_flip_rate = 0.10,
   max_probe_directional_rate = 0.10,
   max_probe_missing_rate = 0.01,
@@ -347,9 +330,12 @@ verdict$checks[verdict$checks$status != "PASS", c("check", "status", "value", "o
 The outcome may be `PASS`, `FAIL`, `NOT_ASSESSED`, or `INDETERMINATE`. That is
 intentional: absence of a probe and an underpowered probe are different facts.
 Here the verbosity flaw fails both verbosity checks (the flip-rate interval and
-the directional interval both sit above the 0.10 ceiling), while the small gold
-set leaves several other checks `INDETERMINATE` rather than `PASS`: their
-intervals overlap the threshold, so the evidence neither clears nor fails it.
+the directional interval both sit above the 0.10 ceiling). Three other checks
+are `INDETERMINATE` rather than `PASS`: recall on `I` cannot be pinned above
+0.80 from 22 incorrect answers, the self-preference probe came back `no_signal`
+yet its interval cannot exclude 0.10, and pairwise disagreement of 0.07 has an
+upper bound above 0.10. Their intervals overlap the threshold, so the evidence
+neither clears nor fails it.
 
 ## Write an artifact
 
