@@ -122,7 +122,7 @@ keyword_judge <- function(data) {
 ```
 
 Calibration compares the judge with the raters’ consensus. It cannot see
-the flaw, because no input in `synthetic_gold` is longer than 180
+the flaw, because the longest input in `synthetic_gold` is 145
 characters:
 
 ``` r
@@ -179,16 +179,16 @@ bias <- probe_bias(
   seed = 1,
   audit_id = "synthetic-judge-v1"
 )
-bias[, c("probe", "flip_rate", "directional_rate", "direction", "p_value_adj", "verdict")]
+bias[, c("probe", "directional_rate", "direction", "p_value_adj", "verdict")]
 #> 
 #> ── yourhonor bias probes ──
 #> 
-#> # A tibble: 3 × 6
-#>   probe           flip_rate directional_rate direction       p_value_adj verdict
-#>   <chr>               <dbl>            <dbl> <chr>                 <dbl> <chr>  
-#> 1 verbosity           0.435            0.365 favors_perturb…    2.48e-16 BIAS   
-#> 2 self_preference     0.085            0.035 favors_perturb…    2.87e- 1 no_sig…
-#> 3 bandwagon           0.055            0.025 favors_perturb…    2.87e- 1 no_sig…
+#> # A tibble: 3 × 5
+#>   probe           directional_rate direction        p_value_adj verdict  
+#>   <chr>                      <dbl> <chr>                  <dbl> <chr>    
+#> 1 verbosity                  0.365 favors_perturbed    2.48e-16 BIAS     
+#> 2 self_preference            0.035 favors_perturbed    2.87e- 1 no_signal
+#> 3 bandwagon                  0.025 favors_perturbed    2.87e- 1 no_signal
 
 stability <- test_retest(
   synthetic_gold,
@@ -239,71 +239,83 @@ verdict
 #> 
 #> ── yourhonor assessment: FAIL ──────────────────────────────────────────────────
 #> Judge evidence: n = 200 of 200.
-#> Agreement evidence: gwet_ac2 = 0.97 [0.93, 1.00] (almost perfect).
+#> Agreement with humans: gwet_ac2 = 0.97 (almost perfect); 95% bootstrap interval
+#> [0.93, 1.00], exact lower bound 0.90.
 #> Per-class evidence:
 #> • "I": support 22, precision 0.91, recall 0.95
 #> • "P": support 62, precision 0.98, recall 0.97
 #> • "C": support 116, precision 0.98, recall 0.98
 #> Human reliability benchmark: gwet_ac2 = 0.92.
 #> Policy-failing bias checks: bias_verbosity_direction, bias_verbosity.
-#> Pairwise disagreement: 0.07 [0.05, 0.12].
-#> 
-#> ── policy checks ──
-#> 
-#> PASS: usable_items = 200 (>= 150) - Sample size is sufficient.
-#> PASS: calibration_confidence_level = 0.95 (= 0.95) - Confidence level matches
-#> policy.
-#> PASS: calibration_missing_rate = 0 (<= 0.01) - Criterion met.
-#> PASS: agreement_gwet_ac2 = 0.905 (lower >= 0.75) - Interval clears threshold.
-#> The lower bound is conf_low_exact (the exact bound on observed agreement mapped
-#> onto the coefficient's scale, capped at the bound of the perfect samples the
-#> ratings can be corrected into).
-#> PASS: class_support = 22 (>= 20) - All classes meet support.
-#> INDETERMINATE: recall_I = 0.772 (lower >= 0.8) - Interval overlaps threshold.
-#> PASS: recall_P = 0.888 (lower >= 0.75) - Interval clears threshold.
-#> PASS: recall_C = 0.939 (lower >= 0.85) - Interval clears threshold.
-#> PASS: precision_C = 0.939 (lower >= 0.85) - Interval clears threshold.
-#> PASS: bias_verbosity_missing_rate = 0 (<= 0.01) - Criterion met.
-#> PASS: bias_verbosity_n = 200 (>= 150) - Sample size is sufficient.
-#> FAIL: bias_verbosity_direction = 0.469 (upper <= 0.1) - Interval exceeds
-#> threshold.
-#> FAIL: bias_verbosity = 0.507 (upper <= 0.1) - Interval exceeds threshold.
-#> PASS: bias_self_preference_missing_rate = 0 (<= 0.01) - Criterion met.
-#> PASS: bias_self_preference_n = 200 (>= 150) - Sample size is sufficient.
-#> INDETERMINATE: bias_self_preference_direction = 0.102 (upper <= 0.1) - Interval
-#> overlaps threshold.
-#> INDETERMINATE: bias_self_preference = 0.133 (upper <= 0.1) - Interval overlaps
-#> threshold.
-#> PASS: bias_bandwagon_missing_rate = 0 (<= 0.01) - Criterion met.
-#> PASS: bias_bandwagon_n = 200 (>= 150) - Sample size is sufficient.
-#> PASS: bias_bandwagon_direction = 0.0808 (upper <= 0.1) - Interval clears
-#> threshold.
-#> PASS: bias_bandwagon = 0.0963 (upper <= 0.1) - Interval clears threshold.
-#> INDETERMINATE: stability_pairwise_disagreement = 0.119 (upper <= 0.1) -
-#> Interval overlaps threshold.
-#> PASS: stability_items = 200 (>= 150) - Sample size is sufficient.
-#> PASS: stability_runs = 5 (>= 3) - Sample size is sufficient.
-#> PASS: stability_missing_rate = 0 (<= 0.01) - Criterion met.
+#> Pairwise disagreement: 0.07; 95% interval [0.05, 0.12], worst-case upper bound
+#> 0.12.
+#> Assessment checks:
+#>   • PASS: usable_items = 200 (>= 150) - Sample size is sufficient.
+#>   • PASS: calibration_confidence_level = 0.95 (= 0.95) - Confidence level
+#>   matches policy.
+#>   • PASS: calibration_missing_rate = 0 (<= 0.01) - Criterion met.
+#>   • PASS: agreement_gwet_ac2 = 0.905 (lower >= 0.75) - Interval clears
+#>   threshold. The lower bound is conf_low_exact (the exact bound on observed
+#>   agreement mapped onto the coefficient's scale, capped at the bound of the
+#>   perfect samples the ratings can be corrected into).
+#>   • PASS: class_support = 22 (>= 20) - All classes meet support.
+#>   • INDETERMINATE: recall_I = 0.772 (lower >= 0.8) - Interval overlaps
+#>   threshold.
+#>   • PASS: recall_P = 0.888 (lower >= 0.75) - Interval clears threshold.
+#>   • PASS: recall_C = 0.939 (lower >= 0.85) - Interval clears threshold.
+#>   • PASS: precision_C = 0.939 (lower >= 0.85) - Interval clears threshold.
+#>   • PASS: bias_verbosity_missing_rate = 0 (<= 0.01) - Criterion met.
+#>   • PASS: bias_verbosity_n = 200 (>= 150) - Sample size is sufficient.
+#>   • FAIL: bias_verbosity_direction = 0.469 (upper <= 0.1) - Interval exceeds
+#>   threshold.
+#>   • FAIL: bias_verbosity = 0.507 (upper <= 0.1) - Interval exceeds threshold.
+#>   • PASS: bias_self_preference_missing_rate = 0 (<= 0.01) - Criterion met.
+#>   • PASS: bias_self_preference_n = 200 (>= 150) - Sample size is sufficient.
+#>   • INDETERMINATE: bias_self_preference_direction = 0.102 (upper <= 0.1) -
+#>   Interval overlaps threshold.
+#>   • INDETERMINATE: bias_self_preference = 0.133 (upper <= 0.1) - Interval
+#>   overlaps threshold.
+#>   • PASS: bias_bandwagon_missing_rate = 0 (<= 0.01) - Criterion met.
+#>   • PASS: bias_bandwagon_n = 200 (>= 150) - Sample size is sufficient.
+#>   • PASS: bias_bandwagon_direction = 0.0808 (upper <= 0.1) - Interval clears
+#>   threshold.
+#>   • PASS: bias_bandwagon = 0.0963 (upper <= 0.1) - Interval clears threshold.
+#>   • INDETERMINATE: stability_pairwise_disagreement = 0.119 (upper <= 0.1) -
+#>   Interval overlaps threshold.
+#>   • PASS: stability_items = 200 (>= 150) - Sample size is sufficient.
+#>   • PASS: stability_runs = 5 (>= 3) - Sample size is sufficient.
+#>   • PASS: stability_missing_rate = 0 (<= 0.01) - Criterion met.
 verdict$decision
 #> [1] "FAIL"
 ```
 
 Agreement with the human consensus is almost perfect and clears the
 floor; the judge is still not deployable, because the verbosity probe
-found the planted flaw and both its checks fail. The `INDETERMINATE`
-rows are the other half of the honesty: 22 incorrect answers cannot pin
-recall on `I` to 0.80, self-preference came back `no_signal` yet its
-interval cannot exclude 0.10, and pairwise disagreement of 0.07 has an
-upper bound above 0.10. None of those is a `PASS`, and none is reported
-as one. Required evidence that was never supplied is `NOT_ASSESSED`,
-never silently passed.
+found the planted flaw and both its checks fail. The 4 `INDETERMINATE`
+rows (`recall_I`, `bias_self_preference_direction`,
+`bias_self_preference`, and `stability_pairwise_disagreement`) are the
+other half of the honesty: 22 incorrect answers cannot pin recall on `I`
+to 0.80, self-preference came back `no_signal` yet its intervals cannot
+exclude 0.10, and pairwise disagreement of 0.07 has an upper bound of
+0.119, above 0.10. None of those is a `PASS`, and none is reported as
+one. Required evidence that was never supplied is `NOT_ASSESSED`, never
+silently passed.
 
 ## Learn more
 
-- `vignette("yourhonor")` walks through the same audit step by step: the
-  gold set, the blind judge contract, rare classes, several raters,
-  pointwise and position probes, repeatability, the policy decision, a
-  written artifact, and reusing vitals scores.
+- `vignette("yourhonor")` (Get started) walks through the same audit
+  step by step: the gold set, the blind judge contract, rare classes, a
+  first policy decision and several raters.
+- `vignette("bias-probes")` covers the pointwise and position probes and
+  their unscored items; `vignette("stability")` covers test-retest
+  stability and reusing vitals scores; `vignette("policies-audit")`
+  covers the policy decision and the written artifact.
+- `vignette("exact-bound")` derives `conf_low_exact`, the exact lower
+  bound on agreement that a policy assesses.
+- [Wrap an ellmer chat as a
+  judge](https://jsizzler.github.io/yourhonor/articles/ellmer-judge.html),
+  an article on the package website, turns an ellmer chat into a judge
+  function with structured output.
 - `?acceptance_policy` and `?report` document every threshold, its gate,
   and how a check becomes `PASS`, `FAIL`, `NOT_ASSESSED` or
   `INDETERMINATE`.
@@ -318,8 +330,9 @@ not extra items. Freeze a representative, held-out gold set before
 tuning the judge, and record its version and the model and prompt
 versions in `provenance`. Agreement estimators are delegated to
 [irrCAC](https://cran.r-project.org/package=irrCAC). `support_gold` and
-`synthetic_gold` are API demonstrations, not benchmarks. The vignette’s
-*Statistical scope* section says more.
+`synthetic_gold` are API demonstrations, not benchmarks. The
+*Statistical scope* sections of `vignette("yourhonor")` and
+`vignette("policies-audit")` say more.
 
 ## License
 

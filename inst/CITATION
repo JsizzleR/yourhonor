@@ -1,0 +1,18 @@
+# Every field below is read from DESCRIPTION, so a version bump or a change
+# to Authors@R needs no edit here.
+year <- if (!is.null(meta$`Date/Publication`)) {
+  substr(meta$`Date/Publication`, 1, 4)
+} else {
+  format(Sys.Date(), "%Y")
+}
+url <- trimws(strsplit(meta$URL, ",")[[1]][1])
+
+bibentry(
+  bibtype = "Manual",
+  header = "To cite yourhonor in publications use:",
+  title = paste0("{yourhonor}: ", meta$Title),
+  author = eval(parse(text = meta$`Authors@R`)),
+  year = year,
+  note = paste("R package version", meta$Version),
+  url = url
+)

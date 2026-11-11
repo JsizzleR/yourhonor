@@ -10,3 +10,4 @@
 ^figure$
 ^\.claude$
 ^vignettes/articles$
+^cran-comments\.md$
