@@ -403,33 +403,183 @@ compute_agreement <- function(ratings,
 }
 
 # One item resample per iteration, evaluated for every coefficient: sharing
-# the draw keeps the coefficients' intervals comparable, and drawing inside
-# the loop avoids holding an n-by-n_boot index matrix. A resample that
+# the draw keeps the coefficients' intervals comparable. A resample that
 # observes a single category is left NA for all of them. A resample whose
 # reference holds one category is kept: the coefficient is still defined
 # there, and dropping it would condition the interval on the draws that
 # happen to look informative.
+#
+# irrCAC computes every point estimate, but calling it once per resample per
+# coefficient dominated the run time. A resample only reweights items, so
+# each coefficient is a few products of its item counts with per-item terms
+# computed once (agreement_kernel()), and irrCAC remains the oracle: a value
+# the native arithmetic cannot vouch for is recomputed by irrCAC on the same
+# resample (native_resample_values()). The draws are those of one
+# sample.int(n, n, replace = TRUE) per iteration, as irrCAC was fed them, and
+# resamples are drawn and scored a chunk at a time, so the index and count
+# matrices held never exceed one chunk (bootstrap_chunk_cells, or one
+# resample when n is larger) however large n_boot is.
 bootstrap_coefficients <- function(ratings,
                                    coefficients,
                                    n_boot,
                                    weights,
                                    label_levels,
-                                   chance_levels = label_levels) {
+                                   chance_levels = label_levels,
+                                   chunk_cells = bootstrap_chunk_cells) {
   draws <- rlang::set_names(
     lapply(coefficients, function(co) rep(NA_real_, n_boot)), coefficients
   )
-  if (length(coefficients) == 0L) return(draws)
+  if (length(coefficients) == 0L || n_boot < 1L) return(draws)
+  kernel <- agreement_kernel(ratings, weights, label_levels, chance_levels)
   n <- nrow(ratings)
-  for (i in seq_len(n_boot)) {
-    samp <- ratings[sample.int(n, n, replace = TRUE), , drop = FALSE]
-    if (length(observed_categories(samp)) < 2L) next
-    for (co in coefficients) {
-      draws[[co]][[i]] <- safe_coeff_point(
-        samp, co, weights, label_levels, chance_levels
-      )
-    }
+  chunk <- max(1L, min(n_boot, chunk_cells %/% n))
+  for (first in seq(1L, n_boot, by = chunk)) {
+    iters <- first:min(n_boot, first + chunk - 1L)
+    idx <- matrix(0L, n, length(iters))
+    for (j in seq_along(iters)) idx[, j] <- sample.int(n, n, replace = TRUE)
+    values <- native_resample_values(
+      kernel, ratings, idx, coefficients, weights, label_levels, chance_levels
+    )
+    for (co in coefficients) draws[[co]][iters] <- values[[co]]
   }
   draws
+}
+
+# Cells in one chunk's index matrix (and in its count matrix): about 4 MB and
+# 8 MB, whatever n_boot is.
+bootstrap_chunk_cells <- 2^20
+
+# Each resample's value for every coefficient, given its item indices as the
+# columns of `idx`: NA for a resample that observes a single category, as the
+# bootstrap leaves it, and otherwise the native value, unless
+# agreement_kernel_draws() cannot vouch for it. irrCAC then scores that
+# resample from the rows, in the order, it would have been given.
+native_resample_values <- function(kernel,
+                                   ratings,
+                                   idx,
+                                   coefficients,
+                                   weights,
+                                   label_levels,
+                                   chance_levels = label_levels) {
+  counts <- apply(idx, 2L, tabulate, nbins = nrow(ratings))
+  dim(counts) <- dim(idx)
+  native <- agreement_kernel_draws(kernel, counts, coefficients)
+  lapply(rlang::set_names(coefficients), function(co) {
+    value <- native[[co]]$value
+    for (j in which(native[[co]]$oracle)) {
+      value[[j]] <- safe_coeff_point(
+        ratings[idx[, j], , drop = FALSE], co, weights, label_levels,
+        chance_levels
+      )
+    }
+    value
+  })
+}
+
+# Per-item terms of irrCAC's estimators over the chance categories, computed
+# once for the sample: `agree` counts each item's ratings per category,
+# `n_rated` its ratings and `sum_q` its weighted agreeing pairs, as irrCAC's
+# agree.mat, ri.vec and sum.q. Every item has at least two ratings, each in a
+# chance category, as compute_agreement() guarantees; kappa's per-rater
+# indicators are kept only for two rater columns.
+agreement_kernel <- function(ratings, weights, label_levels, chance_levels) {
+  coded <- as.matrix(encode_ratings(ratings, label_levels))
+  categ <- match(chance_levels, label_levels)
+  weight_mat <- agreement_weight_matrix(weights, length(label_levels))
+  weight_mat <- weight_mat[categ, categ, drop = FALSE]
+  indicator <- function(x) {
+    out <- vapply(categ, function(k) as.numeric(!is.na(x) & x == k),
+                  numeric(nrow(coded)))
+    dim(out) <- c(nrow(coded), length(categ))
+    out
+  }
+  agree <- Reduce(`+`, lapply(seq_len(ncol(coded)), function(g) {
+    indicator(coded[, g])
+  }))
+  n_rated <- rowSums(agree)
+  if (any(n_rated < 2) || any(n_rated != rowSums(!is.na(coded)))) {
+    cli::cli_abort(paste(
+      "Internal error: every bootstrapped item needs two ratings in chance",
+      "categories."
+    ))
+  }
+  rater <- if (ncol(coded) == 2L) {
+    list(indicator(coded[, 1L]), indicator(coded[, 2L]))
+  }
+  list(
+    agree = agree,
+    n_rated = n_rated,
+    sum_q = rowSums(agree * (agree %*% t(weight_mat) - 1)),
+    weight_mat = weight_mat,
+    rater = rater
+  )
+}
+
+# The coefficients of the resamples whose item counts are the columns of
+# `counts`, by irrCAC's formulas (gwet.ac1.raw, krippen.alpha.raw and, for two
+# complete raters, conger.kappa.raw) with each item weighted by its count.
+# Returns, per coefficient, the five-decimal value irrCAC reports and the
+# resamples that irrCAC must score instead (see native_resample_values()):
+# those whose value is not finite, whose chance term is within 1e-6 of one,
+# or whose value lies within the two computations' combined error of a
+# rounding boundary, where their rounded values could differ.
+agreement_kernel_draws <- function(kernel, counts, coefficients) {
+  agree <- kernel$agree
+  n_rated <- kernel$n_rated
+  w <- kernel$weight_mat
+  q <- ncol(agree)
+  items <- colSums(counts)
+  seen <- colSums(crossprod(agree, counts) > 0)
+  share <- function(x) crossprod(counts, x) / items
+  quad <- function(a, b) rowSums((a %*% w) * b)
+  # How far this arithmetic and irrCAC's may each stray from the exact pa and
+  # pe: a sum of n terms in [0, 1] is off by at most about n * eps relative,
+  # and a chance term adds up to q such errors. 1e-9 dominates below about
+  # 10^5 items.
+  budget <- max(1e-9, 8 * (q + 1) * max(items) * .Machine$double.eps)
+  lapply(rlang::set_names(coefficients), function(co) {
+    if (co %in% c("gwet_ac1", "gwet_ac2")) {
+      pa <- drop(share(kernel$sum_q / (n_rated * (n_rated - 1))))
+      pi <- share(agree / n_rated)
+      pe <- sum(w) * rowSums(pi * (1 - pi)) / (q * (q - 1))
+    } else if (co == "krippendorff_alpha") {
+      total <- drop(crossprod(counts, n_rated))
+      paprime <- drop(crossprod(counts, kernel$sum_q / (n_rated - 1))) / total
+      pa <- (1 - 1 / total) * paprime + 1 / total
+      pi <- crossprod(counts, agree) / total
+      pe <- quad(pi, pi)
+    } else if (co == "cohen_kappa") {
+      if (is.null(kernel$rater)) {
+        cli::cli_abort("Internal error: kappa needs exactly two raters.")
+      }
+      pa <- drop(share(kernel$sum_q / (n_rated * (n_rated - 1))))
+      p1 <- share(kernel$rater[[1L]])
+      p2 <- share(kernel$rater[[2L]])
+      pe <- (quad(p1, p2) + quad(p2, p1)) / 2
+    } else {
+      cli::cli_abort("Unknown coefficient {.val {co}}.")
+    }
+    raw <- (pa - pe) / (1 - pe)
+    value <- round(raw, 5)
+    # Errors a in pa and b in pe move raw by (a - b (1 - raw)) / (1 - pe - b),
+    # so by at most e (1 + |1 - raw|) / (|1 - pe| - e) when both are below e.
+    tol <- budget * (1 + abs(1 - raw)) / pmax(abs(1 - pe) - budget, 0)
+    oracle <- !is.finite(raw) | abs(1 - pe) < 1e-6 |
+      near_rounding_boundary(raw, tol)
+    value[!is.finite(raw)] <- NA_real_
+    single <- seen < 2L
+    value[single] <- NA_real_
+    oracle[single] <- FALSE
+    list(value = value, oracle = oracle)
+  })
+}
+
+# Whether `x` lies within `tol` of a point where its five-decimal rounding
+# changes.
+near_rounding_boundary <- function(x, tol) {
+  scaled <- x * 1e5
+  gap <- abs(scaled - floor(scaled) - 0.5)
+  !is.na(gap) & gap < tol * 1e5
 }
 
 # The categories a chance term counts: those observed on rows with at least
