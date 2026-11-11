@@ -1,0 +1,163 @@
+---
+title: "The exact lower bound on agreement"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{The exact lower bound on agreement}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(cli.num_colors = 1, width = 80)
+```
+
+```{r setup}
+library(yourhonor)
+```
+
+`agreement()` reports two lower bounds for every coefficient: `conf_low`, the
+lower end of the percentile item bootstrap, and `conf_low_exact`, a bound that
+uses no resampling at all. An acceptance policy assesses the smaller of the
+two (`?acceptance_policy`). This article says what `conf_low_exact` bounds,
+how it is built, and where it is strong or weak. The help page `?agreement`
+keeps only what the column is.
+
+## Why a second bound
+
+The percentile bootstrap is optimistic exactly where an audit is most
+tempted to trust it. On a perfect sample every resample is perfect too, so the
+interval has zero width at 1:
+
+```{r}
+perfect <- data.frame(human = rep(c("I", "P", "C"), 10))
+perfect$judge <- perfect$human
+exact_demo <- agreement(perfect, n_boot = 200, seed = 1, label_levels = c("I", "P", "C"))
+exact_demo[, c("coefficient", "estimate", "conf_low", "conf_high", "conf_low_exact", "ci_reliable")]
+```
+
+That interval is flagged `ci_reliable = FALSE` rather than read as proof of
+population-perfect agreement, and `conf_low_exact` is the usable lower bound
+there. The bootstrap is also optimistic at small `n` (around 30 items or
+fewer), which is why policies read both.
+
+## What it bounds
+
+Each coefficient is `(pa - pe) / (1 - pe)`, where `pa` is its observed
+agreement and `pe` its chance term. `conf_low_exact` is a lower bound on the
+coefficient's own `pa`, mapped onto its scale as `(lower - pe) / (1 - pe)`
+with the sample's chance term `pe` held fixed, then capped as described under
+[The cap](#the-cap).
+
+`pa` is the mean over items of each item's weighted pairwise agreement, so a
+near miss under weights earns its partial credit. Krippendorff's alpha's `pa`
+is `(1 - eps) * A + eps`, with `A` the mean weighted by each item's number of
+ratings `r` and `eps = 1 / sum(r)`, and its bound is on `A`.
+
+Each item's agreement is bounded by the declared weights' range, 0 to 1, not
+by the weights between the categories the sample happened to show: a rare,
+distant disagreement the sample missed would otherwise make the bound
+overshoot. Declaring a level beyond the observed ones therefore lowers
+kappa's and alpha's bound even where it leaves their estimates unchanged
+(the weighted estimates' dependence on unused levels is described in
+`?agreement`).
+
+## Which inequality
+
+The bound is one-sided at level `(1 + conf_level) / 2`, like the lower end of
+the bootstrap interval.
+
+- With two raters and no weights each item agrees or not, and the bound is
+  Clopper-Pearson's.
+- Otherwise each item's agreement lies between 0 and 1, and the bound is the
+  binomial stop-loss bound for a mean of such values, which is never looser
+  than Hoeffding's.
+- For alpha with three or more rater columns it bounds alpha's ratio of
+  rating-weighted agreement by inverting Hoeffding's relative-entropy test,
+  so missing ratings widen it.
+
+On a perfect sample every route gives Clopper-Pearson's
+`((1 - conf_level) / 2)^(1 / n)` on `pa` for `n` items, except alpha with
+missing ratings, which is lower. In the sample above, `n = 30` and every
+coefficient's chance term is `1/3`, so the bound on `pa` and its image on the
+coefficient's scale are:
+
+```{r}
+lower_pa <- ((1 - 0.95) / 2)^(1 / 30)
+lower_pa
+(lower_pa - 1 / 3) / (1 - 1 / 3)
+```
+
+which is the `conf_low_exact` of `r round(exact_demo$conf_low_exact[1], 3)`
+reported above.
+
+## The cap
+
+No sample's bound ranks above that of a perfect sample it can be corrected
+into. A correction gives every item whose ratings disagree one of its own
+ratings for all of them (in a calibration, the judge matching the human
+reference) and keeps the other items and the missing ratings. The bound is
+capped at the worst such perfect sample's (for Gwet's coefficients, at or
+below it: their chance term is bounded from above rather than found exactly).
+
+Without the cap an error could rank above its own correction, because a
+rating moved into a rarer category, or into one the perfect sample never
+used, raises the chance disagreement `1 - pe` that divides the bound's
+margin. The cap costs most at small `n` with rare categories, where a rare
+category seen only in disagreements lets a correction drop it: in simulation
+with 20 to 30 items and end categories of 1% to 3%, the share of samples
+whose AC2 bound reached 0.6 fell from 12% to 1% in the worst scenario (three
+raters, end categories of 3%, 30 items), while coverage was unchanged; from
+100 items it moved the mean bound by about 0.004 at most.
+
+Two imperfect samples keep no such guarantee: correcting an error can lower
+the estimate itself (when it removes the only rating in a category from the
+chance term), so no bound that tracks the estimate can always rise with a
+correction.
+
+## How fast it tightens
+
+As items accumulate the bound approaches the estimate, at a rate of about
+`1 / sqrt(n)`, for every coefficient, weighting and number of raters,
+provided `1 - pe` stays away from 0, for the corrections too. For kappa and
+alpha that holds when the items the raters agree on use at least two
+categories in non-vanishing shares. Gwet's chance term for a correction
+always stays below 1, but on a wide quadratic scale the gap can be small
+(about 0.02 with six levels), so the cap can hold the bound down until a few
+thousand items.
+
+## Exact for what
+
+It is exact (a finite-sample bound, not an asymptotic one) for observed
+agreement, not for the coefficient, because `pe` is itself estimated. In
+simulation (two and several raters, weighted and not, alpha with missing
+ratings, 30 to 1000 items) its coverage of the coefficient was at or above
+nominal, within simulation error. It does not depend on resampling, so it
+stays honest where the percentile bootstrap is optimistic: at small `n`, and
+on a perfect sample.
+
+## Where it is weak
+
+Because the bound on observed agreement is divided by `1 - pe`, it is weak
+for kappa and alpha on imbalanced labels, whose `pe` is large. At 90/10
+prevalence it stays far below the estimate until a few hundred items (a kappa
+of 0.92 on 100 items averaged about 0.63 in simulation), and it can fall
+below -1 (kappa's floor is `-pe / (1 - pe)`). Gwet's AC1 has a small `pe`
+there and is affected far less. One sample of 100 items at 90/10, with one
+error in each direction:
+
+```{r}
+human <- c(rep("pass", 90), rep("fail", 10))
+judge <- human
+judge[c(1, 95)] <- c("fail", "pass")
+imbalanced <- agreement(data.frame(human = human, judge = judge), n_boot = 200, seed = 1)
+imbalanced[, c("coefficient", "estimate", "conf_low", "conf_low_exact")]
+```
+
+## What a policy reads
+
+`conf_low_exact` never exceeds `estimate`, is reported for every coefficient
+with `status = "ok"`, and is `NA` otherwise. A policy's
+`min_agreement_lower` is checked against the smaller of `conf_low` and
+`conf_low_exact`, so a judge passes only when both the bootstrap and the
+exact bound clear the floor.

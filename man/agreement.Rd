@@ -84,78 +84,18 @@ coefficient is uninformative, and Gwet's AC1 in particular can read
 sample only: a bootstrap resample whose reference happens to hold one
 category still contributes its coefficient.
 
-\code{conf_low_exact} is a resampling-free lower bound on the coefficient's
-own observed agreement \code{pa}, mapped onto its scale as
-\code{(lower - pe) / (1 - pe)} with the sample's chance term \code{pe} held
-fixed, then capped as described below.
-\code{pa} is the mean over items of each item's weighted pairwise agreement,
-so a near miss under weights earns its partial credit; Krippendorff's
-alpha's \code{pa} is \code{(1 - eps) * A + eps}, with \code{A} the mean weighted by
-each item's number of ratings \code{r} and \code{eps = 1 / sum(r)}, and its bound
-is on \code{A}. Each item's agreement is bounded by the declared
-weights' range, 0 to 1, not by the weights between the categories the
-sample happened to show: a rare, distant disagreement the sample missed
-would otherwise make the bound overshoot. Declaring a level beyond the
-observed ones therefore lowers kappa's and alpha's bound even where it
-leaves their estimates unchanged. The bound is
-one-sided at level \code{(1 + conf_level) / 2}, like the lower end of the
-bootstrap interval. With two raters and no weights each item agrees or
-not, and the bound is Clopper-Pearson's. Otherwise each item's agreement
-lies between 0 and 1, and the bound is the binomial stop-loss bound for
-a mean of such values, which is never looser than Hoeffding's; for alpha
-with three or more rater columns it bounds alpha's ratio of
-rating-weighted agreement by inverting Hoeffding's relative-entropy
-test, so missing ratings widen it. On a perfect sample every route gives
-Clopper-Pearson's \code{((1 - conf_level) / 2)^(1 / n)} for \code{n} items,
-except alpha with missing ratings, which is lower.
-
-No sample's bound ranks above that of a perfect sample it can be
-corrected into: a correction gives every item whose ratings disagree
-one of its own ratings for all of them (in a calibration, the judge
-matching the human reference) and keeps the other items and the missing
-ratings, and the bound is capped at the worst such perfect sample's
-(for Gwet's coefficients, at or below it: their chance term is bounded
-from above rather than found exactly).
-Without the cap an error could rank above its own correction, because
-a rating moved into a rarer category, or into one the perfect sample
-never used, raises the chance disagreement \code{1 - pe} that divides the
-bound's margin. The cap costs most at small \code{n} with rare categories,
-where a rare category seen only in disagreements lets a correction drop
-it: in simulation with 20 to 30 items and end categories of 1\% to 3\%,
-the share of samples whose AC2 bound reached 0.6 fell from 12\% to 1\%
-in the worst scenario (three raters, end categories of 3\%, 30 items),
-while coverage was unchanged; from 100 items it moved the mean bound by
-about 0.004 at most. Two imperfect samples keep no such guarantee:
-correcting an error can lower the estimate itself (when it removes the
-only rating in a category from the chance term), so no bound that
-tracks the estimate can always rise with a correction.
-
-As items accumulate the bound approaches the estimate, at a rate of
-about \code{1 / sqrt(n)}, for every coefficient, weighting and number of
-raters, provided \code{1 - pe} stays away from 0, for the corrections too.
-For kappa and alpha that holds when the items the raters agree on use
-at least two categories in non-vanishing shares. Gwet's chance term for
-a correction always stays below 1, but on a wide quadratic scale the
-gap can be small (about 0.02 with six levels), so the cap can hold the
-bound down until a few thousand items.
-
-It is exact (a finite-sample bound, not an asymptotic one) for observed
-agreement, not for the coefficient, because \code{pe} is itself estimated;
-in simulation (two and several raters, weighted and not, alpha with
-missing ratings, 30 to 1000 items) its coverage of the coefficient was
-at or above nominal, within simulation error. It does not depend on
-resampling, so it stays honest where the percentile bootstrap is
-optimistic: at small \code{n}, and on a perfect sample, whose bootstrap is a
-zero-width interval at 1. Because the bound on observed agreement is
-divided by \code{1 - pe}, it is weak for kappa and alpha on imbalanced
-labels, whose \code{pe} is large: at 90/10 prevalence it stays far below
-the estimate until a few hundred items (a kappa of 0.92 on 100 items
-averaged about 0.63 in simulation), and it can fall below -1 (kappa's
-floor is \code{-pe / (1 - pe)}). Gwet's AC1 has a small \code{pe} there and is affected
-far less. It never exceeds \code{estimate}, is reported for every
-coefficient with \code{status = "ok"}, and is \code{NA} otherwise. Policies
-assess the smaller of \code{conf_low} and \code{conf_low_exact}; see
-\code{\link[=acceptance_policy]{acceptance_policy()}}.
+\code{conf_low_exact} is a resampling-free lower bound: a finite-sample
+bound on the coefficient's own observed agreement, one-sided at level
+\code{(1 + conf_level) / 2} like the lower end of the bootstrap interval, and
+mapped onto the coefficient's scale with the sample's chance term held
+fixed. It stays honest where the percentile bootstrap is optimistic (at
+small \code{n}, and on a perfect sample), and it is weak for kappa and alpha
+on imbalanced labels, whose chance term is large. It never exceeds
+\code{estimate}, is reported for every coefficient with \code{status = "ok"}, and
+is \code{NA} otherwise. Policies assess the smaller of \code{conf_low} and
+\code{conf_low_exact}; see \code{\link[=acceptance_policy]{acceptance_policy()}}. How the bound is built, its
+cap, how fast it tightens and its coverage in simulation are in
+\code{vignette("exact-bound", package = "yourhonor")}.
 
 \code{ci_reliable} is \code{TRUE} only
 when at least 30 resamples, and at least 80\% of the requested resamples,
@@ -196,7 +136,7 @@ AC2's chance term from about 0.55 to 0.70 and so change AC2 itself.
 Kappa's and alpha's chance terms move too. For a level beyond the observed
 ones each weight scheme only rescales the distances between observed
 levels, so their observed agreement moves with the chance term and their
-estimates do not change (their \code{conf_low_exact} does; see below). A level
+estimates do not change (their \code{conf_low_exact} does). A level
 between observed ones can change those distances and the weighted
 estimates with them.
 

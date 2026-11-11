@@ -37,3 +37,18 @@ reference:
   contents:
   - support_gold
   - synthetic_gold
+
+articles:
+- title: Audit a judge
+  contents:
+  - yourhonor
+  - bias-probes
+  - stability
+  - policies-audit
+- title: Real judges
+  desc: Connect a model provider to the judge contract.
+  contents:
+  - articles/ellmer-judge
+- title: Statistical details
+  contents:
+  - exact-bound

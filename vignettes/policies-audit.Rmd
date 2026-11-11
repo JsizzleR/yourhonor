@@ -1,0 +1,210 @@
+---
+title: "Policies and audit artifacts"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Policies and audit artifacts}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+options(cli.num_colors = 1, width = 80)
+set.seed(1)
+```
+
+```{r setup}
+library(yourhonor)
+```
+
+Evidence is descriptive until a policy says what it must show. This article
+gathers the three kinds of evidence about the synthetic judge from
+`vignette("yourhonor")` (calibration, bias probes and stability), assesses
+them under one explicit policy, and writes the assessment as a portable
+artifact.
+
+## Gather the evidence
+
+The judge and the three calls are the ones `vignette("yourhonor")`,
+`vignette("bias-probes")` and `vignette("stability")` explain. Every call
+carries the same `audit_id`, which is what lets `report()` bind them.
+
+```{r}
+keyword_judge <- function(data) {
+  hedged <- grepl("probably|somewhere|should be|I think|I believe|might|sometimes|could", data$input)
+  concrete <- grepl("Answer: (Open|Use|Yes)|click", data$input)
+  label <- ifelse(hedged, "P", ifelse(concrete, "C", "I"))
+  # The flaw under audit: a long input reads as one level more complete.
+  long <- nchar(data$input) > 240
+  label[long & label == "P"] <- "C"
+  label[long & label == "I"] <- "P"
+  # A little run-to-run error, so repeated runs are not identical.
+  noise <- runif(nrow(data)) < 0.05
+  label[noise] <- sample(c("I", "P", "C"), sum(noise), replace = TRUE)
+  tibble::tibble(.item_id = data$.item_id, label = label)
+}
+
+cal <- calibrate_judge(
+  synthetic_gold,
+  judge = keyword_judge,
+  human_cols = c("rater_1", "rater_2", "rater_3"),
+  input_cols = c("input", "target"),
+  id_col = "id",
+  label_levels = c("I", "P", "C"),
+  scale = "ordinal",
+  n_boot = 500,
+  seed = 1,
+  provenance = list(model = "synthetic keyword judge", prompt_version = "v1"),
+  audit_id = "synthetic-judge-v1"
+)
+bias <- probe_bias(
+  synthetic_gold,
+  keyword_judge,
+  input_cols = c("input", "target"),
+  probes = c("verbosity", "self_preference", "bandwagon"),
+  seed = 1,
+  audit_id = "synthetic-judge-v1"
+)
+stability <- test_retest(
+  synthetic_gold,
+  keyword_judge,
+  input_cols = c("input", "target"),
+  n_runs = 5,
+  label_levels = c("I", "P", "C"),
+  weights = "ordinal",
+  n_boot = 500,
+  seed = 1,
+  audit_id = "synthetic-judge-v1"
+)
+```
+
+## Declare the policy
+
+`report()` is descriptive unless it receives an acceptance policy. Policy checks
+use confidence bounds and distinguish failure, missing evidence, and statistical
+indeterminacy. Thresholds that only apply inside a gate (`max_pairwise_disagreement`
+for stability, `required_probes` for bias) must be supplied with that gate and
+are rejected without it, so a policy never carries a threshold the assessment
+does not read. Declare thresholds from the task's error costs, not from a
+package-wide notion of a "good" score.
+
+```{r}
+policy <- acceptance_policy(
+  min_agreement_lower = 0.75,
+  min_n = 150,
+  min_class_n = 20,
+  min_recall = c(I = 0.80, P = 0.75, C = 0.85),
+  min_precision = c(C = 0.85),
+  max_missing_rate = 0.01,
+  max_pairwise_disagreement = 0.10,
+  min_stability_n = 150,
+  min_stability_runs = 3,
+  max_stability_missing_rate = 0.01,
+  required_probes = c("verbosity", "self_preference", "bandwagon"),
+  min_probe_n = 150,
+  max_probe_flip_rate = 0.10,
+  max_probe_directional_rate = 0.10,
+  max_probe_missing_rate = 0.01,
+  conf_level = 0.95,
+  coefficient = "gwet_ac2"
+)
+verdict <- report(cal, bias = bias, stability = stability, policy = policy)
+verdict
+```
+
+## Read the decision
+
+`report()` returns a `yourhonor_report` whichever `output` you choose; `output`
+only sets the default rendering. `verdict$decision` is the overall outcome,
+`verdict$checks` holds one row per check with the observed `value`, the
+comparison `op`, and the numeric `threshold`, and
+`format(verdict, output = "md")` gives the Markdown lines.
+
+```{r}
+verdict$decision
+verdict$checks[verdict$checks$status != "PASS", c("check", "status", "value", "op", "threshold")]
+```
+
+```{r, include = FALSE}
+checks <- verdict$checks
+# "\x60" is a backtick: inline code cannot contain one literally.
+code <- function(x) paste0("\x60", x, "\x60")
+n_status <- function(status) sum(checks$status == status)
+# One phrase per check, read from the table: "`recall_I`, whose lower bound
+# of 0.772 must be >= 0.8".
+describe_checks <- function(status) {
+  rows <- checks[checks$status == status, ]
+  if (nrow(rows) == 0L) return("none")
+  side <- sub(" .*$", "", rows$op)
+  comparison <- sub("^\\S+ ", "", rows$op)
+  phrases <- sprintf(
+    "`%s`, whose %s bound of %.3f must be %s %s",
+    rows$check, side, rows$value, comparison, format(rows$threshold)
+  )
+  paste(phrases, collapse = "; ")
+}
+n_incorrect <- sum(cal$items$human_consensus == "I", na.rm = TRUE)
+```
+
+The outcome may be `PASS`, `FAIL`, `NOT_ASSESSED`, or `INDETERMINATE`. That is
+intentional: absence of a probe and an underpowered probe are different facts.
+Of the `r nrow(checks)` checks here, `r n_status("PASS")` pass,
+`r n_status("FAIL")` fail and `r n_status("INDETERMINATE")` are
+`INDETERMINATE`, so the decision is `r code(verdict$decision)`.
+
+The failures are the planted flaw: `r describe_checks("FAIL")`. The verbosity
+probe pads answers past the judge's 240-character threshold, and the labels
+move towards the longer version far more often than the ceiling allows.
+
+The `INDETERMINATE` checks are `r describe_checks("INDETERMINATE")`. Their
+intervals overlap the threshold, so the evidence neither clears nor fails
+it. Recall on `I`, for instance, rests on the `r n_incorrect` items whose
+human consensus is incorrect; a probe that reports `no_signal` can still have
+an interval that does not exclude the ceiling. None of these is a `PASS`, and
+none is reported as one. Required evidence that was never supplied is
+`NOT_ASSESSED`, never silently passed:
+
+```{r}
+unprobed <- report(cal, stability = stability, policy = policy)
+unprobed$decision
+unprobed$checks[unprobed$checks$status == "NOT_ASSESSED", c("check", "status")]
+```
+
+## Write an artifact
+
+`write_audit()` writes the same assessment as a Markdown report or as a
+versioned JSON summary (`yourhonor.audit.v1`). An existing file is never
+replaced unless `overwrite = TRUE`, so a re-run cannot clobber an earlier audit.
+
+```{r}
+path <- tempfile("judge-audit-", fileext = ".json")
+write_audit(cal, path, bias = bias, stability = stability, policy = policy)
+```
+
+```{r, eval = requireNamespace("jsonlite", quietly = TRUE)}
+audit <- jsonlite::read_json(path)
+audit$decision
+names(audit)
+```
+
+```{r, include = FALSE}
+unlink(path)
+```
+
+The JSON artifact contains aggregate calibration evidence, policy checks, and
+provenance at full numeric precision, with `null` for every absent value.
+Full precision is the stored doubles', not the estimates': irrCAC rounds each
+agreement coefficient to five decimals, and its bootstrap bounds inherit that.
+Calibration item rows are omitted, but caller-supplied provenance is written
+verbatim; keep secrets and raw item content out of provenance fields.
+`?write_audit` documents the schema.
+
+## Statistical scope
+
+The item bootstrap and exact class intervals assume independent sampling units.
+Do not count repeated templates, users, conversations, or epochs as independent
+items. Use a frozen, representative, held-out calibration set that was not used
+to tune the judge or prompt, and record the data split/version/hash plus the
+model and prompt versions in `provenance`. Confidence levels describe each
+interval, not a simultaneous band over every estimate. This synthetic example
+demonstrates APIs; it is not deployment evidence.
