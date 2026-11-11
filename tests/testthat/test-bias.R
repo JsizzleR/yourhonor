@@ -390,6 +390,29 @@ test_that("structured position outputs can reorder rows safely", {
   expect_equal(res$flip_rate, 0)
 })
 
+test_that("missing candidate text is rejected before the judge sees it", {
+  calls <- 0L
+  judge <- function(d) {
+    calls <<- calls + 1L
+    ifelse(grepl("good", d$.candidate_1), "A", "B")
+  }
+  # A missing candidate would otherwise be graded as a real answer, scored
+  # with missing_rate 0, and hide abstention from the missingness gate.
+  na_a <- pair_data()
+  na_a$candidate_a[[2]] <- NA_character_
+  expect_error(
+    probe_position(na_a, judge, "candidate_a", "candidate_b", seed = 1),
+    "candidate_a.*1 missing value"
+  )
+  na_b <- pair_data()[rep(1:2, 2), ]
+  na_b$candidate_b[c(1, 3)] <- NA_character_
+  expect_error(
+    probe_position(na_b, judge, "candidate_a", "candidate_b", seed = 1),
+    "candidate_b.*2 missing values"
+  )
+  expect_equal(calls, 0L)
+})
+
 test_that("pointwise grading is redacted, opaque, and keyed", {
   seen_names <- NULL
   seen_ids <- NULL
@@ -743,4 +766,194 @@ test_that("probe_bias validates id_col on the full data before sampling", {
     probe_bias(data, judge, id_col = "id", n = 2, probes = "verbosity"),
     "yourhonor_bias"
   )
+})
+
+test_that("probe_bias(n = ) grades a reproducible sample of n items", {
+  data <- tibble::tibble(input = paste("answer", 1:30))
+  seen <- character(0)
+  judge <- function(d) {
+    seen <<- c(seen, d$input)
+    rep("C", nrow(d))
+  }
+  res <- probe_bias(data, judge, probes = "verbosity", n = 10, seed = 1)
+  expect_equal(res$n_input, 10)
+  expect_equal(res$n_comparisons, 10)
+  expect_equal(res$n_judgments, 20)
+  # The control inputs are the sampled rows, each graded once per condition.
+  control <- seen[seen %in% data$input]
+  expect_length(control, 10)
+  expect_false(anyDuplicated(control) > 0)
+  expect_length(seen, 20)
+
+  first <- sort(control)
+  seen <- character(0)
+  probe_bias(data, judge, probes = "verbosity", n = 10, seed = 1)
+  expect_identical(sort(seen[seen %in% data$input]), first)
+  # Another seed draws another subset, so the sample is not a fixed prefix.
+  seen <- character(0)
+  probe_bias(data, judge, probes = "verbosity", n = 10, seed = 2)
+  expect_length(seen[seen %in% data$input], 10)
+  expect_false(identical(sort(seen[seen %in% data$input]), first))
+
+  # n equal to the row count keeps every row without a warning.
+  expect_no_warning(
+    all_rows <- probe_bias(data, judge, probes = "verbosity", n = 30, seed = 1)
+  )
+  expect_equal(all_rows$n_input, 30)
+  expect_warning(
+    over <- probe_bias(data, judge, probes = "verbosity", n = 31, seed = 1),
+    "using all 30 available rows"
+  )
+  expect_equal(over$n_input, 30)
+})
+
+test_that("position_conf_low/high is the exact interval over directional items", {
+  data <- pair_data()[rep(1:2, 10), ]
+  first_judge <- function(d) rep("A", nrow(d))
+  res <- probe_position(
+    data, first_judge, "candidate_a", "candidate_b",
+    context_cols = "context", seed = 1
+  )
+  oracle <- stats::binom.test(20, 20)$conf.int
+  expect_equal(res$position_conf_low, oracle[[1]])
+  expect_equal(res$position_conf_high, oracle[[2]])
+
+  # Half the items follow the first slot and half follow content: only the
+  # ten that moved are directional, and all ten favour the first slot.
+  half_first <- function(d) {
+    ifelse(
+      grepl("question 1", d$context), "A",
+      ifelse(grepl("good", d$.candidate_1), "A", "B")
+    )
+  }
+  res <- probe_position(
+    data, half_first, "candidate_a", "candidate_b",
+    context_cols = "context", seed = 1, conf_level = 0.9
+  )
+  expect_equal(res$n_scored, 20)
+  expect_equal(res$n_directional_items, 10)
+  expect_equal(res$statistic, 10)
+  oracle <- stats::binom.test(10, 10, conf.level = 0.9)$conf.int
+  expect_equal(res$position_conf_low, oracle[[1]])
+  expect_equal(res$position_conf_high, oracle[[2]])
+
+  # With no directional item there is no preference to bound.
+  content_judge <- function(d) ifelse(grepl("good", d$.candidate_1), "A", "B")
+  res <- probe_position(
+    data, content_judge, "candidate_a", "candidate_b",
+    context_cols = "context", seed = 1
+  )
+  expect_equal(res$n_directional_items, 0)
+  expect_true(is.na(res$position_preference))
+  expect_true(is.na(res$position_conf_low))
+  expect_true(is.na(res$position_conf_high))
+})
+
+test_that("one or three repeats set the comparison and judgment counts", {
+  data <- pair_data()[rep(1:2, 10), ]
+  first_judge <- function(d) rep("A", nrow(d))
+  for (k in c(1L, 3L)) {
+    res <- probe_position(
+      data, first_judge, "candidate_a", "candidate_b",
+      context_cols = "context", repeats = k, seed = 1
+    )
+    expect_equal(res$n_comparisons, 20 * k)
+    expect_equal(res$n_judgments, 40 * k)
+    expect_equal(res$n_scored, 20)
+    expect_equal(res$flip_rate, 1)
+    expect_equal(res$verdict, "BIAS")
+    ev <- attr(res, "evidence")$position
+    expect_setequal(ev$.repeat, seq_len(k))
+  }
+})
+
+# A judge that answers the k-th showing of each display (item and order) with
+# `answers[k]`. The judge never sees the repeat index, so the answer is keyed
+# on what it is shown; each display recurs once per repeat.
+showing_judge <- function(answers) {
+  shown <- new.env()
+  function(d) {
+    vapply(seq_len(nrow(d)), function(i) {
+      key <- paste(d$context[[i]], d$.candidate_1[[i]])
+      k <- (if (is.null(shown[[key]])) 0L else shown[[key]]) + 1L
+      shown[[key]] <- k
+      answers[[k]]
+    }, character(1))
+  }
+}
+
+test_that("a three-way modal tie leaves the item unscored, not missing", {
+  res <- probe_position(
+    pair_data(), showing_judge(c("A", "B", "tie")),
+    "candidate_a", "candidate_b", context_cols = "context",
+    tie_label = "tie", repeats = 3, seed = 1
+  )
+  items <- attr(res, "item_evidence")$position
+  expect_true(all(is.na(items$original_choice)))
+  expect_true(all(is.na(items$swapped_choice)))
+  expect_true(all(is.na(items$flipped)))
+  expect_equal(res$n_scored, 0)
+  expect_equal(res$n_unscored, 2)
+  expect_equal(res$n_judgments, 12)
+  expect_equal(res$n_judgments_missing, 0)
+  expect_equal(res$n_items_missing, 0)
+  expect_equal(res$missing_rate, 0)
+  expect_equal(res$status, "insufficient_data")
+  expect_equal(res$verdict, "INCONCLUSIVE")
+})
+
+test_that("a modal tie label is a decided judgement that commits to no slot", {
+  # Two ties and one first-slot pick in every display: the mode is the tie in
+  # both orders, so each item is scored, unflipped and not directional.
+  res <- probe_position(
+    pair_data(), showing_judge(c("tie", "A", "tie")),
+    "candidate_a", "candidate_b", context_cols = "context",
+    tie_label = "tie", repeats = 3, seed = 1
+  )
+  items <- attr(res, "item_evidence")$position
+  expect_identical(items$original_choice, c("tie", "tie"))
+  expect_identical(items$swapped_choice, c("tie", "tie"))
+  expect_identical(items$flipped, c(FALSE, FALSE))
+  expect_identical(items$position_direction, c(0L, 0L))
+  expect_equal(res$n_scored, 2)
+  expect_equal(res$flip_rate, 0)
+  expect_equal(res$n_directional_items, 0)
+  # Only the decided slot picks enter the display-first share.
+  expect_equal(res$display_first_rate, 1)
+
+  # A single repeat of a tie is decided too, but no slot was ever chosen.
+  res <- probe_position(
+    pair_data(), function(d) rep("tie", nrow(d)),
+    "candidate_a", "candidate_b", context_cols = "context",
+    tie_label = "tie", repeats = 1, seed = 1
+  )
+  expect_equal(res$n_scored, 2)
+  expect_equal(res$flip_rate, 0)
+  expect_true(is.na(res$display_first_rate))
+  expect_equal(res$verdict, "no_signal")
+})
+
+test_that("combine_bias refuses evidence where only some parts carry an audit_id", {
+  flat <- function(d) rep("C", nrow(d))
+  first_judge <- function(d) rep("A", nrow(d))
+  inputs <- tibble::tibble(input = paste("answer", 1:20))
+  bound <- probe_bias(
+    inputs, flat, probes = "verbosity", audit_id = "bundle-1", seed = 1
+  )
+  unbound <- probe_position(
+    pair_data()[rep(1:2, 10), ], first_judge,
+    "candidate_a", "candidate_b", context_cols = "context", seed = 1
+  )
+  expect_error(combine_bias(bound, unbound), "same non-missing")
+  expect_error(combine_bias(unbound, bound), "same non-missing")
+  also_bound <- probe_bias(
+    inputs, flat, probes = "bandwagon", audit_id = "bundle-1", seed = 1
+  )
+  expect_error(combine_bias(bound, also_bound, unbound), "same non-missing")
+
+  # With no audit_id anywhere the combination is allowed and stays unbound.
+  plain <- probe_bias(inputs, flat, probes = "verbosity", seed = 1)
+  combined <- combine_bias(plain, unbound)
+  expect_null(attr(combined, "audit_id"))
+  expect_setequal(combined$probe, c("verbosity", "position"))
 })

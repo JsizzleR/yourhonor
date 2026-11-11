@@ -91,3 +91,22 @@ in force for that row.
 }
 }
 
+\examples{
+length_judge <- function(d) ifelse(nchar(d$input) > 40, "C", "P")
+pointwise <- probe_bias(
+  tibble::tibble(input = paste("answer", 1:20)), length_judge,
+  probes = c("verbosity", "self_preference"), audit_id = "run-1", seed = 1
+)
+
+pairs <- tibble::tibble(
+  answer_a = paste("A complete answer", 1:20),
+  answer_b = paste("A vague reply", 1:20)
+)
+first_judge <- function(d) rep("A", nrow(d))
+position <- probe_position(pairs, first_judge, "answer_a", "answer_b",
+                           audit_id = "run-1", seed = 1)
+
+# One family of three probes, Holm-adjusted together.
+combined <- combine_bias(pointwise, position)
+combined[c("probe", "direction", "p_value_adj", "verdict")]
+}

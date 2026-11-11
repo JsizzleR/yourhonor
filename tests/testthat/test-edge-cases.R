@@ -156,7 +156,6 @@ test_that("the default policy coefficient follows the calibration's weights", {
 })
 
 test_that("the JSON artifact carries confusion counts and per-rater agreement", {
-  skip_if_not_installed("jsonlite")
   gold <- tibble::tibble(
     r1 = c("a", "a", "b", "b", "a", "b", "a", "b"),
     r2 = c("a", "a", "b", "b", "a", "b", "b", "b"),
@@ -250,7 +249,13 @@ test_that("stability and agreement count the same chance categories", {
     rbind(runs, data.frame(r1 = "c", r2 = NA)), n_boot = 1
   )$stability
   expect_equal(extended, base)
-  expect_equal(base, agreement(runs, coefficients = "gwet_ac1", n_boot = 10, seed = 1)$estimate)
+  expect_equal(
+    base,
+    agreement(
+      runs, coefficients = "gwet_ac1", n_boot = 10, seed = 1,
+      rater_cols = c("r1", "r2")
+    )$estimate
+  )
 })
 
 test_that("a weighted perfect sample is assessed no worse than one error", {

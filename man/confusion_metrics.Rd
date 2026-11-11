@@ -38,3 +38,14 @@ Returns class support, predicted support, precision, and recall with humans
 treated as the reference. Unlike a hidden tibble attribute, this accessor is
 stable across ordinary serialization and reporting workflows.
 }
+\examples{
+ratings <- data.frame(
+  human = c("C", "C", "P", "I", "C", "P"),
+  judge = c("C", "P", "P", "I", "C", "C")
+)
+confusion_metrics(ratings, label_levels = c("I", "P", "C"))
+
+# The same metrics from a confusion table.
+tab <- confusion(ratings, label_levels = c("I", "P", "C"))
+confusion_metrics(tab)
+}

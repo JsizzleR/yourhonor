@@ -193,7 +193,10 @@ probe_bias <- function(data,
 #' so a content-consistent judge remains consistent and an always-first judge is
 #' exposed.
 #'
-#' @param data A data frame with separate candidate columns.
+#' @param data A data frame with separate candidate columns. Missing
+#'   candidates are an error, as for [probe_bias()]: a pair with an `NA`
+#'   candidate would otherwise be graded as a real comparison and hide
+#'   abstention from the missingness gate.
 #' @param judge A judge function receiving an opaque, unique `.item_id`, neutral
 #'   `.candidate_1` and `.candidate_2` display slots, and any `context_cols`.
 #'   Source column names, condition, repeat, and canonical-pair identities are
@@ -229,6 +232,25 @@ probe_bias <- function(data,
 #'   `item_evidence` holds one row per item (modal choice per condition,
 #'   `flipped`, `display_first_rate`, `position_direction`).
 #' @export
+#' @examples
+#' pairs <- tibble::tibble(
+#'   question = paste("question", 1:20),
+#'   answer_a = paste("A complete, sourced answer to question", 1:20),
+#'   answer_b = paste("A vague reply to question", 1:20)
+#' )
+#' # Picks the complete answer wherever it is shown: no position bias.
+#' content_judge <- function(d) {
+#'   ifelse(grepl("complete", d$.candidate_1), "A", "B")
+#' }
+#' fair <- probe_position(pairs, content_judge, "answer_a", "answer_b",
+#'                        context_cols = "question", seed = 1)
+#' fair[c("flip_rate", "direction", "position_preference", "verdict")]
+#'
+#' # Always picks the first slot, which swapping the display order exposes.
+#' first_judge <- function(d) rep("A", nrow(d))
+#' biased <- probe_position(pairs, first_judge, "answer_a", "answer_b",
+#'                          seed = 1)
+#' biased[c("flip_rate", "direction", "position_preference", "verdict")]
 probe_position <- function(data,
                            judge,
                            candidate_a_col,
@@ -290,6 +312,7 @@ probe_position <- function(data,
     cli::cli_abort("Missing pairwise column{?s}: {.field {missing_cols}}.")
   }
   if (nrow(data) < 1L) cli::cli_abort("{.arg data} must contain at least one pair.")
+  check_candidates_present(data, c(candidate_a_col, candidate_b_col))
   if (!is.null(seed)) withr::local_seed(seed)
 
   evidence <- build_position_evidence(
@@ -349,6 +372,24 @@ print.yourhonor_bias <- function(x, ...) {
 #'   in a constituent's rows are carried over, so evidence left behind by
 #'   row-subsetting a result cannot shadow a newer run of the same probe.
 #' @export
+#' @examples
+#' length_judge <- function(d) ifelse(nchar(d$input) > 40, "C", "P")
+#' pointwise <- probe_bias(
+#'   tibble::tibble(input = paste("answer", 1:20)), length_judge,
+#'   probes = c("verbosity", "self_preference"), audit_id = "run-1", seed = 1
+#' )
+#'
+#' pairs <- tibble::tibble(
+#'   answer_a = paste("A complete answer", 1:20),
+#'   answer_b = paste("A vague reply", 1:20)
+#' )
+#' first_judge <- function(d) rep("A", nrow(d))
+#' position <- probe_position(pairs, first_judge, "answer_a", "answer_b",
+#'                            audit_id = "run-1", seed = 1)
+#'
+#' # One family of three probes, Holm-adjusted together.
+#' combined <- combine_bias(pointwise, position)
+#' combined[c("probe", "direction", "p_value_adj", "verdict")]
 combine_bias <- function(...,
                          p_adjust = c("holm", "none", "BH", "bonferroni")) {
   p_adjust <- rlang::arg_match(p_adjust)
@@ -630,6 +671,22 @@ check_probe_input <- function(data) {
       "{.field input} contains {n_na} missing value{?s}; ",
       "drop or fill them before probing."
     ))
+  }
+  invisible(data)
+}
+
+# A missing candidate reaches the judge as an empty display slot, and the pair
+# is then scored like any other with missing_rate 0, so abstention the caller
+# meant to record would be hidden from the missingness gate.
+check_candidates_present <- function(data, candidate_cols) {
+  for (col in candidate_cols) {
+    n_na <- sum(is.na(data[[col]]))
+    if (n_na > 0L) {
+      cli::cli_abort(paste0(
+        "Candidate column {.field {col}} contains {n_na} missing value{?s}; ",
+        "drop or fill them before probing."
+      ))
+    }
   }
   invisible(data)
 }

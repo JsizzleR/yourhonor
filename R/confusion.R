@@ -228,6 +228,16 @@ infer_confusion_cols <- function(x, call = rlang::caller_env()) {
 #'   [confusion()] instead.
 #' @return A tibble with one row per label.
 #' @export
+#' @examples
+#' ratings <- data.frame(
+#'   human = c("C", "C", "P", "I", "C", "P"),
+#'   judge = c("C", "P", "P", "I", "C", "C")
+#' )
+#' confusion_metrics(ratings, label_levels = c("I", "P", "C"))
+#'
+#' # The same metrics from a confusion table.
+#' tab <- confusion(ratings, label_levels = c("I", "P", "C"))
+#' confusion_metrics(tab)
 confusion_metrics <- function(x,
                               label_levels = NULL,
                               human_col = NULL,

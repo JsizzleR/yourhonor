@@ -116,7 +116,9 @@ test_that("agreement bands follow Landis and Koch at every edge", {
 
 test_that("all-missing ratings name the actual problem", {
   ratings <- data.frame(a = c(NA_character_, NA), b = c(NA_character_, NA))
-  err <- rlang::catch_cnd(agreement(ratings), "error")
+  err <- rlang::catch_cnd(
+    agreement(ratings, rater_cols = c("a", "b")), "error"
+  )
   expect_match(conditionMessage(err), "no non-missing ratings")
   expect_no_match(conditionMessage(err), "label_levels")
 })

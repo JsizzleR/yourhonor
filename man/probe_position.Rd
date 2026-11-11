@@ -20,7 +20,10 @@ probe_position(
 )
 }
 \arguments{
-\item{data}{A data frame with separate candidate columns.}
+\item{data}{A data frame with separate candidate columns. Missing
+candidates are an error, as for \code{\link[=probe_bias]{probe_bias()}}: a pair with an \code{NA}
+candidate would otherwise be graded as a real comparison and hide
+abstention from the missingness gate.}
 
 \item{judge}{A judge function receiving an opaque, unique \code{.item_id}, neutral
 \code{.candidate_1} and \code{.candidate_2} display slots, and any \code{context_cols}.
@@ -136,3 +139,23 @@ in force for that row.
 }
 }
 
+\examples{
+pairs <- tibble::tibble(
+  question = paste("question", 1:20),
+  answer_a = paste("A complete, sourced answer to question", 1:20),
+  answer_b = paste("A vague reply to question", 1:20)
+)
+# Picks the complete answer wherever it is shown: no position bias.
+content_judge <- function(d) {
+  ifelse(grepl("complete", d$.candidate_1), "A", "B")
+}
+fair <- probe_position(pairs, content_judge, "answer_a", "answer_b",
+                       context_cols = "question", seed = 1)
+fair[c("flip_rate", "direction", "position_preference", "verdict")]
+
+# Always picks the first slot, which swapping the display order exposes.
+first_judge <- function(d) rep("A", nrow(d))
+biased <- probe_position(pairs, first_judge, "answer_a", "answer_b",
+                         seed = 1)
+biased[c("flip_rate", "direction", "position_preference", "verdict")]
+}
