@@ -22,38 +22,41 @@ test_that("length-matched probes do not convict a length-only judge", {
     probes = c("verbosity", "self_preference", "bandwagon"), seed = 1
   )
   expect_equal(res$verdict[res$probe == "verbosity"], "BIAS")
-  expect_true(all(res$verdict[res$probe != "verbosity"] == "no_signal"))
+  expect_all(res$verdict[res$probe != "verbosity"] == "no_signal")
 })
 
 test_that("an invariant judge reports no signal, not proof of no bias", {
   flat_judge <- function(d) rep("C", nrow(d))
   data <- tibble::tibble(input = paste("answer", 1:20))
   res <- probe_bias(data, flat_judge, probes = c("verbosity", "self_preference"))
-  expect_true(all(res$flip_rate == 0))
-  expect_true(all(res$directional_rate == 0))
-  expect_true(all(res$directional_conf_high > 0))
-  expect_true(all(res$verdict == "no_signal"))
-  expect_true(all(res$status == "ok"))
+  expect_all(res$flip_rate == 0)
+  expect_all(res$directional_rate == 0)
+  expect_all(res$directional_conf_high > 0)
+  expect_all(res$verdict == "no_signal")
+  expect_all(res$status == "ok")
   # No movement is a real sign-test outcome, not a missing one.
-  expect_true(all(res$p_value == 1))
+  expect_all(res$p_value == 1)
 })
 
 test_that("probe inputs and controls validate clearly", {
   data <- tibble::tibble(input = "x")
-  expect_error(probe_bias(data, NULL), "must be a function")
+  expect_error(probe_bias(data, NULL), class = "yourhonor_input_error")
   expect_error(
     probe_bias(tibble::tibble(text = "x"), function(d) "C"),
-    "input"
+    "input", class = "yourhonor_input_error"
   )
-  expect_error(probe_bias(data, function(d) "C", n = 0), "n")
+  expect_error(
+    probe_bias(data, function(d) "C", n = 0),
+    class = "yourhonor_input_error"
+  )
   expect_error(
     probe_bias(data, function(d) rep("good", nrow(d)),
                ordered_levels = c("I", "P", "C")),
-    "outside"
+    class = "yourhonor_judge_error"
   )
   expect_error(
     probe_bias(data, function(d) "C", probes = "position"),
-    "probe_position"
+    "probe_position", class = "yourhonor_input_error"
   )
 })
 
@@ -65,15 +68,15 @@ test_that("missing or non-character inputs are rejected before grading", {
   }
   expect_error(
     probe_bias(tibble::tibble(input = c("a", NA, "c")), judge),
-    "1 missing value"
+    class = "yourhonor_input_error"
   )
   expect_error(
     probe_bias(tibble::tibble(input = 1:3), judge),
-    "character column"
+    class = "yourhonor_input_error"
   )
   expect_error(
     probe_bias(tibble::tibble(input = factor(c("a", "b"))), judge),
-    "character column"
+    class = "yourhonor_input_error"
   )
   expect_equal(calls, 0L)
 })
@@ -138,7 +141,7 @@ test_that("p-values are corrected across the whole pointwise family", {
   expect_equal(bandwagon$n_discordant, 6)
   expect_equal(bandwagon$p_value, 0.03125)
   expect_equal(res$p_value_adj, stats::p.adjust(res$p_value, "holm"))
-  expect_true(all(res$p_adjust_method == "holm"))
+  expect_all(res$p_adjust_method == "holm")
   # Holm over the real family of three lifts bandwagon above alpha; dropping
   # the zero-flip probe from the family would wrongly convict it.
   expect_equal(bandwagon$p_value_adj, 0.0625)
@@ -151,7 +154,7 @@ test_that("p-values are corrected across the whole pointwise family", {
     seed = 1, p_adjust = "none"
   )
   expect_equal(none$p_value_adj, none$p_value)
-  expect_true(all(none$p_adjust_method == "none"))
+  expect_all(none$p_adjust_method == "none")
   expect_equal(none$verdict[none$probe == "bandwagon"], "BIAS")
 })
 
@@ -213,8 +216,8 @@ test_that("directional interval never exceeds the flip-rate interval", {
     family_data(), family_judge,
     probes = c("verbosity", "self_preference", "bandwagon"), seed = 1
   )
-  expect_true(all(mixed$directional_conf_high <= mixed$conf_high))
-  expect_true(all(mixed$directional_conf_low <= mixed$directional_conf_high))
+  expect_all(mixed$directional_conf_high <= mixed$conf_high)
+  expect_all(mixed$directional_conf_low <= mixed$directional_conf_high)
 })
 
 test_that("worst-case bounds put unscored items on the worse side", {
@@ -302,7 +305,7 @@ test_that("structured position probe preserves text and canonical identity", {
   evidence <- attr(res, "evidence")$position
   original <- evidence[evidence$.condition == "original", ]
   expect_true(any(grepl("good\nmultiline answer", original$candidate_a, fixed = TRUE)))
-  expect_true(all(original$canonical_choice %in% c("candidate_a", "candidate_b")))
+  expect_all(original$canonical_choice %in% c("candidate_a", "candidate_b"))
 })
 
 test_that("position probing redacts everything but the display slots", {
@@ -402,13 +405,13 @@ test_that("missing candidate text is rejected before the judge sees it", {
   na_a$candidate_a[[2]] <- NA_character_
   expect_error(
     probe_position(na_a, judge, "candidate_a", "candidate_b", seed = 1),
-    "candidate_a.*1 missing value"
+    "candidate_a.*1 missing value", class = "yourhonor_input_error"
   )
   na_b <- pair_data()[rep(1:2, 2), ]
   na_b$candidate_b[c(1, 3)] <- NA_character_
   expect_error(
     probe_position(na_b, judge, "candidate_a", "candidate_b", seed = 1),
-    "candidate_b.*2 missing values"
+    "candidate_b.*2 missing values", class = "yourhonor_input_error"
   )
   expect_equal(calls, 0L)
 })
@@ -452,7 +455,7 @@ test_that("both probes share one schema and named evidence lists", {
     vapply(pointwise, class, character(1)),
     vapply(position, class, character(1))
   )
-  expect_true(all(is.na(pointwise$position_preference)))
+  expect_all(is.na(pointwise$position_preference))
   expect_false(is.na(pointwise$flip_threshold[1]))
   expect_true(is.na(position$flip_threshold))
 
@@ -496,7 +499,10 @@ test_that("pointwise and position evidence combine only within one audit", {
   expect_s3_class(attr(again, "evidence")$position, "tbl_df")
 
   attr(position, "audit_id") <- "bundle-2"
-  expect_error(combine_bias(pointwise, position), "same non-missing")
+  expect_error(
+    combine_bias(pointwise, position),
+    class = "yourhonor_binding_error"
+  )
 })
 
 test_that("position direction needs a decided judgement in both display orders", {
@@ -582,15 +588,15 @@ test_that("a tie in one display order still counts toward the slot it avoided", 
 test_that("blank probe labels are rejected", {
   expect_error(
     probe_bias(tibble::tibble(input = "x"), function(d) "C", ordered_levels = c("", "C")),
-    "ordered_levels"
+    "ordered_levels", class = "yourhonor_input_error"
   )
   expect_error(
     probe_position(pair_data(), function(d) "A", "candidate_a", "candidate_b", choice_levels = c(" ", "B")),
-    "choice_levels"
+    "choice_levels", class = "yourhonor_input_error"
   )
   expect_error(
     probe_position(pair_data(), function(d) "A", "candidate_a", "candidate_b", tie_label = " "),
-    "tie_label"
+    "tie_label", class = "yourhonor_input_error"
   )
 })
 
@@ -614,23 +620,33 @@ test_that("combine_bias rejects malformed or inconsistent inputs", {
   bandwagon <- probe_bias(
     data, flat, probes = "bandwagon", audit_id = "bundle-1", seed = 1
   )
-  expect_error(combine_bias(verbosity), "two or more")
+  expect_error(combine_bias(verbosity), class = "yourhonor_input_error")
   expect_error(
-    combine_bias(verbosity, tibble::tibble(probe = "x")), "two or more"
+    combine_bias(verbosity, tibble::tibble(probe = "x")),
+    class = "yourhonor_input_error"
   )
-  expect_error(combine_bias(verbosity, verbosity), "exactly once")
+  expect_error(
+    combine_bias(verbosity, verbosity),
+    class = "yourhonor_input_error"
+  )
 
   other_level <- probe_bias(
     data, flat, probes = "bandwagon", audit_id = "bundle-1", seed = 1,
     conf_level = 0.9
   )
-  expect_error(combine_bias(verbosity, other_level), "conf_level")
+  expect_error(
+    combine_bias(verbosity, other_level), "conf_level",
+    class = "yourhonor_input_error"
+  )
 
   other_alpha <- probe_bias(
     data, flat, probes = "bandwagon", audit_id = "bundle-1", seed = 1,
     alpha = 0.1
   )
-  expect_error(combine_bias(verbosity, other_alpha), "alpha")
+  expect_error(
+    combine_bias(verbosity, other_alpha), "alpha",
+    class = "yourhonor_input_error"
+  )
 
   expect_silent(combine_bias(verbosity, bandwagon))
 })
@@ -650,7 +666,7 @@ test_that("combine_bias recomputes the family correction and verdicts", {
   expect_equal(
     combined$p_value_adj, stats::p.adjust(combined$p_value, "bonferroni")
   )
-  expect_true(all(combined$p_adjust_method == "bonferroni"))
+  expect_all(combined$p_adjust_method == "bonferroni")
   expected <- c(
     verbosity = "BIAS", self_preference = "no_signal",
     bandwagon = "no_signal", position = "BIAS"
@@ -731,11 +747,14 @@ test_that("combine_bias keeps only evidence for each constituent's rows", {
   unnamed <- consistent
   attr(unnamed, "evidence") <- list(attr(consistent, "evidence")$position)
   expect_error(
-    combine_bias(pointwise, unnamed), "evidence attribute must be a list named"
+    combine_bias(pointwise, unnamed), class = "yourhonor_input_error"
   )
   unnamed <- consistent
   attr(unnamed, "item_evidence") <- list(1)
-  expect_error(combine_bias(pointwise, unnamed), "item_evidence attribute")
+  expect_error(
+    combine_bias(pointwise, unnamed), "item_evidence attribute",
+    class = "yourhonor_input_error"
+  )
 })
 
 test_that("every internally assigned position column is reserved", {
@@ -747,7 +766,7 @@ test_that("every internally assigned position column is reserved", {
       probe_position(
         data, judge, "candidate_a", "candidate_b", context_cols = name
       ),
-      name, fixed = TRUE
+      name, class = "yourhonor_input_error", fixed = TRUE
     )
   }
 })
@@ -759,7 +778,7 @@ test_that("probe_bias validates id_col on the full data before sampling", {
   judge <- function(d) rep("C", nrow(d))
   expect_error(
     probe_bias(data, judge, id_col = "id", n = 2, probes = "verbosity"),
-    "unique, non-missing IDs"
+    class = "yourhonor_input_error"
   )
   data$id <- 1:6
   expect_s3_class(
@@ -889,9 +908,9 @@ test_that("a three-way modal tie leaves the item unscored, not missing", {
     tie_label = "tie", repeats = 3, seed = 1
   )
   items <- attr(res, "item_evidence")$position
-  expect_true(all(is.na(items$original_choice)))
-  expect_true(all(is.na(items$swapped_choice)))
-  expect_true(all(is.na(items$flipped)))
+  expect_all(is.na(items$original_choice))
+  expect_all(is.na(items$swapped_choice))
+  expect_all(is.na(items$flipped))
   expect_equal(res$n_scored, 0)
   expect_equal(res$n_unscored, 2)
   expect_equal(res$n_judgments, 12)
@@ -944,12 +963,15 @@ test_that("combine_bias refuses evidence where only some parts carry an audit_id
     pair_data()[rep(1:2, 10), ], first_judge,
     "candidate_a", "candidate_b", context_cols = "context", seed = 1
   )
-  expect_error(combine_bias(bound, unbound), "same non-missing")
-  expect_error(combine_bias(unbound, bound), "same non-missing")
+  expect_error(combine_bias(bound, unbound), class = "yourhonor_binding_error")
+  expect_error(combine_bias(unbound, bound), class = "yourhonor_binding_error")
   also_bound <- probe_bias(
     inputs, flat, probes = "bandwagon", audit_id = "bundle-1", seed = 1
   )
-  expect_error(combine_bias(bound, also_bound, unbound), "same non-missing")
+  expect_error(
+    combine_bias(bound, also_bound, unbound),
+    class = "yourhonor_binding_error"
+  )
 
   # With no audit_id anywhere the combination is allowed and stays unbound.
   plain <- probe_bias(inputs, flat, probes = "verbosity", seed = 1)

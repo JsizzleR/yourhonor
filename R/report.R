@@ -41,7 +41,7 @@ report <- function(x,
                    policy = NULL,
                    output = c("console", "md")) {
   if (!inherits(x, "yourhonor_calibration")) {
-    cli::cli_abort("{.arg x} must be a {.cls yourhonor_calibration} object.")
+    yh_abort("{.arg x} must be a {.cls yourhonor_calibration} object.")
   }
   validate_report_evidence(x, bias, stability)
   output <- rlang::arg_match(output)
@@ -239,7 +239,10 @@ bias_section <- function(report, style) {
 }
 
 # The stability evidence is one section, so a line added to it (a further
-# bound, say) is written here once.
+# bound, say) is written here once. As in the agreement headline, the
+# interval is labelled and the worst-case upper bound shown beside it,
+# because that bound, not the interval's, is what a policy's
+# `max_pairwise_disagreement` is compared with.
 stability_section <- function(report, style) {
   stability <- report$stability
   if (is.null(stability)) {
@@ -247,11 +250,19 @@ stability_section <- function(report, style) {
       "Test-retest stability: ", style$strong("NOT ASSESSED"), "."
     )))
   }
+  worst <- stability$pairwise_disagreement_worst_case_high
+  worst_text <- if (length(worst) == 1L && is.finite(worst)) {
+    paste0(", worst-case upper bound ", fmt_num(worst))
+  } else {
+    ""
+  }
   block_para(sprintf(
-    "Pairwise disagreement: %s [%s, %s].",
+    "Pairwise disagreement: %s; %sinterval [%s, %s]%s.",
     fmt_num(stability$pairwise_disagreement),
+    conf_level_label(stability$conf_level),
     fmt_num(stability$pairwise_disagreement_conf_low),
-    fmt_num(stability$pairwise_disagreement_conf_high)
+    fmt_num(stability$pairwise_disagreement_conf_high),
+    worst_text
   ))
 }
 
@@ -469,34 +480,15 @@ append_unscored <- function(summary, unscored) {
   )
 }
 
-# The fields report() and write_audit() read from supplied evidence. They
-# are named once here, and test-report-render.R checks that the outputs of
-# probe_bias(), probe_position(), combine_bias() and test_retest() carry
-# every one, so a constructor that drops a field fails a test rather than
-# a caller's report.
-report_bias_fields <- c(
-  "probe", "flip_rate", "directional_rate", "directional_conf_low",
-  "directional_conf_high", "conf_low", "conf_high",
-  "n_scored", "n_input", "n_unscored", "statistic", "n_directional_items",
-  "missing_rate", "n_discordant", "p_value", "verdict", "status",
-  "conf_level"
-)
-
-report_stability_fields <- c(
-  "pairwise_disagreement", "pairwise_disagreement_conf_low",
-  "pairwise_disagreement_conf_high", "missing_rate", "pairwise_ci_reliable",
-  "n_items", "n_items_scored", "n_runs", "label_levels", "weights",
-  "conf_level", "n_boot", "pairwise_n_boot_effective",
-  "stability_n_boot_effective", "stability", "stability_coefficient",
-  "stability_conf_low", "stability_conf_high", "stability_status",
-  "stability_boundary_degenerate", "stability_ci_reliable", "audit_id"
-)
-
+# Supplied evidence must carry every field its constructor writes: the bias
+# row schema (`bias_row_prototype`, R/bias.R) and `stability_fields`
+# (R/stability.R) are the one list of each, which report(), write_audit()
+# and the acceptance policy read from.
 check_evidence_fields <- function(evidence, required, arg,
                                   call = rlang::caller_env()) {
   missing <- setdiff(required, names(evidence))
   if (length(missing) > 0L) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} lacks required audit ",
         "{cli::qty(missing)}field{?s} {.field {missing}}."
@@ -510,30 +502,32 @@ validate_report_evidence <- function(x, bias, stability,
                                      call = rlang::caller_env()) {
   if (!is.null(bias)) {
     if (!inherits(bias, "yourhonor_bias")) {
-      cli::cli_abort(
+      yh_abort(
         "{.arg bias} must be a {.cls yourhonor_bias} object.", call = call
       )
     }
-    check_evidence_fields(bias, report_bias_fields, "bias", call = call)
+    check_evidence_fields(
+      bias, names(bias_row_prototype), "bias", call = call
+    )
   }
   if (!is.null(stability)) {
     if (!inherits(stability, "yourhonor_stability")) {
-      cli::cli_abort(
+      yh_abort(
         "{.arg stability} must be a {.cls yourhonor_stability} object.",
         call = call
       )
     }
     check_evidence_fields(
-      stability, report_stability_fields, "stability", call = call
+      stability, stability_fields, "stability", call = call
     )
   }
 
   ids <- lapply(Filter(Negate(is.null), list(x, bias, stability)), audit_id)
   present <- unlist(Filter(is_binding_id, ids), use.names = FALSE)
   if (length(unique(present)) > 1L) {
-    cli::cli_abort(
+    yh_abort(
       "Calibration, bias, and stability {.arg audit_id} values do not match.",
-      call = call
+      class = binding_error, call = call
     )
   }
   invisible(NULL)

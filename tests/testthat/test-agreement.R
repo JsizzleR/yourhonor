@@ -6,11 +6,11 @@ test_that("perfect varied agreement is one for every coefficient", {
   ag <- agreement(ratings, n_boot = 50, seed = 1,
                   label_levels = c("I", "P", "C"))
   expect_setequal(ag$coefficient, yourhonor:::yourhonor_coefficients)
-  expect_true(all(ag$estimate > 0.99))
-  expect_true(all(ag$status == "ok"))
-  expect_true(all(ag$n_boot_effective > 0))
-  expect_true(all(ag$boundary_degenerate))
-  expect_true(all(!ag$ci_reliable))
+  expect_all(ag$estimate > 0.99)
+  expect_all(ag$status == "ok")
+  expect_all(ag$n_boot_effective > 0)
+  expect_all(ag$boundary_degenerate)
+  expect_all(!ag$ci_reliable)
 })
 
 test_that("agreement returns explicit validity metadata", {
@@ -24,12 +24,12 @@ test_that("agreement returns explicit validity metadata", {
   )
   expect_s3_class(ag, "tbl_df")
   expect_setequal(ag$coefficient, c("gwet_ac1", "cohen_kappa"))
-  expect_true(all(c(
+  expect_all(c(
     "status", "ci_reliable", "boundary_degenerate", "n_boot_effective",
     "n_missing_rows", "weights", "interpretation"
-  ) %in% names(ag)))
-  expect_true(all(ag$conf_low <= ag$estimate + 1e-8))
-  expect_true(all(ag$conf_high >= ag$estimate - 1e-8))
+  ) %in% names(ag))
+  expect_all(ag$conf_low <= ag$estimate + 1e-8)
+  expect_all(ag$conf_high >= ag$estimate - 1e-8)
 })
 
 test_that("bootstrap is reproducible and does not leak RNG state", {
@@ -41,9 +41,9 @@ test_that("bootstrap is reproducible and does not leak RNG state", {
   b <- agreement(ratings, n_boot = 100, seed = 99)
   expect_equal(a, b)
 
-  set.seed(123)
+  withr::local_seed(123)
   before <- runif(1)
-  set.seed(123)
+  withr::local_seed(123)
   invisible(agreement(ratings, n_boot = 50, seed = 7))
   after <- runif(1)
   expect_equal(before, after)
@@ -72,11 +72,17 @@ test_that("one bootstrap index set is shared across coefficients", {
 test_that("invalid coefficient and interval controls are rejected", {
   ratings <- data.frame(human = c("C", "P"), judge = c("C", "P"))
   expect_error(agreement(ratings, coefficients = "not_a_coef"))
-  expect_error(agreement(ratings, n_boot = 0), "n_boot")
-  expect_error(agreement(ratings, conf_level = 1), "conf_level")
+  expect_error(
+    agreement(ratings, n_boot = 0), "n_boot",
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    agreement(ratings, conf_level = 1), "conf_level",
+    class = "yourhonor_input_error"
+  )
   expect_error(
     agreement(ratings, label_levels = c("C", "C")),
-    "unique"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -112,15 +118,15 @@ test_that("partially observed multi-rater rows are retained", {
   )
   expect_equal(ag$n_items, c(4L, 4L))
   expect_equal(ag$n_missing_rows, c(3L, 3L))
-  expect_true(all(ag$status == "ok"))
+  expect_all(ag$status == "ok")
 })
 
 test_that("single-class data is explicitly indeterminate", {
   ratings <- data.frame(human = rep("C", 20), judge = rep("C", 20))
   ag <- agreement(ratings, n_boot = 50, label_levels = c("I", "C"))
-  expect_true(all(is.na(ag$estimate)))
-  expect_true(all(ag$status == "insufficient_variation"))
-  expect_true(all(!ag$ci_reliable))
+  expect_all(is.na(ag$estimate))
+  expect_all(ag$status == "insufficient_variation")
+  expect_all(!ag$ci_reliable)
 })
 
 test_that("cohen_kappa reports invalid_rater_count beyond two raters", {
@@ -145,10 +151,10 @@ test_that("fewer than two usable rows is insufficient_items", {
   ag <- agreement(
     data.frame(human = c("C", NA), judge = c("C", "P")), n_boot = 20
   )
-  expect_true(all(ag$status == "insufficient_items"))
+  expect_all(ag$status == "insufficient_items")
   expect_equal(ag$n_items, rep(1L, nrow(ag)))
-  expect_true(all(is.na(ag$estimate)))
-  expect_true(all(!ag$ci_reliable))
+  expect_all(is.na(ag$estimate))
+  expect_all(!ag$ci_reliable)
 })
 
 test_that("intervals from too few finite resamples are unreliable", {
@@ -156,13 +162,13 @@ test_that("intervals from too few finite resamples are unreliable", {
   ag <- agreement(
     ratings, label_levels = c("P", "C"), n_boot = 200, seed = 1
   )
-  expect_true(all(ag$status == "ok"))
-  expect_true(all(is.finite(ag$estimate)))
+  expect_all(ag$status == "ok")
+  expect_all(is.finite(ag$estimate))
   # Roughly a third of the draws omit the single "P" row and are undefined.
-  expect_true(all(ag$n_boot_effective < ceiling(0.8 * 200)))
-  expect_true(all(ag$n_boot_effective >= 30L))
-  expect_true(all(!ag$ci_reliable))
-  expect_true(all(!ag$boundary_degenerate))
+  expect_all(ag$n_boot_effective < ceiling(0.8 * 200))
+  expect_all(ag$n_boot_effective >= 30L)
+  expect_all(!ag$ci_reliable)
+  expect_all(!ag$boundary_degenerate)
 })
 
 test_that("ordinal weights distinguish adjacent and extreme mistakes", {
@@ -184,13 +190,16 @@ test_that("weighted Gwet is named AC2 and requires declared order", {
     human = c("I", "P", "C", "I", "P", "C"),
     judge = c("P", "P", "C", "I", "C", "C")
   )
-  expect_error(agreement(ratings, weights = "linear"), "label_levels")
+  expect_error(
+    agreement(ratings, weights = "linear"), "label_levels",
+    class = "yourhonor_input_error"
+  )
   expect_error(
     agreement(
       ratings, coefficients = "gwet_ac1", weights = "linear",
       label_levels = c("I", "P", "C")
     ),
-    "AC2"
+    "AC2", class = "yourhonor_input_error"
   )
   ag <- agreement(
     ratings, weights = "linear", label_levels = c("I", "P", "C"),
@@ -217,7 +226,7 @@ test_that("coefficients = NULL is the auto rule, whether omitted or passed", {
   )
   expect_error(
     agreement(ratings, coefficients = "gwet_ac2", n_boot = 20),
-    "non-default"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -242,7 +251,10 @@ test_that("agreement on a calibration inherits every default", {
   first <- agreement(cal, n_boot = 30)
   second <- agreement(cal, n_boot = 30)
   expect_equal(first, second)
-  expect_error(agreement(cal, rater_cols = c("human", "judge")), "rater_cols")
+  expect_error(
+    agreement(cal, rater_cols = c("human", "judge")), "rater_cols",
+    class = "yourhonor_input_error"
+  )
 })
 
 test_that("rater columns are explicit or inferred with a message", {
@@ -270,14 +282,20 @@ test_that("rater columns are explicit or inferred with a message", {
   )
   expect_equal(unique(all_cols$n_raters), 2L)
 
-  expect_error(agreement(wide, rater_cols = "human"), "rater_cols")
-  expect_error(agreement(wide, rater_cols = c("human", "nope")), "nope")
+  expect_error(
+    agreement(wide, rater_cols = "human"), "rater_cols",
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    agreement(wide, rater_cols = c("human", "nope")), "nope",
+    class = "yourhonor_input_error"
+  )
 })
 
 test_that("too few rated rows error cleanly", {
   expect_error(
     agreement(data.frame(human = character(0), judge = character(0))),
-    "at least 2"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -289,7 +307,7 @@ test_that("labels that differ only by case or whitespace stay distinct", {
     judge = c("C", "c", "c", "C", "C", "c")
   )
   ag <- agreement(case_swaps, n_boot = 20, seed = 1)
-  expect_true(all(ag$status == "ok"))
+  expect_all(ag$status == "ok")
   expect_equal(ag$estimate[ag$coefficient == "cohen_kappa"], 1 / 3, tolerance = 1e-4)
   expect_equal(ag$estimate[ag$coefficient == "gwet_ac1"], 1 / 3, tolerance = 1e-4)
 
@@ -299,7 +317,7 @@ test_that("labels that differ only by case or whitespace stay distinct", {
   )
   ag <- agreement(padded, n_boot = 20, seed = 1)
   conf <- confusion(padded)
-  expect_true(all(ag$estimate < 1))
+  expect_all(ag$estimate < 1)
   expect_equal(sum(conf$n[conf$human_label != conf$judge_label]), 2)
 })
 
@@ -309,7 +327,7 @@ test_that("an unused blank factor level is ignored, not fatal", {
     judge = rep(c("C", "I", "P"), length.out = 12)
   )
   ag <- agreement(ratings, n_boot = 20, seed = 1)
-  expect_true(all(ag$status == "ok"))
+  expect_all(ag$status == "ok")
   expect_setequal(
     yourhonor:::resolve_label_levels(ratings, NULL), c("C", "I", "P")
   )
@@ -320,11 +338,14 @@ test_that("empty-string labels are rejected as missing values", {
     human = c("C", "P", "C", "P", "C", "P"),
     judge = c("C", "", "C", "P", "", "P")
   )
-  expect_error(agreement(blank_judge, n_boot = 10), "empty or whitespace-only")
-  expect_error(confusion(blank_judge), "empty or whitespace-only")
+  expect_error(
+    agreement(blank_judge, n_boot = 10),
+    class = "yourhonor_input_error"
+  )
+  expect_error(confusion(blank_judge), class = "yourhonor_input_error")
   expect_error(
     agreement(blank_judge[c(1, 3, 4, 6), ], label_levels = c("C", "P", " ")),
-    "empty or whitespace-only"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -338,7 +359,7 @@ test_that("factor levels are unioned with labels observed in character columns",
   conf <- confusion(ratings)
   expect_equal(sum(conf$n), 4)
   ag <- agreement(ratings, n_boot = 20, seed = 1)
-  expect_true(all(ag$status == "ok"))
+  expect_all(ag$status == "ok")
   expect_equal(ag$n_items, rep(4L, nrow(ag)))
 })
 
@@ -349,11 +370,13 @@ test_that("unknown observed labels are named from every entry point", {
   expect_error(
     agreement(ratings, label_levels = c("A", "B"), n_boot = 10),
     'Observed labels not present in `label_levels`: "C" and "D"',
+    class = "yourhonor_input_error",
     fixed = TRUE
   )
   expect_error(
     confusion(ratings, label_levels = c("A", "B", "C")),
     'Observed label not present in `label_levels`: "D"',
+    class = "yourhonor_input_error",
     fixed = TRUE
   )
   gold <- data.frame(
@@ -362,13 +385,14 @@ test_that("unknown observed labels are named from every entry point", {
   expect_error(
     calibrate_judge(gold, label_levels = c("A", "B"), n_boot = 10),
     'Observed label not present in `label_levels`: "C"',
+    class = "yourhonor_input_error",
     fixed = TRUE
   )
   expect_error(
     summarize_stability_runs(
       as.matrix(ratings), label_levels = c("A", "B"), n_boot = 10
     ),
-    "Observed labels not present"
+    "Observed labels not present", class = "yourhonor_input_error"
   )
 })
 
@@ -376,12 +400,12 @@ test_that("label universe minimums are stated per entry point", {
   ratings <- data.frame(human = c("A", "B"), judge = c("A", "B"))
   expect_error(
     agreement(ratings, label_levels = character(0), n_boot = 10),
-    "at least 1 unique, non-missing label\\."
+    "at least 1 unique, non-missing label\\.", class = "yourhonor_input_error"
   )
   gold <- data.frame(human_label = c("A", "B"), judge_label = c("A", "B"))
   expect_error(
     calibrate_judge(gold, label_levels = "A", n_boot = 10),
-    "at least 2 unique, non-missing labels\\."
+    "at least 2 unique, non-missing labels\\.", class = "yourhonor_input_error"
   )
 })
 
@@ -389,11 +413,11 @@ test_that("absent explicit columns are pluralised", {
   ratings <- data.frame(human = "A", judge = "B")
   expect_error(
     agreement(ratings, rater_cols = c("human", "x", "y")),
-    "names columns not in `x`: x and y"
+    "names columns not in `x`: x and y", class = "yourhonor_input_error"
   )
   expect_error(
     agreement(ratings, rater_cols = c("human", "x")),
-    "names column not in `x`: x"
+    "names column not in `x`: x", class = "yourhonor_input_error"
   )
 })
 
@@ -402,9 +426,12 @@ test_that("duplicated column names are rejected before selection", {
   names(ratings) <- c("human", "judge", "human")
   expect_error(
     agreement(ratings, rater_cols = c("human", "judge"), n_boot = 10),
-    "duplicated column name: human"
+    "duplicated column name: human", class = "yourhonor_input_error"
   )
-  expect_error(agreement(ratings, n_boot = 10), "duplicated column name")
+  expect_error(
+    agreement(ratings, n_boot = 10), "duplicated column name",
+    class = "yourhonor_input_error"
+  )
 })
 
 test_that("inherited coefficients follow an overridden weights argument", {
@@ -430,34 +457,39 @@ test_that("inherited coefficients follow an overridden weights argument", {
   )
   # An explicit request is still validated against the inherited weights.
   expect_error(
-    agreement(ordinal, coefficients = "gwet_ac1"), "AC2, not AC1.*weights"
+    agreement(ordinal, coefficients = "gwet_ac1"), "AC2, not AC1.*weights",
+    class = "yourhonor_input_error"
   )
   expect_error(
-    agreement(nominal, coefficients = "gwet_ac2"), "Set `weights`"
+    agreement(nominal, coefficients = "gwet_ac2"), "Set `weights`",
+    class = "yourhonor_input_error"
   )
 })
 
 test_that("count and probability validators reject odd numeric input cleanly", {
-  expect_error(check_count(3e9), "must be at most 2147483647")
-  expect_error(check_count(2147483648, "n_boot"), "`n_boot` must be at most")
+  expect_error(check_count(3e9), class = "yourhonor_input_error")
+  expect_error(
+    check_count(2147483648, "n_boot"),
+    class = "yourhonor_input_error"
+  )
   expect_identical(check_count(2147483647), 2147483647L)
-  expect_error(check_count(-3e9), "whole number")
-  expect_error(check_count(2.5), "whole number")
-  expect_error(check_count(1 + 0i), "whole number")
-  expect_error(check_count(list(1)), "whole number")
-  expect_error(check_probability(1i), "between 0 and 1")
-  expect_error(check_probability(list(0.5)), "between 0 and 1")
+  expect_error(check_count(-3e9), class = "yourhonor_input_error")
+  expect_error(check_count(2.5), class = "yourhonor_input_error")
+  expect_error(check_count(1 + 0i), class = "yourhonor_input_error")
+  expect_error(check_count(list(1)), class = "yourhonor_input_error")
+  expect_error(check_probability(1i), class = "yourhonor_input_error")
+  expect_error(check_probability(list(0.5)), class = "yourhonor_input_error")
   expect_identical(check_count(2), 2L)
 })
 
 test_that("no bootstrap is drawn when nothing is estimable", {
   ratings <- data.frame(human = rep("C", 6), judge = rep("C", 6))
-  set.seed(4)
+  withr::local_seed(4)
   before <- runif(1)
-  set.seed(4)
+  withr::local_seed(4)
   out <- agreement(ratings, n_boot = 50)
   after <- runif(1)
-  expect_true(all(out$status == "insufficient_variation"))
+  expect_all(out$status == "insufficient_variation")
   expect_identical(before, after)
 
   # Variation is sufficient here, but the only requested coefficient is
@@ -467,9 +499,9 @@ test_that("no bootstrap is drawn when nothing is estimable", {
     r2 = c("C", "P", "P", "P"),
     r3 = c("C", "C", "P", "C")
   )
-  set.seed(4)
+  withr::local_seed(4)
   before <- runif(1)
-  set.seed(4)
+  withr::local_seed(4)
   out <- agreement(
     three, coefficients = "cohen_kappa", n_boot = 50,
     rater_cols = c("r1", "r2", "r3")
@@ -478,7 +510,7 @@ test_that("no bootstrap is drawn when nothing is estimable", {
   expect_identical(out$status, "invalid_rater_count")
   expect_identical(before, after)
   # A coefficient that is estimable still consumes the stream.
-  set.seed(4)
+  withr::local_seed(4)
   agreement(
     three, coefficients = "gwet_ac1", n_boot = 50,
     rater_cols = c("r1", "r2", "r3")
@@ -537,7 +569,7 @@ test_that("the exact lower bound never exceeds alpha with missing ratings", {
 test_that("a sample with no item rated twice reports without warnings", {
   ratings <- data.frame(human = c("a", NA, "b"), judge = c(NA, "b", NA))
   expect_no_warning(out <- agreement(ratings, n_boot = 10, seed = 1))
-  expect_true(all(out$status == "insufficient_items"))
+  expect_all(out$status == "insufficient_items")
 })
 
 # Weighted pairwise agreement of each usable item, computed independently of
@@ -555,7 +587,7 @@ item_pairwise_agreement <- function(ratings, label_levels, weights) {
 }
 
 test_that("per-item agreement averages to each coefficient's own pa", {
-  set.seed(11)
+  withr::local_seed(11)
   levels <- c("1", "2", "3", "4")
   ratings <- as.data.frame(matrix(
     sample(c(levels, NA), 4 * 60, replace = TRUE, prob = c(3, 3, 2, 2, 1)),
@@ -565,7 +597,7 @@ test_that("per-item agreement averages to each coefficient's own pa", {
   chance <- yourhonor:::chance_categories(ratings, levels)
   for (weights in c("unweighted", "linear", "quadratic", "ordinal")) {
     items <- item_pairwise_agreement(ratings, levels, weights)
-    expect_true(all(items$a >= 0 & items$a <= 1))
+    expect_all(items$a >= 0 & items$a <= 1)
     for (co in c("gwet_ac1", "krippendorff_alpha")) {
       pa <- yourhonor:::coeff_fit(ratings, co, weights, levels, chance)$agreement
       expected <- if (co == "krippendorff_alpha") {
@@ -591,7 +623,7 @@ test_that("per-item agreement averages to each coefficient's own pa", {
 test_that("the exact bound approaches a weighted estimate as items grow", {
   # The all-agree share stays near 75% here whatever n, so a bound on it
   # stayed at 0.113 for quadratic AC2 0.948 at n = 3000.
-  set.seed(1)
+  withr::local_seed(1)
   n <- 3000
   human <- sample(1:5, n, TRUE)
   off <- ifelse(runif(n) < 0.75, 0, sample(c(-1, 1), n, TRUE))
@@ -602,16 +634,16 @@ test_that("the exact bound approaches a weighted estimate as items grow", {
       d, n_boot = 20, seed = 1, label_levels = as.character(1:5),
       weights = weights
     )
-    expect_true(all(out$estimate - out$conf_low_exact < 0.04))
+    expect_all(out$estimate - out$conf_low_exact < 0.04)
     uncapped <- vapply(out$coefficient, uncapped_exact_low, numeric(1),
                        ratings = d, weights = weights,
                        levels = as.character(1:5))
-    expect_true(all(uncapped < out$estimate))
+    expect_all(uncapped < out$estimate)
   }
 })
 
 test_that("the exact bound approaches a multi-rater estimate as items grow", {
-  set.seed(2)
+  withr::local_seed(2)
   n <- 2000
   truth <- sample(c("a", "b", "c"), n, TRUE)
   ratings <- replicate(
@@ -623,10 +655,10 @@ test_that("the exact bound approaches a multi-rater estimate as items grow", {
     ratings, coefficients = c("gwet_ac1", "krippendorff_alpha"),
     n_boot = 20, seed = 1
   ))
-  expect_true(all(out$estimate - out$conf_low_exact < 0.05))
+  expect_all(out$estimate - out$conf_low_exact < 0.05)
   uncapped <- vapply(out$coefficient, uncapped_exact_low, numeric(1),
                      ratings = ratings)
-  expect_true(all(uncapped < out$estimate))
+  expect_all(uncapped < out$estimate)
 })
 
 test_that("a weighted perfect sample's exact bound is delta^(1/n) mapped", {
@@ -663,10 +695,10 @@ test_that("the bounded-mean bound is valid, tight on perfect samples and monoton
     means <- c(0.2, 0.5, 0.85, 0.98)
     lows <- vapply(means, yourhonor:::bounded_mean_lower, numeric(1),
                    n = n, delta = delta)
-    expect_true(all(lows <= means))
-    expect_true(all(diff(lows) > 0))
+    expect_all(lows <= means)
+    expect_all(diff(lows) > 0)
     # Never looser than Hoeffding's relative-entropy bound.
-    expect_true(all(lows >= vapply(means, kl_lower, numeric(1), n = n) - 1e-9))
+    expect_all(lows >= vapply(means, kl_lower, numeric(1), n = n) - 1e-9)
   }
 })
 
@@ -762,7 +794,7 @@ test_that("no sample's exact bound ranks above a perfect sample it corrects to",
         label_levels = levels, weights = "quadratic"
       )$conf_low_exact
     }
-    expect_true(all(bound(error) <= bound(perfect)))
+    expect_all(bound(error) <= bound(perfect))
     # The perfect sample's own bound is unchanged.
     expect_equal(
       bound(perfect),
@@ -777,7 +809,7 @@ test_that("the exact bound is at most every correction's, on every route", {
   # Every correction of each sample is enumerated through agreement(): two
   # and three raters, all four weightings, missing ratings (alpha's ratio
   # route) and the Clopper-Pearson route.
-  set.seed(20261029)
+  withr::local_seed(20261029)
   levels <- c("1", "2", "3", "4")
   checked <- 0L
   for (k in 1:30) {
@@ -813,7 +845,7 @@ test_that("the exact bound is at most every correction's, on every route", {
       }
       fixed <- run(corrected)
       ok <- out$status == "ok" & fixed$status == "ok"
-      expect_true(all(out$conf_low_exact[ok] <= fixed$conf_low_exact[ok] + 1e-12))
+      expect_all(out$conf_low_exact[ok] <= fixed$conf_low_exact[ok] + 1e-12)
       checked <- checked + sum(ok)
     }
   }
@@ -832,7 +864,7 @@ test_that("kappa's and alpha's worst correction is found exactly", {
     0.82, tolerance = 1e-12
   )
   # Merging groups only enlarges the search.
-  set.seed(5)
+  withr::local_seed(5)
   levels <- c("1", "2", "3", "4", "5")
   many <- as.data.frame(matrix(sample(levels, 120, TRUE), 40), stringsAsFactors = FALSE)
   for (co in c("cohen_kappa", "krippendorff_alpha")) {
@@ -915,7 +947,7 @@ test_that("Gwet's cap stays cheap with many categories only errors used", {
   # Human scores on round values and judge misses of a few points leave
   # dozens of scores seen only in disagreements; enumerating their subsets
   # ran out of memory. Past a few, the chance term is bounded in two parts.
-  set.seed(7)
+  withr::local_seed(7)
   human <- sample(seq(0, 100, by = 10), 300, TRUE)
   judge <- human
   off <- sample(300, 60)

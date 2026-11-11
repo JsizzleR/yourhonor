@@ -167,7 +167,7 @@ test_that("a clean judge still passes and its bound is the observed one", {
     st$pairwise_disagreement_conf_high
   )
   rows <- gate_rows(st, gate_policy())
-  expect_true(all(vapply(rows, `[[`, "", "status") == "PASS"))
+  expect_all(vapply(rows, `[[`, "", "status") == "PASS")
   expect_false(grepl("missing", rows$stability_pairwise_disagreement$reason))
 })
 
@@ -293,7 +293,7 @@ test_that("a NaN judgment is missing, not a perfectly stable label", {
   expect_equal(retest$missing_rate, 0.2)
   expect_false("NaN" %in% retest$label_levels)
   expect_false(anyNA(retest$runs[21:100, ]))
-  expect_true(all(is.na(retest$runs[1:20, ])))
+  expect_all(is.na(retest$runs[1:20, ]))
   complex_judge <- function(d) {
     item <- as.integer(sub("answer ", "", d$input, fixed = TRUE))
     ifelse(item <= 20, complex(real = NaN), 1 + 0i)
@@ -327,13 +327,13 @@ test_that("a NaN judgment is missing, not a perfectly stable label", {
   several$score[[1]] <- c("1", "2")
   expect_error(
     stability_vitals(several, content_cols = "input", n_boot = 20, seed = 1),
-    "one score or nothing"
+    class = "yourhonor_input_error"
   )
   matrixed <- clean_list
   matrixed$score <- matrix("1", nrow(listed), 2)
   expect_error(
     stability_vitals(matrixed, content_cols = "input", n_boot = 20, seed = 1),
-    "atomic vector"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -391,7 +391,7 @@ test_that("a reversed observed interval is not repaired by the worst-case bound"
 test_that("holes in otherwise passing evidence never produce a FAIL", {
   # Same evidence with and without abstentions: the observed lower bound is
   # unchanged, so a FAIL needs the observed interval to exceed the threshold.
-  set.seed(11)
+  withr::local_seed(11)
   base <- matrix(sample(c("A", "B"), 200 * 4, TRUE, prob = c(0.97, 0.03)), 200, 4)
   base[, 2:4] <- base[, 1]
   base[1:6, 4] <- ifelse(base[1:6, 1] == "A", "B", "A")

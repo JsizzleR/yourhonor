@@ -16,20 +16,20 @@ check_count <- function(x,
                         arg = rlang::caller_arg(x),
                         minimum = 1L,
                         call = rlang::caller_env(),
-                        class = NULL) {
+                        class = input_error) {
   # Type is tested first: `is.na()` and the comparisons below are not defined
   # for complex or list input, and `as.integer()` warns above the integer
   # range instead of failing.
   ok <- is.numeric(x) && length(x) == 1L && !is.na(x) && is.finite(x) &&
     x >= minimum
   if (ok && x > .Machine$integer.max) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg {arg}} must be at most {(.Machine$integer.max)}.",
       call = call, class = class
     )
   }
   if (!ok || x != as.integer(x)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg {arg}} must be a whole number greater than or equal to {minimum}.",
       call = call, class = class
     )
@@ -41,14 +41,14 @@ check_probability <- function(x,
                               arg = rlang::caller_arg(x),
                               open = FALSE,
                               call = rlang::caller_env(),
-                              class = NULL) {
+                              class = input_error) {
   ok <- is.numeric(x) && length(x) == 1L && !is.na(x) && is.finite(x)
   if (ok) {
     ok <- if (open) x > 0 && x < 1 else x >= 0 && x <= 1
   }
   if (!ok) {
     bounds <- if (open) "strictly between 0 and 1" else "between 0 and 1"
-    cli::cli_abort(
+    yh_abort(
       "{.arg {arg}} must be {bounds}.", call = call, class = class
     )
   }
@@ -67,7 +67,7 @@ check_seed <- function(x,
   ok <- is.numeric(x) && length(x) == 1L && !is.na(x) && is.finite(x) &&
     abs(x) <= .Machine$integer.max && x == trunc(x)
   if (!ok) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} must be {.code NULL} or one whole number between ",
         "{(-.Machine$integer.max)} and {(.Machine$integer.max)}."
@@ -84,7 +84,7 @@ check_audit_id <- function(x,
                            call = rlang::caller_env()) {
   if (is.null(x) && allow_null) return(NULL)
   if (!is.character(x) || length(x) != 1L || is.na(x) || !nzchar(x)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg {arg}} must be one non-empty character string.",
       call = call
     )
@@ -103,12 +103,12 @@ check_provenance <- function(x,
       all(nzchar(trimws(names(x)))) && !anyDuplicated(names(x))
   )
   if (is.data.frame(x)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg {arg}} must be a plain list, not a data frame.", call = call
     )
   }
   if (!is.list(x) || !names_ok) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} must be a list with unique, non-empty names ",
         "(an empty list is allowed)."
@@ -125,7 +125,7 @@ check_column_names <- function(x,
                                call = rlang::caller_env()) {
   if (!is.character(x) || length(x) < minimum || anyNA(x) ||
       any(!nzchar(x)) || anyDuplicated(x)) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} must contain at least {minimum} unique, non-empty ",
         "column name{?s}."
@@ -140,7 +140,7 @@ check_column_name <- function(x,
                               arg = rlang::caller_arg(x),
                               call = rlang::caller_env()) {
   if (!is.character(x) || length(x) != 1L || is.na(x) || !nzchar(x)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg {arg}} must be one non-empty column name.",
       call = call
     )
@@ -159,7 +159,7 @@ check_columns_present <- function(data,
   if (length(absent) > 0L) {
     # cli pluralises on the nearest preceding value, which would be `arg`;
     # `qty()` pins the count to the absent columns.
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} names {cli::qty(length(absent))}column{?s} not in ",
         "{.arg {data_arg}}: {.field {absent}}."
@@ -180,14 +180,14 @@ resolve_label_levels <- function(ratings,
                                  arg = "ratings",
                                  levels_arg = "label_levels",
                                  call = rlang::caller_env()) {
-  observed <- unique(stats::na.omit(unlist(lapply(ratings, as.character), use.names = FALSE)))
+  observed <- unique(stats::na.omit(unlist(lapply(ratings, as_labels), use.names = FALSE)))
   check_labels_nonblank(observed, arg, call = call)
   if (!is.null(label_levels)) {
-    label_levels <- as.character(label_levels)
+    label_levels <- as_labels(label_levels)
     minimum <- if (allow_single) 1L else 2L
     if (length(label_levels) < minimum || anyNA(label_levels) ||
         anyDuplicated(label_levels)) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "{.arg {levels_arg}} must contain at least {minimum} unique, ",
           "non-missing label{?s}."
@@ -200,7 +200,7 @@ resolve_label_levels <- function(ratings,
     if (length(unknown) > 0L) {
       # `qty()` gives the pluraliser its count; without it cli sees two
       # later substitutions and aborts with its own error.
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "{cli::qty(length(unknown))}Observed label{?s} not present in ",
           "{.arg {levels_arg}}: {.val {unknown}}."
@@ -231,16 +231,17 @@ validate_labels <- function(labels,
                             label_levels,
                             arg = "judge",
                             levels_arg = "label_levels",
-                            call = rlang::caller_env()) {
+                            call = rlang::caller_env(),
+                            class = input_error) {
   labels <- as.character(labels)
   unknown <- setdiff(unique(stats::na.omit(labels)), label_levels)
   if (length(unknown) > 0L) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} returned label{?s} outside {.arg {levels_arg}}: ",
         "{.val {unknown}}."
       ),
-      call = call
+      call = call, class = class
     )
   }
   labels
@@ -248,12 +249,17 @@ validate_labels <- function(labels,
 
 observed_categories <- function(ratings) {
   values <- if (is.list(ratings)) {
-    unlist(lapply(ratings, as.character), use.names = FALSE)
+    unlist(lapply(ratings, as_labels), use.names = FALSE)
   } else {
     as.vector(ratings)
   }
   unique(stats::na.omit(values))
 }
+
+# Ratings become character labels at several points. A numeric `NaN` must
+# become a missing label there, not the label "NaN" (see nan_to_na()), so
+# every such coercion goes through here; a judge's output already has.
+as_labels <- function(x) as.character(nan_to_na(x))
 
 # Blank labels are missing values, not categories. irrCAC silently maps "" to
 # NA, so accepting them here would make agreement disagree with confusion().
@@ -261,14 +267,17 @@ is_blank_label <- function(labels) {
   !is.na(labels) & !nzchar(trimws(labels, whitespace = "[\\h\\v]"))
 }
 
-check_labels_nonblank <- function(labels, arg, call = rlang::caller_env()) {
+check_labels_nonblank <- function(labels,
+                                  arg,
+                                  call = rlang::caller_env(),
+                                  class = input_error) {
   if (any(is_blank_label(labels))) {
-    cli::cli_abort(
+    yh_abort(
       c(
         "{.arg {arg}} contains empty or whitespace-only labels.",
         i = "Represent a missing or failed judgement as {.code NA}, not {.val {''}}."
       ),
-      call = call
+      call = call, class = class
     )
   }
   invisible(labels)
@@ -281,7 +290,7 @@ check_labels_nonblank <- function(labels, arg, call = rlang::caller_env()) {
 encode_ratings <- function(ratings, label_levels) {
   ratings <- as.data.frame(ratings, stringsAsFactors = FALSE)
   coded <- lapply(ratings, function(col) {
-    values <- as.character(col)
+    values <- as_labels(col)
     codes <- match(values, label_levels)
     if (any(is.na(codes) & !is.na(values))) {
       cli::cli_abort("Internal error: a rating is outside the resolved label universe.")

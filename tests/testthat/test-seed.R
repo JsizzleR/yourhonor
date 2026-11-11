@@ -57,6 +57,13 @@ seed_calls <- list(
     stability_vitals(
       seed_vitals_epochs(), content_cols = "input", n_boot = 30, seed = seed
     )
+  },
+  test_retest = function(seed) {
+    test_retest(
+      tibble::tibble(input = paste("answer", 1:6)),
+      function(d) rep("P", nrow(d)), input_cols = "input", n_runs = 2,
+      n_boot = 30, seed = seed
+    )
   }
 )
 
@@ -69,7 +76,7 @@ test_that("every seed argument refuses a value set.seed() would not use as given
       withCallingHandlers(
         expect_error(
           seed_calls[[fn]](bad_seeds[[kind]]),
-          "`seed` must be `NULL` or one whole number",
+          class = "yourhonor_input_error",
           label = paste(fn, kind)
         ),
         warning = function(w) {
@@ -90,6 +97,8 @@ test_that("a whole-number seed is accepted and recorded as an integer", {
   expect_null(seed_calls$calibrate_judge(NULL)$seed)
   stab <- seed_calls$stability_vitals(7)
   expect_identical(stab$provenance$seed, 7L)
+  # test_retest() records no seed; a whole-number double is still accepted.
+  expect_s3_class(seed_calls$test_retest(7), "yourhonor_stability")
   # The seed is still honoured: the same seed gives the same draws.
   expect_identical(
     seed_calls$agreement(7)$conf_low, seed_calls$agreement(7L)$conf_low

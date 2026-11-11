@@ -41,12 +41,12 @@ test_that("vitals adapter rejects missing, extra, and duplicate IDs", {
   )
   expect_error(
     audit_vitals(vitals_samples(), labels, label_levels = c("I", "P", "C")),
-    "exactly match"
+    class = "yourhonor_input_error"
   )
   labels$id[[2]] <- labels$id[[1]]
   expect_error(
     audit_vitals(vitals_samples(), labels, label_levels = c("I", "P", "C")),
-    "unique"
+    class = "yourhonor_input_error"
   )
   expect_error(
     audit_vitals(
@@ -54,7 +54,7 @@ test_that("vitals adapter rejects missing, extra, and duplicate IDs", {
       id_col = c("id", "input"),
       label_levels = c("I", "P", "C")
     ),
-    "one non-empty"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -66,7 +66,7 @@ test_that("multi-epoch vitals samples are not treated as independent items", {
       samples, human_labels = rep(c("I", "P", "C", "C", "I", "I"), each = 2),
       label_levels = c("I", "P", "C")
     ),
-    "Multi-epoch"
+    "Multi-epoch", class = "yourhonor_input_error"
   )
 })
 
@@ -95,28 +95,34 @@ test_that("vitals stability validates epoch keys and column roles", {
     stability_vitals(
       samples, id_col = "id", epoch_col = "id", content_cols = "input"
     ),
-    "distinct"
+    class = "yourhonor_input_error"
   )
   expect_error(
     stability_vitals(samples, content_cols = "id"),
-    "must not include identifier"
+    class = "yourhonor_input_error"
   )
   expect_error(
     stability_vitals(samples, content_cols = "epoch"),
-    "must not include identifier"
+    class = "yourhonor_input_error"
   )
   expect_error(
     stability_vitals(samples, content_cols = "score"),
-    "must not include identifier"
+    class = "yourhonor_input_error"
   )
   duplicated <- vctrs::vec_rbind(samples, samples[1, ])
-  expect_error(stability_vitals(duplicated, content_cols = "input"), "exactly once")
-  expect_error(stability_vitals(vitals_samples(), content_cols = "input"), "epoch")
+  expect_error(
+    stability_vitals(duplicated, content_cols = "input"),
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    stability_vitals(vitals_samples(), content_cols = "input"), "epoch",
+    class = "yourhonor_input_error"
+  )
   changed <- samples
   changed$input[changed$id == "a" & changed$epoch == 2] <- "different result"
   expect_error(
     stability_vitals(changed, content_cols = "input"),
-    "end-to-end evaluation changes"
+    "end-to-end evaluation changes", class = "yourhonor_input_error"
   )
 })
 
@@ -130,7 +136,7 @@ test_that("vitals label, score, and ID columns must be distinct", {
       human_col = "score",
       label_levels = c("I", "P", "C")
     ),
-    "distinct"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -167,7 +173,7 @@ test_that("JSON artifacts reject unbound secondary evidence", {
   path <- withr::local_tempfile(fileext = ".json")
   expect_error(
     write_audit(cal, path, bias = bias, format = "json"),
-    "UNBOUND"
+    "UNBOUND", class = "yourhonor_binding_error"
   )
 })
 
@@ -228,7 +234,7 @@ test_that("the vitals adapter refuses to overwrite an existing sample column", {
       samples, human_labels = samples$target, human_col = "target",
       label_levels = c("I", "P", "C")
     ),
-    "already contain"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -236,30 +242,33 @@ test_that("audit_vitals validates samples, labels, and provenance", {
   no_score <- vitals_samples()[c("id", "input")]
   expect_error(
     audit_vitals(no_score, human_labels = rep("C", 6)),
-    "missing: score"
+    "missing: score", class = "yourhonor_input_error"
   )
   no_id <- vitals_samples()[c("input", "score")]
-  expect_error(audit_vitals(no_id, human_labels = rep("C", 6)), "missing: id")
+  expect_error(
+    audit_vitals(no_id, human_labels = rep("C", 6)), "missing: id",
+    class = "yourhonor_input_error"
+  )
   na_id <- vitals_samples()
   na_id$id[[1]] <- NA
   expect_error(
     audit_vitals(na_id, human_labels = na_id$score),
-    "non-missing"
+    class = "yourhonor_input_error"
   )
   expect_error(
     audit_vitals(vitals_samples(), human_labels = c("I", "P")),
-    "one value per vitals sample"
+    class = "yourhonor_input_error"
   )
   expect_error(
     audit_vitals(
       vitals_samples(), human_labels = vitals_samples()$score,
       provenance = list("unnamed")
     ),
-    "unique, non-empty names"
+    class = "yourhonor_input_error"
   )
   expect_error(
     audit_vitals(vitals_samples(), human_labels = tibble::tibble(id = 1)),
-    "Human labels are missing"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -278,17 +287,17 @@ test_that("a task exposing get_samples() is read without another model call", {
   expect_equal(cal$n_items, 6)
   expect_error(
     audit_vitals(list(samples = vitals_samples()), human_labels = rep("C", 6)),
-    "get_samples"
+    "get_samples", class = "yourhonor_input_error"
   )
   expect_error(
     audit_vitals("not a task", human_labels = rep("C", 6)),
-    "get_samples"
+    "get_samples", class = "yourhonor_input_error"
   )
   expect_error(
     audit_vitals(
       list(get_samples = function() "rows"), human_labels = rep("C", 6)
     ),
-    "must return a samples data frame"
+    class = "yourhonor_input_error"
   )
   # An R6-style task is an environment, not a list.
   env_task <- new.env()
@@ -308,11 +317,11 @@ test_that("vitals stability guards epochs, columns, and content invariance", {
   one_epoch$epoch <- 1L
   expect_error(
     stability_vitals(one_epoch, content_cols = "input"),
-    "two epochs"
+    class = "yourhonor_input_error"
   )
   expect_error(
     stability_vitals(vitals_samples(), content_cols = "input"),
-    "missing: epoch"
+    "missing: epoch", class = "yourhonor_input_error"
   )
   samples <- vitals_samples()[rep(seq_len(6), each = 2), ]
   samples$epoch <- rep(1:2, times = 6)
@@ -320,24 +329,27 @@ test_that("vitals stability guards epochs, columns, and content invariance", {
     stability_vitals(
       samples[c("id", "epoch", "input")], content_cols = "input"
     ),
-    "missing: score"
+    "missing: score", class = "yourhonor_input_error"
   )
   expect_error(
     stability_vitals(samples, content_cols = c("input", "target")),
-    "missing: target"
+    "missing: target", class = "yourhonor_input_error"
   )
-  expect_error(stability_vitals(samples, content_cols = NULL), "every judge")
+  expect_error(
+    stability_vitals(samples, content_cols = NULL),
+    class = "yourhonor_input_error"
+  )
   na_epoch <- samples
   na_epoch$epoch[[1]] <- NA
   expect_error(
     stability_vitals(na_epoch, content_cols = "input"),
-    "non-missing"
+    class = "yourhonor_input_error"
   )
   changed <- samples
   changed$input[changed$id == "a" & changed$epoch == 2] <- "different result"
   expect_error(
     stability_vitals(changed, content_cols = "input"),
-    "changes across epochs for: input"
+    "changes across epochs for: input", class = "yourhonor_input_error"
   )
 })
 
@@ -459,20 +471,26 @@ test_that("JSON audit artifacts keep array shapes, nulls, and full precision", {
 
 test_that("write_audit() validates path and refuses to overwrite by default", {
   cal <- bundled_cal()
-  expect_error(write_audit(cal, 1), "one non-empty file path")
-  expect_error(write_audit(cal, NA_character_), "one non-empty file path")
+  expect_error(write_audit(cal, 1), class = "yourhonor_input_error")
+  expect_error(write_audit(cal, NA_character_), class = "yourhonor_input_error")
   expect_error(
-    write_audit(cal, c("a.json", "b.json")), "one non-empty file path"
+    write_audit(cal, c("a.json", "b.json")), class = "yourhonor_input_error"
   )
   path <- withr::local_tempfile(fileext = ".json")
   write_audit(cal, path, format = "json")
   first <- readLines(path, warn = FALSE)
-  expect_error(write_audit(cal, path, format = "json"), "already exists")
-  expect_error(write_audit(cal, path, format = "md"), "already exists")
+  expect_error(
+    write_audit(cal, path, format = "json"),
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    write_audit(cal, path, format = "md"),
+    class = "yourhonor_input_error"
+  )
   expect_identical(readLines(path, warn = FALSE), first)
   expect_error(
     write_audit(cal, path, format = "json", overwrite = "yes"),
-    "TRUE or FALSE"
+    class = "yourhonor_input_error"
   )
   expect_identical(
     write_audit(cal, path, format = "md", overwrite = TRUE), path
@@ -485,8 +503,11 @@ test_that("write_audit() validates path and refuses to overwrite by default", {
 test_that("write_audit() refuses a directory path", {
   cal <- bundled_cal()
   dir <- withr::local_tempdir()
-  expect_error(write_audit(cal, dir), "is a directory")
-  expect_error(write_audit(cal, dir, overwrite = TRUE), "is a directory")
+  expect_error(write_audit(cal, dir), class = "yourhonor_input_error")
+  expect_error(
+    write_audit(cal, dir, overwrite = TRUE),
+    class = "yourhonor_input_error"
+  )
 })
 
 test_that("any object with a callable get_samples() is a task", {
@@ -501,9 +522,13 @@ test_that("any object with a callable get_samples() is a task", {
     n_boot = 20, seed = 1
   )
   expect_s3_class(cal, "yourhonor_calibration")
-  expect_error(audit_vitals(42, human_labels = rep("C", 6)), "get_samples")
   expect_error(
-    audit_vitals(NULL, human_labels = rep("C", 6)), "get_samples"
+    audit_vitals(42, human_labels = rep("C", 6)), "get_samples",
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    audit_vitals(NULL, human_labels = rep("C", 6)), "get_samples",
+    class = "yourhonor_input_error"
   )
 })
 
@@ -561,7 +586,7 @@ test_that("vitals stability drops a blank unused factor level", {
     stability_vitals(
       samples, content_cols = "input", weights = "ordinal", n_boot = 20
     ),
-    "required for weighted stability"
+    class = "yourhonor_input_error"
   )
 })
 

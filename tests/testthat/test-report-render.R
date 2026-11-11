@@ -160,10 +160,10 @@ test_that("both renderers write every section of every report", {
     md_out <- format(rep, output = "md")
     console_out <- plain_console(rep)
     for (block in md[-1]) {
-      expect_true(
-        all(c(
+      expect_all(
+        c(
           block$text, if (length(block$items)) paste0("- ", block$items)
-        ) %in% md_out),
+        ) %in% md_out,
         info = name
       )
     }
@@ -175,6 +175,42 @@ test_that("both renderers write every section of every report", {
         )
       }
     }
+  }
+})
+
+test_that("the markdown report is one level-2 heading over separated blocks", {
+  reports <- list(
+    descriptive = report(render_cal()),
+    full = report(
+      render_cal(), bias = render_bias(), stability = render_stability(),
+      policy = render_policy(
+        max_pairwise_disagreement = 0.1, min_stability_n = 50,
+        min_stability_runs = 3, max_stability_missing_rate = 0
+      )
+    ),
+    unbound = report(render_cal(), bias = render_bias(audit_id = NULL))
+  )
+  for (name in names(reports)) {
+    md <- format(reports[[name]], output = "md")
+    n <- length(md)
+    expect_match(md[[1]], "^## Judge evidence \\(n = 300 of 300\\)$", info = name)
+    expect_identical(md[[2]], "", info = name)
+    expect_match(md[[3]], "^Assessment: \\*\\*[A-Z_]+\\*\\*\\.$", info = name)
+    # One title, no other level-1 or level-2 heading.
+    expect_identical(sum(grepl("^#{1,2} ", md)), 1L, info = name)
+    # Blocks are separated by exactly one blank line, with none at the ends.
+    expect_false(identical(md[[n]], ""), info = name)
+    expect_false(any(md[-1] == "" & md[-n] == ""), info = name)
+    blocks <- split(md, cumsum(md == ""))
+    blocks <- lapply(unname(blocks), function(b) b[b != ""])
+    is_heading <- vapply(blocks, function(b) grepl("^### ", b[[1]]), NA)
+    is_bullets <- vapply(blocks, function(b) all(grepl("^- ", b)), NA)
+    # Every block is one paragraph line, a list heading alone, or a run of
+    # bullets; a heading is followed by its bullets and bullets follow one.
+    expect_all(is_heading | is_bullets | lengths(blocks) == 1L, info = name)
+    expect_all(lengths(blocks[is_heading]) == 1L, info = name)
+    expect_all(is_bullets[which(is_heading) + 1L], info = name)
+    expect_all(is_heading[which(is_bullets) - 1L], info = name)
   }
 })
 
@@ -208,6 +244,54 @@ test_that("the unbound warning reads the same in both renderings", {
   )
 })
 
+test_that("the stability headline labels its interval and the assessed bound", {
+  # A judge that abstains on a third of its judgments: the worst-case bound
+  # the policy assesses sits well above the observed interval.
+  run <- 0
+  judge <- function(d) {
+    run <<- run + 1
+    item <- as.integer(sub("answer ", "", d$input, fixed = TRUE))
+    out <- rep("C", nrow(d))
+    out[item %% 3L == run %% 3L] <- NA
+    out
+  }
+  stability <- test_retest(
+    tibble::tibble(input = paste("answer", seq_len(60))), judge,
+    input_cols = "input", n_runs = 3, label_levels = c("I", "P", "C"),
+    n_boot = 50, seed = 1, audit_id = "render-bundle"
+  )
+  worst <- stability$pairwise_disagreement_worst_case_high
+  expect_gt(worst, stability$pairwise_disagreement_conf_high)
+  rep <- report(
+    render_cal(), stability = stability,
+    policy = render_policy(
+      max_pairwise_disagreement = 0.5, min_stability_n = 10,
+      min_stability_runs = 2, max_stability_missing_rate = 1
+    )
+  )
+  check <- rep$checks[rep$checks$check == "stability_pairwise_disagreement", ]
+  expect_equal(check$value, worst)
+
+  line <- sprintf(
+    paste(
+      "Pairwise disagreement: %s; 95%% interval [%s, %s],",
+      "worst-case upper bound %s."
+    ),
+    fmt_num(stability$pairwise_disagreement),
+    fmt_num(stability$pairwise_disagreement_conf_low),
+    fmt_num(stability$pairwise_disagreement_conf_high),
+    fmt_num(worst)
+  )
+  md <- paste(format(rep, output = "md"), collapse = "\n")
+  expect_match(md, line, fixed = TRUE)
+  expect_match(plain_console(rep), line, fixed = TRUE)
+
+  # No item with two judgments: no bound to show, and none is invented.
+  stability$pairwise_disagreement_worst_case_high <- NA_real_
+  md <- format(report(render_cal(), stability = stability), output = "md")
+  expect_false(any(grepl("worst-case", md, fixed = TRUE)))
+})
+
 test_that("evidence the report validates carries every field it requires", {
   bias <- render_bias()
   position <- probe_position(
@@ -216,17 +300,31 @@ test_that("evidence the report validates carries every field it requires", {
     "a", "b", seed = 1, audit_id = "render-bundle"
   )
   stability <- render_stability()
-  expect_true(all(report_bias_fields %in% names(bias)))
-  expect_true(all(report_bias_fields %in% names(position)))
-  expect_true(all(report_bias_fields %in% names(combine_bias(bias, position))))
-  expect_true(all(report_stability_fields %in% names(stability)))
+  expect_named(bias, names(bias_row_prototype))
+  expect_named(position, names(bias_row_prototype))
+  expect_named(combine_bias(bias, position), names(bias_row_prototype))
+  expect_identical(
+    names(stability)[seq_along(stability_fields)], stability_fields
+  )
 
   # A missing field is named, so the caller learns which one.
   bias$n_discordant <- NULL
-  expect_error(report(render_cal(), bias = bias), "n_discordant")
+  expect_error(
+    report(render_cal(), bias = bias), "n_discordant",
+    class = "yourhonor_input_error"
+  )
   stability$stability_status <- NULL
   expect_error(
-    report(render_cal(), stability = stability), "stability_status"
+    report(render_cal(), stability = stability), "stability_status",
+    class = "yourhonor_input_error"
+  )
+  # The bound the policy assesses is required like any field the report
+  # shows, so evidence without it is refused rather than half-assessed.
+  stability <- render_stability()
+  stability$pairwise_disagreement_worst_case_high <- NULL
+  expect_error(
+    report(render_cal(), stability = stability),
+    "pairwise_disagreement_worst_case_high", class = "yourhonor_input_error"
   )
 })
 
@@ -267,6 +365,7 @@ test_that("several missing evidence fields are named in the plural", {
   bias$p_value <- NULL
   expect_error(
     report(render_cal(), bias = bias),
-    "lacks required audit fields n_discordant and p_value"
+    "lacks required audit fields n_discordant and p_value",
+    class = "yourhonor_input_error"
   )
 })

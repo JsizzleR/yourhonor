@@ -3,7 +3,7 @@
 test_that("policy controls validate", {
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, required_probes = "unknown"),
-    "Unknown `required_probes`"
+    "Unknown `required_probes`", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(
@@ -11,47 +11,66 @@ test_that("policy controls validate", {
       min_probe_n = 10, max_probe_flip_rate = .1,
       max_probe_directional_rate = .1, max_probe_missing_rate = 0
     ),
-    "must not repeat"
+    class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, required_probes = NA),
-    "character vector of probe names"
+    class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(.8, 50, 10, c(I = 1.2), 0, NULL),
-    "min_recall"
+    "min_recall", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, min_precision = c(1, 2)),
-    "min_precision"
+    "min_precision", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(2, 50, 10, .8, 0, NULL),
-    "min_agreement_lower"
+    "min_agreement_lower", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, min_human_reliability_lower = 3),
-    "min_human_reliability_lower"
+    "min_human_reliability_lower", class = "yourhonor_policy_error"
   )
-  expect_error(acceptance_policy(.8, 1, 10, .8, 0, NULL), "min_n")
-  expect_error(acceptance_policy(.8, 50, 0, .8, 0, NULL), "min_class_n")
-  expect_error(acceptance_policy(.8, 50, 10, .8, 2, NULL), "max_missing_rate")
-  expect_error(acceptance_policy(.8, 50, 10, .8, 0, 2), "max_pairwise_disagreement")
   expect_error(
-    acceptance_policy(.8, 50, 10, .8, 0, NULL, conf_level = 1), "conf_level"
+    acceptance_policy(.8, 1, 10, .8, 0, NULL), "min_n",
+    class = "yourhonor_policy_error"
+  )
+  expect_error(
+    acceptance_policy(.8, 50, 0, .8, 0, NULL), "min_class_n",
+    class = "yourhonor_policy_error"
+  )
+  expect_error(
+    acceptance_policy(.8, 50, 10, .8, 2, NULL), "max_missing_rate",
+    class = "yourhonor_policy_error"
+  )
+  expect_error(
+    acceptance_policy(.8, 50, 10, .8, 0, 2), "max_pairwise_disagreement",
+    class = "yourhonor_policy_error"
+  )
+  expect_error(
+    acceptance_policy(.8, 50, 10, .8, 0, NULL, conf_level = 1), "conf_level",
+    class = "yourhonor_policy_error"
   )
   expect_error(
     report(make_cal(), policy = list(), output = "md"),
-    "acceptance_policy"
+    "acceptance_policy", class = "yourhonor_policy_error"
   )
 })
 
 test_that("required policy arguments cannot be omitted", {
-  expect_error(acceptance_policy(), "min_agreement_lower")
-  expect_error(acceptance_policy(.8, 50, 10, .8, 0), "max_pairwise_disagreement")
+  expect_error(
+    acceptance_policy(), "min_agreement_lower",
+    class = "yourhonor_policy_error"
+  )
+  expect_error(
+    acceptance_policy(.8, 50, 10, .8, 0), "max_pairwise_disagreement",
+    class = "yourhonor_policy_error"
+  )
   expect_error(
     acceptance_policy(min_agreement_lower = .8, min_n = 50),
-    "min_class_n"
+    "min_class_n", class = "yourhonor_policy_error"
   )
 })
 
@@ -66,7 +85,8 @@ test_that("dependent thresholds are required with their gate", {
       .8, 50, 10, .8, 0, max_pairwise_disagreement = 0.1,
       min_stability_n = 10, min_stability_runs = 2
     ),
-    "max_stability_missing_rate.*required when"
+    "max_stability_missing_rate.*required when",
+    class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, required_probes = "verbosity"),
@@ -79,7 +99,7 @@ test_that("dependent thresholds are required with their gate", {
       min_probe_n = 10, max_probe_flip_rate = .1,
       max_probe_directional_rate = .1
     ),
-    "max_probe_missing_rate.*required when"
+    "max_probe_missing_rate.*required when", class = "yourhonor_policy_error"
   )
 })
 
@@ -91,17 +111,17 @@ test_that("dependent thresholds are rejected without their gate", {
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, min_probe_n = 10),
-    "min_probe_n"
+    "min_probe_n", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(
       .8, 50, 10, .8, 0, NULL, max_probe_directional_rate = 0.1
     ),
-    "max_probe_directional_rate"
+    "max_probe_directional_rate", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, max_probe_missing_rate = 0),
-    "max_probe_missing_rate"
+    "max_probe_missing_rate", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, min_stability_n = 10),
@@ -110,11 +130,11 @@ test_that("dependent thresholds are rejected without their gate", {
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, min_stability_runs = 3),
-    "min_stability_runs"
+    "min_stability_runs", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, max_stability_missing_rate = 0),
-    "max_stability_missing_rate"
+    "max_stability_missing_rate", class = "yourhonor_policy_error"
   )
 })
 
@@ -124,21 +144,21 @@ test_that("dependent threshold values are validated under their gate", {
       .8, 50, 10, .8, 0, 0.1, min_stability_n = 0, min_stability_runs = 3,
       max_stability_missing_rate = 0
     ),
-    "min_stability_n"
+    "min_stability_n", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(
       .8, 50, 10, .8, 0, 0.1, min_stability_n = 10, min_stability_runs = 1,
       max_stability_missing_rate = 0
     ),
-    "min_stability_runs"
+    "min_stability_runs", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(
       .8, 50, 10, .8, 0, 0.1, min_stability_n = 10, min_stability_runs = 3,
       max_stability_missing_rate = 2
     ),
-    "max_stability_missing_rate"
+    "max_stability_missing_rate", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(
@@ -146,7 +166,7 @@ test_that("dependent threshold values are validated under their gate", {
       min_probe_n = 0, max_probe_flip_rate = .1,
       max_probe_directional_rate = .1, max_probe_missing_rate = 0
     ),
-    "min_probe_n"
+    "min_probe_n", class = "yourhonor_policy_error"
   )
   expect_error(
     acceptance_policy(
@@ -154,7 +174,7 @@ test_that("dependent threshold values are validated under their gate", {
       min_probe_n = 10, max_probe_flip_rate = 2,
       max_probe_directional_rate = .1, max_probe_missing_rate = 0
     ),
-    "max_probe_flip_rate"
+    "max_probe_flip_rate", class = "yourhonor_policy_error"
   )
 })
 
@@ -182,7 +202,8 @@ test_that("orphan thresholds are rejected with a readable sentence", {
   )
   expect_error(
     acceptance_policy(.8, 50, 10, .8, 0, NULL, min_probe_n = 10),
-    "This threshold is read only when `required_probes` is non-empty"
+    "This threshold is read only when `required_probes` is non-empty",
+    class = "yourhonor_policy_error"
   )
 })
 

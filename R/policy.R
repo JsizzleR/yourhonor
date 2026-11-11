@@ -163,7 +163,7 @@ acceptance_policy <- function(min_agreement_lower,
     },
     error = function(err) {
       header <- rlang::cnd_header(err)
-      cli::cli_abort(
+      yh_abort(
         "{header}", class = policy_error, parent = err, call = call
       )
     }
@@ -260,21 +260,18 @@ acceptance_policy <- function(min_agreement_lower,
 # probe implementations cannot drift apart silently.
 bias_probe_names <- c("verbosity", "self_preference", "bandwagon", "position")
 
-# Condition class shared by every error acceptance_policy() raises.
-policy_error <- "yourhonor_policy_error"
-
 check_required_probes <- function(x,
                                   arg = rlang::caller_arg(x),
                                   call = rlang::caller_env()) {
   if (!is.character(x) || anyNA(x) || any(!nzchar(x))) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg {arg}} must be a character vector of probe names.",
       class = policy_error, call = call
     )
   }
   unknown <- setdiff(x, bias_probe_names)
   if (length(unknown) > 0L) {
-    cli::cli_abort(
+    yh_abort(
       c(
         "Unknown {.arg {arg}}: {.val {unknown}}.",
         i = "Known probes: {.val {bias_probe_names}}."
@@ -283,7 +280,7 @@ check_required_probes <- function(x,
     )
   }
   if (anyDuplicated(x)) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} must not repeat a probe: ",
         "{.val {unique(x[duplicated(x)])}}."
@@ -318,7 +315,7 @@ check_dependent_thresholds <- function(thresholds,
   supplied <- !vapply(thresholds, is.null, logical(1))
   args <- names(thresholds)
   if (gate_on && !all(supplied)) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {args[!supplied]}} {?is/are} required when ",
         "{.arg {gate}} {gate_on_state}."
@@ -329,7 +326,7 @@ check_dependent_thresholds <- function(thresholds,
   if (!gate_on && any(supplied)) {
     # `qty()` restores the count after `{gate}` (length one) has reset cli's
     # pluralisation quantity.
-    cli::cli_abort(
+    yh_abort(
       c(
         paste0(
           "{.arg {args[supplied]}} {?was/were} supplied but ",
@@ -356,7 +353,7 @@ check_numeric_threshold <- function(x,
                                     call = rlang::caller_env()) {
   if (!is.numeric(x) || length(x) != 1L || is.na(x) || !is.finite(x) ||
       x < -1 || x > 1) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg {arg}} must be one finite number between -1 and 1.",
       class = policy_error, call = call
     )
@@ -372,7 +369,7 @@ check_metric_threshold <- function(x,
   if (!is.numeric(x) || length(x) < 1L || anyNA(x) || any(!is.finite(x)) ||
       any(x < 0 | x > 1) || (length(x) > 1L && is.null(names(x))) ||
       names_invalid) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} must be a scalar or fully named numeric vector ",
         "between 0 and 1."
@@ -405,7 +402,10 @@ assess_calibration <- function(x, bias, stability, policy) {
     ))
   }
   if (!inherits(policy, "yourhonor_policy")) {
-    cli::cli_abort("{.arg policy} must come from {.fn acceptance_policy}.")
+    yh_abort(
+      "{.arg policy} must come from {.fn acceptance_policy}.",
+      class = policy_error
+    )
   }
   # Interval checks are only meaningful at the policy's confidence level;
   # counts and rates do not depend on it and are assessed regardless.
@@ -437,7 +437,7 @@ policy_coefficient <- function(policy, x, call = rlang::caller_env()) {
   if (is.null(coefficient)) return(calibration_gwet(x))
   computed <- x$agreement$coefficient
   if (!coefficient %in% computed) {
-    cli::cli_abort(
+    yh_abort(
       c(
         "The policy assesses {.val {coefficient}}, which this calibration did not compute.",
         i = "Computed: {.val {computed}}.",
@@ -448,7 +448,7 @@ policy_coefficient <- function(policy, x, call = rlang::caller_env()) {
           "Gwet coefficient."
         )
       ),
-      call = call
+      class = policy_error, call = call
     )
   }
   coefficient

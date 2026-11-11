@@ -13,7 +13,7 @@ test_that("a complete strong evidence bundle can pass a declared policy", {
     cal, bias = bias, stability = stability, policy = policy, output = "md"
   )
   expect_identical(rep$decision, "PASS")
-  expect_true(all(rep$checks$status == "PASS"))
+  expect_all(rep$checks$status == "PASS")
   expect_setequal(
     rep$checks$check,
     c(
@@ -77,7 +77,10 @@ test_that("two missing or empty audit ids do not bind evidence", {
 
 test_that("mismatched evidence bundle IDs error instead of being combined", {
   bias <- make_bias(audit_id = "different-bundle")
-  expect_error(report(make_cal(), bias = bias, output = "md"), "do not match")
+  expect_error(
+    report(make_cal(), bias = bias, output = "md"),
+    class = "yourhonor_binding_error"
+  )
 })
 
 test_that("a failure dominates missing secondary evidence", {

@@ -43,7 +43,8 @@
 #' `n_excluded`, which [acceptance_policy()]'s `max_missing_rate` bounds;
 #' its optional `max_abstention_rate` bounds the abstention interval alone,
 #' because a judge that abstains on hard items looks more accurate on the
-#' items it did answer.
+#' items it did answer. A numeric `NaN`, in a gold column or from `judge`, is
+#' read as `NA`, never as the label `"NaN"`.
 #'
 #' @param gold A data frame of labeled examples.
 #' @param judge A function receiving the redacted judge input, or `NULL` to read
@@ -138,7 +139,7 @@ calibrate_judge <- function(gold,
                             audit_id = NULL) {
   gold <- tibble::as_tibble(gold)
   if (".item_id" %in% names(gold)) {
-    cli::cli_abort("{.field .item_id} is reserved for opaque internal audit keys.")
+    yh_abort("{.field .item_id} is reserved for opaque internal audit keys.")
   }
   scale <- rlang::arg_match(scale)
   conf_level <- check_probability(conf_level, open = TRUE)
@@ -149,11 +150,11 @@ calibrate_judge <- function(gold,
   human_cols <- check_column_names(human_cols)
   judge_col <- check_column_name(judge_col)
   if (judge_col %in% human_cols) {
-    cli::cli_abort("{.arg judge_col} must differ from every {.arg human_cols} entry.")
+    yh_abort("{.arg judge_col} must differ from every {.arg human_cols} entry.")
   }
   check_reserved_gold_cols(gold, human_cols, judge_col)
   if (is.null(judge) && !is.null(input_cols)) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg input_cols} names the columns a judge function sees; with ",
         "{.code judge = NULL} no judge receives them."
@@ -162,7 +163,7 @@ calibrate_judge <- function(gold,
   }
   missing_humans <- setdiff(human_cols, names(gold))
   if (length(missing_humans) > 0L) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg gold} is missing human rater column{?s}: {.field {missing_humans}}."
     )
   }
@@ -182,7 +183,7 @@ calibrate_judge <- function(gold,
         "as {.arg label_levels} to use that order."
       ))
     }
-    cli::cli_abort(c(
+    yh_abort(c(
       "{.arg label_levels} is required when {.code scale = 'ordinal'}.",
       hint
     ))
@@ -193,13 +194,13 @@ calibrate_judge <- function(gold,
   # the judge used is a category of the calibration rather than an error.
   human_levels <- resolve_label_levels(human_source, label_levels, arg = "human_cols")
   if (length(human_levels) == 0L) {
-    cli::cli_abort("Human ratings contain no observed labels.")
+    yh_abort("Human ratings contain no observed labels.")
   }
   if (scale == "ordinal") check_ordinal_order(human_levels, ordered_sources)
   if (is.null(weights)) weights <- if (scale == "ordinal") "ordinal" else "unweighted"
   weights <- rlang::arg_match(weights, c("unweighted", "linear", "quadratic", "ordinal"))
   if (scale == "nominal" && weights != "unweighted") {
-    cli::cli_abort("Weighted agreement requires {.code scale = 'ordinal'}.")
+    yh_abort("Weighted agreement requires {.code scale = 'ordinal'}.")
   }
   coefficients <- resolve_coefficients(coefficients, weights)
   seed <- check_seed(seed)
@@ -233,7 +234,7 @@ calibrate_judge <- function(gold,
     human_levels
   }
 
-  human_mat <- as.data.frame(lapply(human_source, as.character), stringsAsFactors = FALSE)
+  human_mat <- as.data.frame(lapply(human_source, as_labels), stringsAsFactors = FALSE)
   human_observed <- rowSums(!is.na(human_mat))
   human <- if (length(human_cols) > 1L) {
     out <- apply(human_mat, 1, modal_value)
@@ -258,7 +259,7 @@ calibrate_judge <- function(gold,
   complete <- stats::complete.cases(ratings_full)
   abstention <- judge_abstention(ratings_full, conf_level)
   if (sum(complete) < 2L) {
-    cli::cli_abort("Need at least 2 complete judge-human pairs to calibrate.")
+    yh_abort("Need at least 2 complete judge-human pairs to calibrate.")
   }
   if (any(!complete)) {
     cli::cli_warn(
@@ -456,7 +457,7 @@ check_reserved_gold_cols <- function(gold,
   reserved <- calibration_output_cols(length(human_cols))
   clash <- intersect(names(gold), reserved)
   if (length(clash) > 0L) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg gold} {cli::qty(length(clash))}column{?s} {.field {clash}} ",
         "{?is/are} reserved for the calibration's item table; rename ",
@@ -466,7 +467,7 @@ check_reserved_gold_cols <- function(gold,
     )
   }
   if (judge_col %in% c(".item_id", reserved)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg judge_col} {.val {judge_col}} is reserved for the calibration's item table.",
       call = call
     )
@@ -543,12 +544,12 @@ judge_output_table <- function(visible_output,
                                call = rlang::caller_env()) {
   if (is.null(visible_output)) return(NULL)
   if (".judge_item_id" %in% names(visible_output)) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "Structured judge output must not contain the reserved column ",
         "{.field .judge_item_id}; the judge's key column is {.field .item_id}."
       ),
-      call = call
+      class = judge_error, call = call
     )
   }
   out <- visible_output
@@ -569,7 +570,7 @@ grade_calibration <- function(judge,
                               call = rlang::caller_env()) {
   if (is.null(judge)) {
     if (!judge_col %in% names(gold)) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "With {.code judge = NULL}, {.arg gold} must contain ",
           "{.field {judge_col}}."
@@ -578,7 +579,7 @@ grade_calibration <- function(judge,
       )
     }
     column <- gold[[judge_col]]
-    labels <- check_labels_nonblank(as.character(column), judge_col, call = call)
+    labels <- check_labels_nonblank(as_labels(column), judge_col, call = call)
     if (!is.null(label_levels)) {
       labels <- validate_labels(labels, label_levels, arg = judge_col, call = call)
     }
@@ -593,7 +594,7 @@ grade_calibration <- function(judge,
     ))
   }
   if (!is.function(judge)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg judge} must be a function or {.code NULL}.",
       call = call
     )
@@ -613,14 +614,14 @@ validate_source_ids <- function(data,
   if (is.null(id_col)) return(invisible(NULL))
   id_col <- check_column_name(id_col, "id_col", call = call)
   if (!id_col %in% names(data)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg id_col} must name one column in {.arg {data_arg}}.",
       call = call
     )
   }
   ids <- data[[id_col]]
   if (anyNA(ids) || anyDuplicated(ids)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg id_col} must contain unique, non-missing IDs.",
       call = call
     )
@@ -637,28 +638,28 @@ redacted_judge_input <- function(data,
   data <- tibble::as_tibble(data)
   validate_source_ids(data, id_col, data_arg, call = call)
   if (is.null(input_cols) || length(input_cols) == 0L) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg input_cols} is required when {.arg judge} is supplied.",
       call = call
     )
   }
   input_cols <- check_column_names(input_cols, "input_cols", call = call)
   if (".item_id" %in% input_cols) {
-    cli::cli_abort(
+    yh_abort(
       "{.field .item_id} is reserved and cannot appear in {.arg input_cols}.",
       call = call
     )
   }
   missing_inputs <- setdiff(input_cols, names(data))
   if (length(missing_inputs) > 0L) {
-    cli::cli_abort(
+    yh_abort(
       "Unknown {.arg input_cols}: {.field {missing_inputs}}.",
       call = call
     )
   }
   leaked <- intersect(input_cols, protected_cols)
   if (length(leaked) > 0L) {
-    cli::cli_abort(
+    yh_abort(
       "Protected label column{?s} cannot be judge inputs: {.field {leaked}}.",
       call = call
     )
@@ -678,7 +679,7 @@ grade_blind <- function(judge,
                         call = rlang::caller_env()) {
   data <- sanitize_judge_frame(data)
   if (".item_id" %in% names(data)) {
-    cli::cli_abort(
+    yh_abort(
       "Internal blind-grading input cannot already contain {.field .item_id}.",
       call = call
     )
@@ -756,12 +757,12 @@ grade_keyed <- function(judge,
                         levels_arg = "label_levels",
                         call = rlang::caller_env()) {
   if (!is.function(judge)) {
-    cli::cli_abort("{.arg judge} must be a function.", call = call)
+    yh_abort("{.arg judge} must be a function.", call = call)
   }
   data <- tibble::as_tibble(data)
   if (!all(key_cols %in% names(data)) || anyNA(data[key_cols]) ||
       anyDuplicated(as.data.frame(data[key_cols]))) {
-    cli::cli_abort(
+    yh_abort(
       "Internal judge keys must be present, unique, and non-missing.",
       call = call
     )
@@ -770,23 +771,23 @@ grade_keyed <- function(judge,
   if (is.data.frame(out)) {
     required <- c(key_cols, "label")
     if (!all(required %in% names(out))) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "{context} must contain {.field label} and key column{?s}: ",
           "{.field {key_cols}}."
         ),
-        call = call
+        class = judge_error, call = call
       )
     }
     # The same shape contract as an unstructured return: a list column would
     # become deparsed labels and a matrix column is several labels per row.
     if (!is.atomic(out$label) || !is.null(dim(out$label))) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "{context} column {.field label} must be an atomic vector (one ",
           "label per row, with no {.code dim}), not {.cls {class(out$label)}}."
         ),
-        call = call
+        class = judge_error, call = call
       )
     }
     out$label <- nan_to_na(out$label)
@@ -802,9 +803,9 @@ grade_keyed <- function(judge,
     reverse <- vctrs::vec_match(output_keys, input_keys)
     if (nrow(output) != nrow(data) || anyNA(output_keys) ||
         anyDuplicated(output_keys) || anyNA(index) || anyNA(reverse)) {
-      cli::cli_abort(
+      yh_abort(
         "{context} must return every input key exactly once.",
-        call = call
+        class = judge_error, call = call
       )
     }
     labels <- output$label[index]
@@ -816,23 +817,23 @@ grade_keyed <- function(judge,
     # A matrix would be read column-major and a list would yield deparsed
     # labels such as `list("b")`, so only a plain vector is one label per row.
     if (!is.atomic(out) || !is.null(dim(out))) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "The judge must return an atomic vector of labels (one per row, ",
           "with no {.code dim}) or a data frame with {.field label} and ",
           "{cli::qty(length(key_cols))}key column{?s} {.field {key_cols}}, ",
           "not {.cls {class(out)}}."
         ),
-        call = call
+        class = judge_error, call = call
       )
     }
     if (length(out) != nrow(data)) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "The judge returned {length(out)} label{?s} for {nrow(data)} row{?s}; ",
           "it must return one label per row."
         ),
-        call = call
+        class = judge_error, call = call
       )
     }
     out <- nan_to_na(out)
@@ -850,10 +851,11 @@ grade_keyed <- function(judge,
     NULL
   }
   labels <- as.character(labels)
-  check_labels_nonblank(labels, "judge", call = call)
+  check_labels_nonblank(labels, "judge", call = call, class = judge_error)
   if (!is.null(label_levels)) {
     labels <- validate_labels(
-      labels, label_levels, arg = "judge", levels_arg = levels_arg, call = call
+      labels, label_levels, arg = "judge", levels_arg = levels_arg,
+      call = call, class = judge_error
     )
   }
   list(label = labels, output = output, label_levels = inferred_levels)
@@ -881,23 +883,23 @@ align_output_key <- function(returned,
     return(issued[match(as.character(returned), as.character(issued))])
   }
   if (!is.numeric(returned) && !all(is.na(returned))) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{context} keys must be the issued integer keys or their exact ",
         "string forms, not {.cls {class(returned)}}."
       ),
-      call = call
+      class = judge_error, call = call
     )
   }
   rlang::try_fetch(
     vctrs::vec_cast(returned, issued),
     vctrs_error = function(cnd) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "{context} keys must be the issued integer keys or their exact ",
           "string forms; a fractional or out-of-range key matches no item."
         ),
-        call = call
+        class = judge_error, call = call
       )
     }
   )

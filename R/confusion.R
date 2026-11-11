@@ -70,14 +70,14 @@ build_confusion <- function(x,
   )
   ratings <- ratings[stats::complete.cases(ratings), , drop = FALSE]
   if (nrow(ratings) == 0L) {
-    cli::cli_abort(
+    yh_abort(
       "No complete judge-human pairs are available for a confusion matrix.",
       call = call
     )
   }
 
-  human <- factor(as.character(ratings[[1]]), levels = label_levels)
-  judge <- factor(as.character(ratings[[2]]), levels = label_levels)
+  human <- factor(as_labels(ratings[[1]]), levels = label_levels)
+  judge <- factor(as_labels(ratings[[2]]), levels = label_levels)
   tab <- table(human_label = human, judge_label = judge)
   df <- as.data.frame(tab, stringsAsFactors = FALSE)
   names(df)[names(df) == "Freq"] <- "n"
@@ -113,7 +113,7 @@ as_confusion_ratings <- function(x,
   x <- as.data.frame(x, stringsAsFactors = FALSE)
   check_unique_column_names(x, call = call)
   if (is.null(human_col) != is.null(judge_col)) {
-    cli::cli_abort(
+    yh_abort(
       "Supply both {.arg human_col} and {.arg judge_col}, or neither.",
       call = call
     )
@@ -124,7 +124,7 @@ as_confusion_ratings <- function(x,
     human_col <- check_column_name(human_col, "human_col", call = call)
     judge_col <- check_column_name(judge_col, "judge_col", call = call)
     if (identical(human_col, judge_col)) {
-      cli::cli_abort(
+      yh_abort(
         "{.arg human_col} and {.arg judge_col} must name different columns.",
         call = call
       )
@@ -143,7 +143,7 @@ check_no_column_selection <- function(human_col,
                                       what = "a calibration object",
                                       call = rlang::caller_env()) {
   if (!is.null(human_col) || !is.null(judge_col)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg human_col} and {.arg judge_col} cannot be combined with {what}.",
       call = call
     )
@@ -158,7 +158,7 @@ check_unique_column_names <- function(x,
                                       call = rlang::caller_env()) {
   repeated <- unique(names(x)[duplicated(names(x))])
   if (length(repeated) > 0L) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "{.arg {arg}} has duplicated column ",
         "{cli::qty(length(repeated))}name{?s}: {.field {repeated}}."
@@ -195,7 +195,7 @@ infer_confusion_cols <- function(x, call = rlang::caller_env()) {
     )
     return(names(x))
   }
-  cli::cli_abort(
+  yh_abort(
     c(
       "{.fn confusion} needs one human and one judge column.",
       "i" = paste0(
@@ -254,7 +254,7 @@ confusion_metrics <- function(x,
     what <- if (is_calibration) "a calibration object" else "a confusion tibble"
     check_no_column_selection(human_col, judge_col, what = what, call = call)
     if (!is.null(conf_level)) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "{.arg conf_level} cannot be combined with {what}, whose metrics ",
           "keep the level they were computed at."

@@ -118,15 +118,15 @@ probe_bias <- function(data,
                        conf_level = 0.95,
                        audit_id = NULL) {
   if (!is.function(judge)) {
-    cli::cli_abort("{.arg judge} must be a function; probes re-grade perturbed inputs.")
+    yh_abort("{.arg judge} must be a function; probes re-grade perturbed inputs.")
   }
   audit_id <- check_audit_id(audit_id)
   if (!is.character(probes) || length(probes) < 1L || anyNA(probes) ||
       anyDuplicated(probes)) {
-    cli::cli_abort("{.arg probes} must contain one or more unique probe names.")
+    yh_abort("{.arg probes} must contain one or more unique probe names.")
   }
   if (any(probes == "position")) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "Regex position probing was removed because it could not preserve candidate identity. ",
       "Use {.fn probe_position} with structured candidate columns."
     ))
@@ -138,15 +138,15 @@ probe_bias <- function(data,
   flip_threshold <- check_probability(flip_threshold, "flip_threshold")
   alpha <- check_probability(alpha, "alpha", open = TRUE)
   conf_level <- check_probability(conf_level, "conf_level", open = TRUE)
-  ordered_levels <- as.character(ordered_levels)
+  ordered_levels <- as_labels(ordered_levels)
   if (length(ordered_levels) < 2L || anyNA(ordered_levels) || anyDuplicated(ordered_levels)) {
-    cli::cli_abort("{.arg ordered_levels} must contain at least two unique labels.")
+    yh_abort("{.arg ordered_levels} must contain at least two unique labels.")
   }
   check_labels_nonblank(ordered_levels, "ordered_levels")
 
   data <- tibble::as_tibble(data)
   check_probe_input(data)
-  if (nrow(data) < 1L) cli::cli_abort("{.arg data} must contain at least one item.")
+  if (nrow(data) < 1L) yh_abort("{.arg data} must contain at least one item.")
   # Identifiers are validated on the full data: a subsample could hide a
   # duplicate that the caller's audit trail would later trip over.
   validate_source_ids(data, id_col, "data")
@@ -164,7 +164,7 @@ probe_bias <- function(data,
   }
   judge_base <- redacted_judge_input(data, input_cols, id_col = id_col)
   if (!"input" %in% names(judge_base)) {
-    cli::cli_abort("{.arg input_cols} must include {.field input} for pointwise probes.")
+    yh_abort("{.arg input_cols} must include {.field input} for pointwise probes.")
   }
 
   rows <- lapply(probes, function(probe) {
@@ -264,17 +264,17 @@ probe_position <- function(data,
                            conf_level = 0.95,
                            alpha = 0.05,
                            audit_id = NULL) {
-  if (!is.function(judge)) cli::cli_abort("{.arg judge} must be a function.")
+  if (!is.function(judge)) yh_abort("{.arg judge} must be a function.")
   audit_id <- check_audit_id(audit_id)
   candidate_a_col <- check_column_name(candidate_a_col, "candidate_a_col")
   candidate_b_col <- check_column_name(candidate_b_col, "candidate_b_col")
   if (identical(candidate_a_col, candidate_b_col)) {
-    cli::cli_abort("Candidate columns must be two distinct column names.")
+    yh_abort("Candidate columns must be two distinct column names.")
   }
   if (!is.null(context_cols)) context_cols <- check_column_names(context_cols, "context_cols")
   visible_cols <- c(candidate_a_col, candidate_b_col, context_cols)
   if (anyDuplicated(visible_cols)) {
-    cli::cli_abort("Candidate and context columns must be distinct.")
+    yh_abort("Candidate and context columns must be distinct.")
   }
   # Every name the internal evidence table assigns is reserved, not only the
   # judge-facing ones, so a caller's column is never overwritten in `ev`.
@@ -286,33 +286,33 @@ probe_position <- function(data,
     )
   )
   if (length(reserved) > 0L) {
-    cli::cli_abort("Reserved internal column{?s} cannot be judge inputs: {.field {reserved}}.")
+    yh_abort("Reserved internal column{?s} cannot be judge inputs: {.field {reserved}}.")
   }
   repeats <- check_count(repeats, "repeats")
   conf_level <- check_probability(conf_level, "conf_level", open = TRUE)
   alpha <- check_probability(alpha, "alpha", open = TRUE)
-  choice_levels <- as.character(choice_levels)
+  choice_levels <- as_labels(choice_levels)
   if (length(choice_levels) != 2L || anyNA(choice_levels) || anyDuplicated(choice_levels)) {
-    cli::cli_abort("{.arg choice_levels} must contain two unique display labels.")
+    yh_abort("{.arg choice_levels} must contain two unique display labels.")
   }
   check_labels_nonblank(choice_levels, "choice_levels")
   if (!is.null(tie_label)) {
     if (length(tie_label) != 1L || is.na(tie_label) || !nzchar(as.character(tie_label))) {
-      cli::cli_abort("{.arg tie_label} must be one non-empty label or {.code NULL}.")
+      yh_abort("{.arg tie_label} must be one non-empty label or {.code NULL}.")
     }
     tie_label <- as.character(tie_label)
     check_labels_nonblank(tie_label, "tie_label")
     if (tie_label %in% choice_levels) {
-      cli::cli_abort("{.arg tie_label} must differ from {.arg choice_levels}.")
+      yh_abort("{.arg tie_label} must differ from {.arg choice_levels}.")
     }
   }
   data <- tibble::as_tibble(data)
   required <- c(candidate_a_col, candidate_b_col, context_cols)
   missing_cols <- setdiff(required, names(data))
   if (length(missing_cols) > 0L) {
-    cli::cli_abort("Missing pairwise column{?s}: {.field {missing_cols}}.")
+    yh_abort("Missing pairwise column{?s}: {.field {missing_cols}}.")
   }
-  if (nrow(data) < 1L) cli::cli_abort("{.arg data} must contain at least one pair.")
+  if (nrow(data) < 1L) yh_abort("{.arg data} must contain at least one pair.")
   check_candidates_present(data, c(candidate_a_col, candidate_b_col))
   seed <- check_seed(seed)
   if (!is.null(seed)) withr::local_seed(seed)
@@ -397,22 +397,25 @@ combine_bias <- function(...,
   p_adjust <- rlang::arg_match(p_adjust)
   probes <- list(...)
   if (length(probes) < 2L || !all(vapply(probes, inherits, logical(1), "yourhonor_bias"))) {
-    cli::cli_abort("{.fn combine_bias} requires two or more {.cls yourhonor_bias} objects.")
+    yh_abort("{.fn combine_bias} requires two or more {.cls yourhonor_bias} objects.")
   }
   ids <- lapply(probes, audit_id)
   has_id <- !vapply(ids, is.null, logical(1))
   if (any(has_id) && (!all(has_id) || length(unique(unlist(ids))) != 1L)) {
-    cli::cli_abort("All bias evidence must share the same non-missing {.arg audit_id}.")
+    yh_abort(
+      "All bias evidence must share the same non-missing {.arg audit_id}.",
+      class = binding_error
+    )
   }
   rows <- do.call(vctrs::vec_rbind, lapply(probes, bias_rows))
   if (anyDuplicated(rows$probe)) {
-    cli::cli_abort("Combined bias evidence must contain each probe exactly once.")
+    yh_abort("Combined bias evidence must contain each probe exactly once.")
   }
   if (length(unique(rows$conf_level)) != 1L) {
-    cli::cli_abort("Combined bias evidence must use one shared {.arg conf_level}.")
+    yh_abort("Combined bias evidence must use one shared {.arg conf_level}.")
   }
   if (length(unique(rows$alpha)) != 1L) {
-    cli::cli_abort("Combined bias evidence must use one shared {.arg alpha}.")
+    yh_abort("Combined bias evidence must use one shared {.arg alpha}.")
   }
   rows <- finalize_bias_rows(rows, p_adjust)
   new_yourhonor_bias(
@@ -471,7 +474,7 @@ collect_bias_attr <- function(probes, which, call = rlang::caller_env()) {
   kept <- lapply(unname(probes), function(x) {
     ev <- attr(x, which, exact = TRUE)
     if (length(ev) > 0L && is.null(names(ev))) {
-      cli::cli_abort(
+      yh_abort(
         "Bias {which} attribute must be a list named by probe.", call = call
       )
     }
@@ -480,44 +483,54 @@ collect_bias_attr <- function(probes, which, call = rlang::caller_env()) {
   do.call(c, kept)
 }
 
+# The shared bias row schema: every column a bias result carries, in order,
+# with its type. bias_result_row() builds rows from it, and report() and
+# write_audit() validate supplied bias evidence against its names, so the
+# schema and the validation cannot drift apart.
+bias_row_prototype <- list(
+  probe = NA_character_,
+  flip_rate = NA_real_,
+  conf_low = NA_real_,
+  conf_high = NA_real_,
+  direction = NA_character_,
+  directional_rate = NA_real_,
+  directional_conf_low = NA_real_,
+  directional_conf_high = NA_real_,
+  position_preference = NA_real_,
+  display_first_rate = NA_real_,
+  position_conf_low = NA_real_,
+  position_conf_high = NA_real_,
+  statistic = NA_integer_,
+  n_discordant = NA_integer_,
+  n_scored = NA_integer_,
+  n_directional_items = NA_integer_,
+  n_input = NA_integer_,
+  n_unscored = NA_integer_,
+  unscored_rate = NA_real_,
+  n_items_missing = NA_integer_,
+  n_judgments = NA_integer_,
+  n_judgments_missing = NA_integer_,
+  missing_rate = NA_real_,
+  n_comparisons = NA_integer_,
+  p_value = NA_real_,
+  p_value_adj = NA_real_,
+  verdict = NA_character_,
+  status = NA_character_,
+  conf_level = NA_real_,
+  alpha = NA_real_,
+  flip_threshold = NA_real_,
+  p_adjust_method = NA_character_
+)
+
 # One row of the shared bias schema. `stats` supplies the probe-specific
 # measurements; anything it omits stays NA, so pointwise and position rows
 # always have identical columns.
 bias_result_row <- function(probe, stats, conf_level, alpha, flip_threshold) {
-  row <- tibble::tibble(
-    probe = probe,
-    flip_rate = NA_real_,
-    conf_low = NA_real_,
-    conf_high = NA_real_,
-    direction = NA_character_,
-    directional_rate = NA_real_,
-    directional_conf_low = NA_real_,
-    directional_conf_high = NA_real_,
-    position_preference = NA_real_,
-    display_first_rate = NA_real_,
-    position_conf_low = NA_real_,
-    position_conf_high = NA_real_,
-    statistic = NA_integer_,
-    n_discordant = NA_integer_,
-    n_scored = NA_integer_,
-    n_directional_items = NA_integer_,
-    n_input = NA_integer_,
-    n_unscored = NA_integer_,
-    unscored_rate = NA_real_,
-    n_items_missing = NA_integer_,
-    n_judgments = NA_integer_,
-    n_judgments_missing = NA_integer_,
-    missing_rate = NA_real_,
-    n_comparisons = NA_integer_,
-    p_value = NA_real_,
-    p_value_adj = NA_real_,
-    verdict = NA_character_,
-    status = NA_character_,
-    conf_level = conf_level,
-    alpha = alpha,
-    flip_threshold = flip_threshold,
-    p_adjust_method = NA_character_
-  )
+  row <- tibble::as_tibble(bias_row_prototype)
+  row$probe <- probe
+  row$conf_level <- conf_level
+  row$alpha <- alpha
+  row$flip_threshold <- flip_threshold
   unknown <- setdiff(names(stats), names(row))
   if (length(unknown) > 0L) {
     cli::cli_abort(
@@ -655,12 +668,12 @@ bias_verdict <- function(status,
 
 check_probe_input <- function(data) {
   if (!"input" %in% names(data)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg data} must contain an {.field input} column to perturb."
     )
   }
   if (!is.character(data$input)) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "{.field input} must be a character column, ",
       "not {.cls {class(data$input)}}."
     ))
@@ -669,7 +682,7 @@ check_probe_input <- function(data) {
   if (n_na > 0L) {
     # paste0() would turn NA into the literal text "NA", which the judge then
     # grades as a real answer with missing_rate 0.
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "{.field input} contains {n_na} missing value{?s}; ",
       "drop or fill them before probing."
     ))
@@ -684,7 +697,7 @@ check_candidates_present <- function(data, candidate_cols) {
   for (col in candidate_cols) {
     n_na <- sum(is.na(data[[col]]))
     if (n_na > 0L) {
-      cli::cli_abort(paste0(
+      yh_abort(paste0(
         "Candidate column {.field {col}} contains {n_na} missing value{?s}; ",
         "drop or fill them before probing."
       ))

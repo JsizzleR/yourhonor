@@ -48,28 +48,28 @@ audit_vitals <- function(task,
   human_col <- check_column_name(human_col, "human_col")
   score_col <- check_column_name(score_col, "score_col")
   if (anyDuplicated(c(id_col, human_col, score_col))) {
-    cli::cli_abort("{.arg id_col}, {.arg human_col}, and {.arg score_col} must be distinct.")
+    yh_abort("{.arg id_col}, {.arg human_col}, and {.arg score_col} must be distinct.")
   }
   check_provenance(provenance)
   samples <- extract_vitals_samples(task)
   missing_cols <- setdiff(c(id_col, score_col), names(samples))
   if (length(missing_cols) > 0L) {
-    cli::cli_abort("Vitals samples are missing: {.field {missing_cols}}.")
+    yh_abort("Vitals samples are missing: {.field {missing_cols}}.")
   }
   # Human labels are joined onto the samples under `human_col`, so an existing
   # column of that name (for example a vitals `target`) would be replaced
   # silently and the audit would compare the judge against the wrong labels.
   if (human_col %in% names(samples)) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "Vitals samples already contain a {.field {human_col}} column; ",
       "choose a {.arg human_col} that is not present in the samples."
     ))
   }
   if (anyNA(samples[[id_col]])) {
-    cli::cli_abort("Vitals sample IDs must be non-missing.")
+    yh_abort("Vitals sample IDs must be non-missing.")
   }
   if (anyDuplicated(samples[[id_col]])) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "Vitals sample IDs must be unique for calibration. ",
       "Multi-epoch rows are repeated measurements, not independent gold items; ",
       "filter to one epoch first."
@@ -80,20 +80,20 @@ audit_vitals <- function(task,
     human_labels <- tibble::as_tibble(human_labels)
     missing_human <- setdiff(c(id_col, human_col), names(human_labels))
     if (length(missing_human) > 0L) {
-      cli::cli_abort("Human labels are missing: {.field {missing_human}}.")
+      yh_abort("Human labels are missing: {.field {missing_human}}.")
     }
     if (anyNA(human_labels[[id_col]]) || anyDuplicated(human_labels[[id_col]])) {
-      cli::cli_abort("Human-label IDs must be unique and non-missing.")
+      yh_abort("Human-label IDs must be unique and non-missing.")
     }
     if (!setequal(samples[[id_col]], human_labels[[id_col]]) ||
         nrow(samples) != nrow(human_labels)) {
-      cli::cli_abort("Human-label IDs must exactly match the vitals sample IDs.")
+      yh_abort("Human-label IDs must exactly match the vitals sample IDs.")
     }
     index <- match(samples[[id_col]], human_labels[[id_col]])
     labels <- human_labels[[human_col]][index]
   } else {
     if (length(human_labels) != nrow(samples)) {
-      cli::cli_abort("A human-label vector must have one value per vitals sample.")
+      yh_abort("A human-label vector must have one value per vitals sample.")
     }
     labels <- human_labels
   }
@@ -176,26 +176,26 @@ stability_vitals <- function(task,
   epoch_col <- check_column_name(epoch_col, "epoch_col")
   score_col <- check_column_name(score_col, "score_col")
   if (is.null(content_cols) || length(content_cols) == 0L) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg content_cols} must list every judge-visible field for invariance checks."
     )
   }
   content_cols <- check_column_names(content_cols, "content_cols")
   if (anyDuplicated(c(id_col, epoch_col, score_col))) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg id_col}, {.arg epoch_col}, and {.arg score_col} must be distinct."
     )
   }
   reserved_cols <- intersect(content_cols, c(id_col, epoch_col, score_col))
   if (length(reserved_cols) > 0L) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "{.arg content_cols} must not include identifier, epoch, or score columns: ",
       "{.field {reserved_cols}}."
     ))
   }
   weights <- rlang::arg_match(weights)
   if (weights != "unweighted" && is.null(label_levels)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg label_levels} is required for weighted stability; ordinal order cannot be inferred."
     )
   }
@@ -208,7 +208,7 @@ stability_vitals <- function(task,
     c(id_col, epoch_col, score_col, content_cols), names(samples)
   )
   if (length(missing_cols) > 0L) {
-    cli::cli_abort("Vitals samples are missing: {.field {missing_cols}}.")
+    yh_abort("Vitals samples are missing: {.field {missing_cols}}.")
   }
   # as.character() would turn a list cell into a deparsed label ("NA",
   # "NULL") rather than a missing judgment, so a list of one score (or none)
@@ -219,7 +219,7 @@ stability_vitals <- function(task,
     scores <- unpack_list_scores(scores, score_col)
   }
   if (!is.atomic(scores) || !is.null(dim(scores))) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "{.arg score_col} {.field {score_col}} must be an atomic vector (one ",
       "score per sample, with no {.code dim}), not {.cls {class(scores)}}."
     ))
@@ -231,17 +231,17 @@ stability_vitals <- function(task,
   }
   key <- samples[c(id_col, epoch_col)]
   if (anyNA(key)) {
-    cli::cli_abort("Vitals item and epoch identifiers must be non-missing.")
+    yh_abort("Vitals item and epoch identifiers must be non-missing.")
   }
   if (anyDuplicated(as.data.frame(key))) {
-    cli::cli_abort("Every vitals item-epoch key must appear exactly once.")
+    yh_abort("Every vitals item-epoch key must appear exactly once.")
   }
   changed <- vapply(content_cols, function(column) {
     values <- split(samples[[column]], samples[[id_col]])
     any(vapply(values, function(value) length(unique(value)) > 1L, logical(1)))
   }, logical(1))
   if (any(changed)) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "Judge-visible content changes across epochs for: {.field {content_cols[changed]}}. ",
       "Those rows measure end-to-end evaluation changes, not judge test-retest stability."
     ))
@@ -249,7 +249,7 @@ stability_vitals <- function(task,
   item_ids <- unique(samples[[id_col]])
   epochs <- unique(samples[[epoch_col]])
   if (length(item_ids) < 1L || length(epochs) < 2L) {
-    cli::cli_abort("Vitals stability needs at least one item and two epochs.")
+    yh_abort("Vitals stability needs at least one item and two epochs.")
   }
   runs <- matrix(
     NA_character_, nrow = length(item_ids), ncol = length(epochs),
@@ -259,7 +259,7 @@ stability_vitals <- function(task,
     match(samples[[id_col]], item_ids),
     match(samples[[epoch_col]], epochs)
   )
-  runs[locations] <- as.character(nan_to_na(scores))
+  runs[locations] <- as_labels(scores)
   if (!is.null(seed)) withr::local_seed(seed)
   out <- summarize_stability_runs(
     runs, label_levels = label_levels, weights = weights,
@@ -280,13 +280,13 @@ unpack_list_scores <- function(scores, score_col) {
       (is.atomic(value) && is.null(dim(value)) && length(value) <= 1L)
   }, logical(1))
   if (!all(scalar)) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "Each cell of list column {.field {score_col}} must hold one score or ",
       "nothing."
     ))
   }
   vapply(scores, function(value) {
-    if (length(value) == 0L) NA_character_ else as.character(nan_to_na(value))
+    if (length(value) == 0L) NA_character_ else as_labels(value)
   }, character(1), USE.NAMES = FALSE)
 }
 
@@ -300,14 +300,14 @@ extract_vitals_samples <- function(task) {
   # rather than surfacing as an internal error.
   get_samples <- tryCatch(task$get_samples, error = function(e) NULL)
   if (!is.function(get_samples)) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "{.arg task} must be a samples data frame or expose a callable ",
       "{.fn get_samples}."
     ))
   }
   samples <- get_samples()
   if (!is.data.frame(samples)) {
-    cli::cli_abort("{.fn get_samples} must return a samples data frame.")
+    yh_abort("{.fn get_samples} must return a samples data frame.")
   }
   tibble::as_tibble(samples)
 }
@@ -434,7 +434,7 @@ write_audit <- function(x,
                         format = c("json", "md"),
                         overwrite = FALSE) {
   if (!inherits(x, "yourhonor_calibration")) {
-    cli::cli_abort("{.arg x} must be a {.cls yourhonor_calibration} object.")
+    yh_abort("{.arg x} must be a {.cls yourhonor_calibration} object.")
   }
   validate_report_evidence(x, bias, stability)
   format <- rlang::arg_match(format)
@@ -445,10 +445,10 @@ write_audit <- function(x,
     return(invisible(path))
   }
   if (!supplied_evidence_is_bound(x, bias, stability)) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "JSON audit artifacts cannot include UNBOUND secondary evidence. ",
       "Use one {.arg audit_id} across calibration, bias, and stability."
-    ))
+    ), class = binding_error)
   }
 
   assessment <- assess_calibration(x, bias, stability, policy)
@@ -488,18 +488,18 @@ utc_timestamp <- function(time = Sys.time()) {
 check_audit_path <- function(path, overwrite) {
   if (!is.character(path) || length(path) != 1L || is.na(path) ||
       !nzchar(path)) {
-    cli::cli_abort("{.arg path} must be one non-empty file path.")
+    yh_abort("{.arg path} must be one non-empty file path.")
   }
   if (!rlang::is_bool(overwrite)) {
-    cli::cli_abort("{.arg overwrite} must be TRUE or FALSE.")
+    yh_abort("{.arg overwrite} must be TRUE or FALSE.")
   }
   # A directory would pass the existence test below and, with
   # `overwrite = TRUE`, reach the writer as a target it cannot replace.
   if (dir.exists(path)) {
-    cli::cli_abort("{.path {path}} is a directory, not a file path.")
+    yh_abort("{.path {path}} is a directory, not a file path.")
   }
   if (file.exists(path) && !overwrite) {
-    cli::cli_abort(paste0(
+    yh_abort(paste0(
       "{.path {path}} already exists; set {.code overwrite = TRUE} ",
       "to replace it."
     ))

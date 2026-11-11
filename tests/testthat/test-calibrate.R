@@ -27,7 +27,7 @@ test_that("multiple human raters produce reliability and per-rater evidence", {
     c("krippendorff_alpha", "gwet_ac1")
   )
   expect_setequal(unique(cal$per_rater_agreement$rater), c("h1", "h2", "h3"))
-  expect_true(all(c("human_consensus", "consensus_tie") %in% names(cal$items)))
+  expect_all(c("human_consensus", "consensus_tie") %in% names(cal$items))
 })
 
 test_that("multi-rater consensus requires at least two observed humans", {
@@ -42,7 +42,7 @@ test_that("multi-rater consensus requires at least two observed humans", {
       gold, human_cols = c("h1", "h2", "h3"),
       label_levels = c("I", "C"), n_boot = 50, seed = 1
     ),
-    "complete judge-human pairs"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -66,10 +66,10 @@ test_that("items with one observed human rating are excluded and counted", {
   expect_equal(cal$n_insufficient_human_ratings, 2)
   expect_equal(cal$n_consensus_ties, 0)
   tail_items <- cal$items[9:10, ]
-  expect_true(all(is.na(tail_items$human_consensus)))
+  expect_all(is.na(tail_items$human_consensus))
   expect_equal(tail_items$n_human_observed, c(1, 1))
   expect_false(any(tail_items$consensus_tie))
-  expect_true(all(is.na(tail_items$agree)))
+  expect_all(is.na(tail_items$agree))
   # Per-rater agreement still scores every item against h1.
   h1 <- cal$per_rater_agreement[cal$per_rater_agreement$rater == "h1", ]
   expect_equal(unique(h1$n_items), 10L)
@@ -86,41 +86,54 @@ test_that("single human rater has no reliability benchmark", {
 test_that("missing human columns and duplicate IDs error", {
   expect_error(
     calibrate_judge(make_gold(), human_cols = c("human_label", "nope")),
-    "missing human rater"
+    class = "yourhonor_input_error"
   )
   gold <- make_gold()
   gold$id[[2]] <- gold$id[[1]]
-  expect_error(calibrate_judge(gold, id_col = "id"), "unique")
-  expect_error(calibrate_judge(make_gold(), id_col = "nope"), "id_col")
+  expect_error(
+    calibrate_judge(gold, id_col = "id"),
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    calibrate_judge(make_gold(), id_col = "nope"), "id_col",
+    class = "yourhonor_input_error"
+  )
 })
 
 test_that("reserved keys, provenance, judge_col, and judge are validated", {
   gold <- make_gold()
   gold$.item_id <- seq_len(nrow(gold))
-  expect_error(calibrate_judge(gold), "reserved")
+  expect_error(calibrate_judge(gold), class = "yourhonor_input_error")
 
   expect_error(
     calibrate_judge(make_gold(), provenance = "model"),
-    "provenance"
+    "provenance", class = "yourhonor_input_error"
   )
   expect_error(
     calibrate_judge(make_gold(), provenance = list("unnamed")),
-    "provenance"
+    "provenance", class = "yourhonor_input_error"
   )
   expect_error(
     calibrate_judge(make_gold(), provenance = data.frame(a = 1)),
-    "must be a plain list, not a data frame"
+    class = "yourhonor_input_error"
   )
   expect_error(
-    calibrate_judge(make_gold(), judge_col = c("a", "b")), "judge_col"
+    calibrate_judge(make_gold(), judge_col = c("a", "b")), "judge_col",
+    class = "yourhonor_input_error"
   )
-  expect_error(calibrate_judge(make_gold(), judge_col = ""), "judge_col")
-  expect_error(calibrate_judge(make_gold(), judge_col = "nope"), "nope")
+  expect_error(
+    calibrate_judge(make_gold(), judge_col = ""), "judge_col",
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    calibrate_judge(make_gold(), judge_col = "nope"), "nope",
+    class = "yourhonor_input_error"
+  )
   expect_error(
     calibrate_judge(
       make_gold(), judge = "not a function", input_cols = "input"
     ),
-    "must be a function"
+    class = "yourhonor_input_error"
   )
   err <- rlang::catch_cnd(calibrate_judge(make_gold(), n_boot = 0))
   expect_identical(rlang::call_name(err$call), "calibrate_judge")
@@ -135,11 +148,11 @@ test_that("pre-graded labels create a complete audit object", {
   expect_equal(cal$n_items, 8)
   expect_equal(cal$n_input, 8)
   expect_identical(cal$label_levels, c("I", "P", "C"))
-  expect_true(all(c("support", "recall_conf_low") %in% names(cal$confusion_metrics)))
+  expect_all(c("support", "recall_conf_low") %in% names(cal$confusion_metrics))
   expect_equal(cal$provenance$id_col, "id")
   expect_null(cal$judge_output)
   expect_null(cal$blinding_map)
-  expect_true(all(is.na(cal$items$.judge_item_id)))
+  expect_all(is.na(cal$items$.judge_item_id))
 })
 
 test_that("judge functions receive only IDs and declared inputs", {
@@ -164,7 +177,7 @@ test_that("judge functions receive only IDs and declared inputs", {
   expect_false(identical(seen_input, gold$input))
   expect_false("human_label" %in% seen)
   expect_false(any(gold$id %in% seen_ids))
-  expect_true(all(cal$items$judge_label == "C"))
+  expect_all(cal$items$judge_label == "C")
 })
 
 test_that("the blinding map ties judge-side keys back to source rows", {
@@ -213,23 +226,26 @@ test_that("judge input must be explicit and cannot expose labels", {
   gold <- make_gold()
   gold$judge_label <- NULL
   judge <- function(d) rep("C", nrow(d))
-  expect_error(calibrate_judge(gold, judge), "input_cols")
+  expect_error(
+    calibrate_judge(gold, judge), "input_cols",
+    class = "yourhonor_input_error"
+  )
   expect_error(
     calibrate_judge(gold, judge, input_cols = c("input", "human_label")),
-    "Protected"
+    class = "yourhonor_input_error"
   )
   expect_error(
     calibrate_judge(gold, judge, input_cols = c("input", "input")),
-    "unique"
+    class = "yourhonor_input_error"
   )
   expect_error(
     calibrate_judge(gold, judge, input_cols = c("input", "nope")),
-    "nope"
+    "nope", class = "yourhonor_input_error"
   )
   expect_error(
     calibrate_judge(make_gold(), human_cols = "human_label",
                     judge_col = "human_label"),
-    "must differ"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -268,9 +284,9 @@ test_that("blind grading order is seeded and does not leak RNG state", {
   invisible(run())
   expect_identical(orders[[2]], first)
 
-  set.seed(123)
+  withr::local_seed(123)
   expected <- runif(1)
-  set.seed(123)
+  withr::local_seed(123)
   invisible(run())
   actual <- runif(1)
   expect_equal(actual, expected)
@@ -284,14 +300,14 @@ test_that("unknown labels and malformed judge output are rejected", {
       gold, function(d) rep("garbage", nrow(d)), input_cols = "input",
       label_levels = c("I", "P", "C")
     ),
-    "outside"
+    class = "yourhonor_judge_error"
   )
   expect_error(
     calibrate_judge(
       gold, function(d) rep("C", 1), input_cols = "input",
       label_levels = c("I", "P", "C")
     ),
-    "return one label per row"
+    class = "yourhonor_judge_error"
   )
   err <- rlang::catch_cnd(
     calibrate_judge(
@@ -304,7 +320,7 @@ test_that("unknown labels and malformed judge output are rejected", {
   precomputed$judge_label[[1]] <- "garbage"
   expect_error(
     calibrate_judge(precomputed, label_levels = c("I", "P", "C")),
-    "judge_label.*outside.*label_levels"
+    "judge_label.*outside.*label_levels", class = "yourhonor_input_error"
   )
 })
 
@@ -346,7 +362,10 @@ test_that("agreement can reuse or explicitly recompute a calibration", {
 })
 
 test_that("ordinal calibration requires declared label order", {
-  expect_error(calibrate_judge(make_gold(), scale = "ordinal"), "label_levels")
+  expect_error(
+    calibrate_judge(make_gold(), scale = "ordinal"), "label_levels",
+    class = "yourhonor_input_error"
+  )
   cal <- calibrate_judge(
     make_gold(), scale = "ordinal", label_levels = c("I", "P", "C"),
     n_boot = 50, seed = 1
@@ -356,7 +375,7 @@ test_that("ordinal calibration requires declared label order", {
   expect_false("gwet_ac1" %in% cal$agreement$coefficient)
   expect_error(
     calibrate_judge(make_gold(), weights = "ordinal"),
-    "scale = 'ordinal'"
+    "scale = 'ordinal'", class = "yourhonor_input_error"
   )
 })
 
@@ -374,7 +393,7 @@ test_that("coefficients = NULL selects the weighted default automatically", {
       make_gold(), scale = "ordinal", label_levels = c("I", "P", "C"),
       coefficients = c("cohen_kappa", "gwet_ac1"), n_boot = 30
     ),
-    "AC2"
+    "AC2", class = "yourhonor_input_error"
   )
   err <- rlang::catch_cnd(
     calibrate_judge(make_gold(), coefficients = "nope", n_boot = 30)
@@ -386,7 +405,7 @@ test_that("calibration printing shows intervals and interpretations", {
   cal <- calibrate_judge(
     make_gold(), label_levels = c("I", "P", "C"), n_boot = 30, seed = 1
   )
-  expect_snapshot(print(cal), cran = TRUE)
+  expect_snapshot(print(cal))
 
   gold <- tibble::tibble(
     input = paste("answer", 1:8),
@@ -402,7 +421,7 @@ test_that("calibration printing shows intervals and interpretations", {
     ),
     "lacked"
   )
-  expect_snapshot(print(multi), cran = TRUE)
+  expect_snapshot(print(multi))
 })
 
 test_that("a blank judge label is rejected on the first call and named as such", {
@@ -419,12 +438,12 @@ test_that("a blank judge label is rejected on the first call and named as such",
   }
   expect_error(
     test_retest(gold, blank_judge, input_cols = "input", n_runs = 3, n_boot = 10, seed = 1),
-    "`judge` contains empty"
+    "`judge` contains empty", class = "yourhonor_judge_error"
   )
   expect_equal(calls, 1L)
   expect_error(
     calibrate_judge(gold, blank_judge, input_cols = "input", n_boot = 10, seed = 1),
-    "`judge` contains empty"
+    "`judge` contains empty", class = "yourhonor_judge_error"
   )
 })
 
@@ -466,7 +485,7 @@ test_that("element names and attributes never reach the judge", {
     gold, list_judge, input_cols = "input", label_levels = c("I", "P", "C"),
     n_boot = 10, seed = 1
   )
-  expect_true(all(vapply(seen_list, identical, logical(1), "names")))
+  expect_all(vapply(seen_list, identical, logical(1), "names"))
 
   # Classed list columns (list_of, AsIs) are traversed too; S4 objects pass
   # through whole.
@@ -543,7 +562,7 @@ test_that("provenance keeps NULL adapter fields and one timestamp format", {
     gold, label_levels = c("I", "P", "C"), n_boot = 20, seed = 1,
     provenance = list(model = "m")
   )
-  expect_true(all(c("id_col", "audit_id") %in% names(cal$provenance)))
+  expect_all(c("id_col", "audit_id") %in% names(cal$provenance))
   expect_null(cal$provenance$id_col)
   expect_null(cal$provenance$audit_id)
   expect_identical(cal$provenance$model, "m")
@@ -552,15 +571,15 @@ test_that("provenance keeps NULL adapter fields and one timestamp format", {
   )
   expect_error(
     calibrate_judge(gold, n_boot = 20, provenance = list(a = 1, a = 2)),
-    "unique, non-empty names"
+    class = "yourhonor_input_error"
   )
   expect_error(
     calibrate_judge(gold, n_boot = 20, provenance = list(a = 1, 2)),
-    "unique, non-empty names"
+    class = "yourhonor_input_error"
   )
   expect_error(
     calibrate_judge(gold, n_boot = 20, provenance = list(" " = 1)),
-    "unique, non-empty names"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -590,7 +609,7 @@ test_that("structured output is character and cannot carry the judge key", {
       gold, colliding, input_cols = "input", label_levels = c("I", "P", "C"),
       n_boot = 20, seed = 1
     ),
-    "reserved column .judge_item_id"
+    "reserved column .judge_item_id", class = "yourhonor_judge_error"
   )
   graded <- grade_blind(function(d) rep("C", nrow(d)), gold["input"], "C")
   expect_named(
@@ -604,7 +623,7 @@ test_that("a degenerate interval prints as degenerate with the exact bound", {
     judge_label = rep(c("a", "b"), 10)
   )
   cal <- calibrate_judge(gold, n_boot = 200, seed = 1)
-  expect_true(all(cal$agreement$boundary_degenerate))
+  expect_all(cal$agreement$boundary_degenerate)
   # Whitespace is normalised because cli wraps at the console width.
   out <- gsub("\\s+", " ", paste(cli::cli_fmt(print(cal)), collapse = " "))
   exact <- fmt_num(cal$agreement$conf_low_exact[[1]])
@@ -627,7 +646,7 @@ test_that("gold columns the result writes are reserved", {
     gold[[col]] <- 1:4
     expect_error(
       calibrate_judge(gold, n_boot = 20, seed = 1),
-      paste0(col, ".*reserved"),
+      paste0(col, ".*reserved"), class = "yourhonor_input_error",
       info = col
     )
   }
@@ -640,7 +659,7 @@ test_that("gold columns the result writes are reserved", {
     gold[[col]] <- 1:4
     expect_error(
       calibrate_judge(gold, human_cols = c("h1", "h2"), n_boot = 20, seed = 1),
-      paste0(col, ".*reserved"),
+      paste0(col, ".*reserved"), class = "yourhonor_input_error",
       info = col
     )
     # One rater writes no consensus columns, so the name is free there.
@@ -656,7 +675,7 @@ test_that("gold columns the result writes are reserved", {
       live, judge = function(d) rep("a", nrow(d)), input_cols = "x",
       judge_col = "agree", n_boot = 20, seed = 1
     ),
-    "`judge_col`.*reserved"
+    "`judge_col`.*reserved", class = "yourhonor_input_error"
   )
 })
 
@@ -670,7 +689,7 @@ test_that("an unstructured judge must return an atomic vector without dim", {
   )) {
     expect_error(
       calibrate_judge(gold, judge = judge, input_cols = "x", n_boot = 20),
-      "atomic vector"
+      class = "yourhonor_judge_error"
     )
   }
   cal <- calibrate_judge(
@@ -683,11 +702,11 @@ test_that("an unstructured judge must return an atomic vector without dim", {
 test_that("input_cols is refused without a judge function", {
   expect_error(
     calibrate_judge(make_gold(), input_cols = "input", n_boot = 20),
-    "input_cols.*judge = NULL"
+    "input_cols.*judge = NULL", class = "yourhonor_input_error"
   )
   expect_error(
     calibrate_judge(make_gold(), input_cols = "nonexistent", n_boot = 20),
-    "input_cols.*judge = NULL"
+    "input_cols.*judge = NULL", class = "yourhonor_input_error"
   )
   cal <- calibrate_judge(make_gold(), n_boot = 20, seed = 1)
   expect_null(cal$input_cols)
@@ -703,7 +722,7 @@ test_that("a structured judge's label column must be atomic without dim", {
   }
   expect_error(
     calibrate_judge(gold, judge = judge, input_cols = "x", n_boot = 20),
-    "label.*atomic vector"
+    class = "yourhonor_judge_error"
   )
   matrix_judge <- function(d) {
     out <- tibble::tibble(.item_id = d$.item_id)
@@ -712,7 +731,7 @@ test_that("a structured judge's label column must be atomic without dim", {
   }
   expect_error(
     calibrate_judge(gold, judge = matrix_judge, input_cols = "x", n_boot = 20),
-    "label.*atomic vector"
+    class = "yourhonor_judge_error"
   )
 })
 
@@ -737,4 +756,74 @@ test_that("a judge that returns NaN abstains rather than labelling NaN", {
     seed = 1
   ))
   expect_equal(cal2$n_judge_abstentions, 4)
+})
+
+test_that("a precomputed NaN rating is missing, not the label \"NaN\"", {
+  human <- rep(c(1, 2), 20)
+  judge <- human
+  judge[1:4] <- NaN
+  human[5:6] <- NaN
+  gold <- tibble::tibble(id = 1:40, human_label = human, judge_label = judge)
+  cal <- suppressWarnings(
+    calibrate_judge(gold, id_col = "id", n_boot = 20, seed = 1)
+  )
+  expect_identical(cal$label_levels, c("1", "2"))
+  expect_equal(cal$n_judge_abstentions, 4)
+  expect_identical(sum(is.na(cal$items$human_label)), 2L)
+  expect_identical(sum(is.na(cal$items$judge_label)), 4L)
+  # Declared levels must not reject NaN as a label outside them.
+  declared <- suppressWarnings(calibrate_judge(
+    gold, id_col = "id", label_levels = c("1", "2"), n_boot = 20, seed = 1
+  ))
+  expect_identical(declared$n_complete, cal$n_complete)
+
+  # Two human raters: a NaN is an unobserved rating in the consensus.
+  multi <- tibble::tibble(
+    id = 1:40, h1 = human, h2 = rep(c(1, 2), 20), judge_label = judge
+  )
+  cal_multi <- suppressWarnings(calibrate_judge(
+    multi, human_cols = c("h1", "h2"), id_col = "id", n_boot = 20, seed = 1
+  ))
+  expect_identical(cal_multi$label_levels, c("1", "2"))
+})
+
+test_that("a NaN rating is missing in agreement() and confusion()", {
+  human <- rep(c(1, 2), 20)
+  judge <- human
+  judge[1:4] <- NaN
+  human[5:6] <- NaN
+  ratings <- data.frame(human = human, judge = judge)
+  ag <- agreement(ratings, rater_cols = c("human", "judge"), n_boot = 20)
+  expect_identical(unique(ag$n_items), 34L)
+  expect_identical(unique(ag$n_missing_rows), 6L)
+  expect_equal(unique(ag$estimate), 1)
+  cm <- confusion(ratings, human_col = "human", judge_col = "judge")
+  expect_false("NaN" %in% c(cm$human_label, cm$judge_label))
+  expect_identical(nrow(cm), 4L)
+})
+
+test_that("a NaN declared level is refused like NA, not kept as \"NaN\"", {
+  gold <- tibble::tibble(
+    human_label = rep(c(1, 2), 10), judge_label = rep(c(1, 2), 10)
+  )
+  expect_error(
+    calibrate_judge(gold, label_levels = c(1, 2, NaN), n_boot = 20),
+    "label_levels", class = "yourhonor_input_error"
+  )
+  expect_error(
+    probe_bias(
+      tibble::tibble(input = paste("answer", 1:6)),
+      function(d) rep("1", nrow(d)), probes = "verbosity",
+      ordered_levels = c(1, NaN)
+    ),
+    "ordered_levels", class = "yourhonor_input_error"
+  )
+  expect_error(
+    probe_position(
+      tibble::tibble(a = paste("A", 1:6), b = paste("B", 1:6)),
+      function(d) tibble::tibble(.item_id = d$.item_id, label = "1"),
+      "a", "b", choice_levels = c(1, NaN)
+    ),
+    "choice_levels", class = "yourhonor_input_error"
+  )
 })

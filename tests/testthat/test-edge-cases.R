@@ -15,14 +15,14 @@ test_that("a single-class reference is insufficient_reference_variation", {
   cal <- calibrate_judge(
     gold, label_levels = c("a", "b", "c"), n_boot = 200, seed = 1
   )
-  expect_true(all(cal$agreement$status == "insufficient_reference_variation"))
-  expect_true(all(is.na(cal$agreement$estimate)))
-  expect_true(all(is.na(cal$agreement$interpretation)))
+  expect_all(cal$agreement$status == "insufficient_reference_variation")
+  expect_all(is.na(cal$agreement$estimate))
+  expect_all(is.na(cal$agreement$interpretation))
   expect_false(any(cal$agreement$ci_reliable))
   # The same table re-derived through agreement() keeps the reference rule.
-  expect_true(all(
+  expect_all(
     agreement(cal, n_boot = 50)$status == "insufficient_reference_variation"
-  ))
+  )
   checks <- report(cal, policy = edge_policy())$checks
   expect_identical(
     checks$status[checks$check == "agreement_gwet_ac1"], "INDETERMINATE"
@@ -151,7 +151,7 @@ test_that("the default policy coefficient follows the calibration's weights", {
   )
   expect_error(
     report(ordinal, policy = edge_policy(coefficient = "gwet_ac1")),
-    "did not compute"
+    class = "yourhonor_policy_error"
   )
 })
 

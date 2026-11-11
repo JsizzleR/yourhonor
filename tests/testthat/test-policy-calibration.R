@@ -32,7 +32,7 @@ test_that("a policy coefficient the calibration lacks is an error", {
   policy$coefficient <- "cohen_kappa"
   expect_error(
     report(make_cal(), policy = policy, output = "md"),
-    "cohen_kappa.*did not compute"
+    "cohen_kappa.*did not compute", class = "yourhonor_policy_error"
   )
 })
 
@@ -243,8 +243,8 @@ test_that("min_precision gates per-class precision end to end", {
     cal$confusion_metrics$precision_conf_low[cal$confusion_metrics$label == "P"]
   )
   global <- report(cal, policy = make_policy(min_precision = 0.5), output = "md")
-  expect_true(all(c("precision_I", "precision_P", "precision_C") %in%
-    global$checks$check))
+  expect_all(c("precision_I", "precision_P", "precision_C") %in%
+    global$checks$check)
 })
 
 test_that("a policy naming an unknown class is NOT_ASSESSED, not ignored", {
@@ -301,9 +301,9 @@ test_that("a calibration at another confidence level withholds intervals", {
   )
   rows <- rep$checks[rep$checks$check %in% interval_checks, ]
   expect_identical(nrow(rows), length(interval_checks))
-  expect_true(all(rows$status == "INDETERMINATE"))
-  expect_true(all(is.na(rows$value)))
-  expect_true(all(grepl("confidence level does not match", rows$reason)))
+  expect_all(rows$status == "INDETERMINATE")
+  expect_all(is.na(rows$value))
+  expect_all(grepl("confidence level does not match", rows$reason))
   expect_identical(check_status(rep, "usable_items"), "PASS")
   expect_identical(check_status(rep, "calibration_missing_rate"), "PASS")
   expect_identical(check_status(rep, "class_support"), "PASS")
@@ -347,7 +347,8 @@ test_that("a default coefficient the calibration lacks is NOT_ASSESSED", {
   )
   # Naming the uncomputed coefficient is still a configuration error.
   expect_error(
-    report(kappa_only, policy = make_policy()), "gwet_ac1.*did not compute"
+    report(kappa_only, policy = make_policy()), "gwet_ac1.*did not compute",
+    class = "yourhonor_policy_error"
   )
 })
 

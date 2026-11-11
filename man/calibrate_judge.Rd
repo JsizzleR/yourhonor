@@ -155,7 +155,8 @@ in the gold set. Both are excluded from agreement and counted in
 \code{n_excluded}, which \code{\link[=acceptance_policy]{acceptance_policy()}}'s \code{max_missing_rate} bounds;
 its optional \code{max_abstention_rate} bounds the abstention interval alone,
 because a judge that abstains on hard items looks more accurate on the
-items it did answer.
+items it did answer. A numeric \code{NaN}, in a gold column or from \code{judge}, is
+read as \code{NA}, never as the label \code{"NaN"}.
 }
 
 \examples{

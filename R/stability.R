@@ -83,20 +83,21 @@ test_retest <- function(data,
                         n_boot = 1000,
                         audit_id = NULL) {
   if (!is.function(judge)) {
-    cli::cli_abort("{.arg judge} must be a function to re-run for stability.")
+    yh_abort("{.arg judge} must be a function to re-run for stability.")
   }
   n_runs <- check_count(n_runs, minimum = 2L)
   n_boot <- check_count(n_boot)
   audit_id <- check_audit_id(audit_id)
   conf_level <- check_probability(conf_level, open = TRUE)
+  seed <- check_seed(seed)
   weights <- rlang::arg_match(weights)
   if (weights != "unweighted" && is.null(label_levels)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg label_levels} is required for weighted stability; ordinal order cannot be inferred."
     )
   }
   data <- tibble::as_tibble(data)
-  if (nrow(data) < 1L) cli::cli_abort("{.arg data} must contain at least one item.")
+  if (nrow(data) < 1L) yh_abort("{.arg data} must contain at least one item.")
   if (!is.null(seed)) withr::local_seed(seed)
   judge_input <- redacted_judge_input(data, input_cols, id_col = id_col)
 
@@ -147,14 +148,14 @@ summarize_stability_runs <- function(runs,
   runs <- as.matrix(runs)
   storage.mode(runs) <- "character"
   if (nrow(runs) < 1L || ncol(runs) < 2L) {
-    cli::cli_abort(
+    yh_abort(
       "Stability ratings need at least one item and two runs.",
       call = call
     )
   }
   n_runs <- ncol(runs)
   if (all(is.na(runs))) {
-    cli::cli_abort("Every stability judgment was missing.", call = call)
+    yh_abort("Every stability judgment was missing.", call = call)
   }
   label_levels <- resolve_label_levels(
     as.data.frame(runs, stringsAsFactors = FALSE),
@@ -220,43 +221,65 @@ summarize_stability_runs <- function(runs,
     boot$stability, n_boot, stability_boundary_degenerate
   )
 
-  structure(
-    list(
-      per_item = per_item,
-      runs = runs,
-      any_flip_rate_at_n_runs = any_flip,
-      any_flip_rate_worst_case = any_flip_worst_case,
-      pairwise_disagreement = pairwise_disagreement,
-      pairwise_disagreement_conf_low = boot$pairwise$conf_low,
-      pairwise_disagreement_conf_high = boot$pairwise$conf_high,
-      pairwise_disagreement_worst_case = mean(worst_case),
-      pairwise_disagreement_worst_case_high = worst_case_high,
-      stability = chance$estimate,
-      stability_conf_low = boot$stability$conf_low,
-      stability_conf_high = boot$stability$conf_high,
-      stability_status = chance$status,
-      stability_boundary_degenerate = stability_boundary_degenerate,
-      percent_agreement = pairwise,
-      missing_rate = mean(is.na(runs)),
-      n_runs = n_runs,
-      n_items = nrow(runs),
-      n_items_scored = sum(is.finite(item_disagreement)),
-      n_items_complete = sum(complete),
-      label_levels = label_levels,
-      weights = weights,
-      stability_coefficient = if (weights == "unweighted") "gwet_ac1" else "gwet_ac2",
-      conf_level = conf_level,
-      n_boot = n_boot,
-      pairwise_n_boot_effective = boot$pairwise$n_effective,
-      stability_n_boot_effective = boot$stability$n_effective,
-      n_boot_effective = min(boot$pairwise$n_effective, boot$stability$n_effective),
-      pairwise_ci_reliable = pairwise_ci_reliable,
-      stability_ci_reliable = stability_ci_reliable,
-      ci_reliable = pairwise_ci_reliable && stability_ci_reliable,
-      audit_id = audit_id
-    ),
-    class = "yourhonor_stability"
-  )
+  new_yourhonor_stability(list(
+    per_item = per_item,
+    runs = runs,
+    any_flip_rate_at_n_runs = any_flip,
+    any_flip_rate_worst_case = any_flip_worst_case,
+    pairwise_disagreement = pairwise_disagreement,
+    pairwise_disagreement_conf_low = boot$pairwise$conf_low,
+    pairwise_disagreement_conf_high = boot$pairwise$conf_high,
+    pairwise_disagreement_worst_case = mean(worst_case),
+    pairwise_disagreement_worst_case_high = worst_case_high,
+    stability = chance$estimate,
+    stability_conf_low = boot$stability$conf_low,
+    stability_conf_high = boot$stability$conf_high,
+    stability_status = chance$status,
+    stability_boundary_degenerate = stability_boundary_degenerate,
+    percent_agreement = pairwise,
+    missing_rate = mean(is.na(runs)),
+    n_runs = n_runs,
+    n_items = nrow(runs),
+    n_items_scored = sum(is.finite(item_disagreement)),
+    n_items_complete = sum(complete),
+    label_levels = label_levels,
+    weights = weights,
+    stability_coefficient = if (weights == "unweighted") "gwet_ac1" else "gwet_ac2",
+    conf_level = conf_level,
+    n_boot = n_boot,
+    pairwise_n_boot_effective = boot$pairwise$n_effective,
+    stability_n_boot_effective = boot$stability$n_effective,
+    n_boot_effective = min(boot$pairwise$n_effective, boot$stability$n_effective),
+    pairwise_ci_reliable = pairwise_ci_reliable,
+    stability_ci_reliable = stability_ci_reliable,
+    ci_reliable = pairwise_ci_reliable && stability_ci_reliable,
+    audit_id = audit_id
+  ))
+}
+
+# Every field of a yourhonor_stability, in order. new_yourhonor_stability()
+# refuses any other set, and report() and write_audit() validate supplied
+# stability evidence against these names, so the constructor and the
+# validation cannot drift apart. Entry points may append fields after them
+# (`judge_item_ids`, `provenance`).
+stability_fields <- c(
+  "per_item", "runs", "any_flip_rate_at_n_runs", "any_flip_rate_worst_case",
+  "pairwise_disagreement", "pairwise_disagreement_conf_low",
+  "pairwise_disagreement_conf_high", "pairwise_disagreement_worst_case",
+  "pairwise_disagreement_worst_case_high", "stability", "stability_conf_low",
+  "stability_conf_high", "stability_status", "stability_boundary_degenerate",
+  "percent_agreement", "missing_rate", "n_runs", "n_items", "n_items_scored",
+  "n_items_complete", "label_levels", "weights", "stability_coefficient",
+  "conf_level", "n_boot", "pairwise_n_boot_effective",
+  "stability_n_boot_effective", "n_boot_effective", "pairwise_ci_reliable",
+  "stability_ci_reliable", "ci_reliable", "audit_id"
+)
+
+new_yourhonor_stability <- function(fields) {
+  if (!identical(names(fields), stability_fields)) {
+    cli::cli_abort("Internal error: stability fields do not match the schema.")
+  }
+  structure(fields, class = "yourhonor_stability")
 }
 
 #' @export

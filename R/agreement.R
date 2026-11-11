@@ -154,7 +154,7 @@ agreement <- function(x,
     weights = missing(weights)
   )
   if (inherit && !is.null(rater_cols)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg rater_cols} cannot be combined with a calibration object."
     )
   }
@@ -178,13 +178,13 @@ agreement <- function(x,
   n_boot <- check_count(n_boot)
 
   if (weights != "unweighted" && is.null(label_levels)) {
-    cli::cli_abort(
+    yh_abort(
       "{.arg label_levels} is required for weighted agreement; ordinal order cannot be inferred."
     )
   }
   ratings <- as_ratings(x, rater_cols)
   if (length(observed_categories(ratings)) == 0L) {
-    cli::cli_abort("{.arg x} contains no non-missing ratings.")
+    yh_abort("{.arg x} contains no non-missing ratings.")
   }
   label_levels <- resolve_label_levels(ratings, label_levels, allow_single = TRUE, arg = "x")
   compute_agreement(
@@ -215,7 +215,7 @@ resolve_coefficients <- function(coefficients,
     # A repeated name would yield identical rows that a policy cannot tell
     # apart; like a repeated label level, it is the caller's mistake to fix.
     if (anyDuplicated(coefficients)) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "{.arg {arg}} must not repeat a coefficient: ",
           "{.val {unique(coefficients[duplicated(coefficients)])}}."
@@ -247,7 +247,7 @@ compute_agreement <- function(ratings,
   label_levels <- resolve_label_levels(
     ratings, label_levels, allow_single = TRUE, call = call
   )
-  ratings[] <- lapply(ratings, as.character)
+  ratings[] <- lapply(ratings, as_labels)
   seed <- check_seed(seed, call = call)
   if (!is.null(seed)) withr::local_seed(seed)
 
@@ -889,7 +889,7 @@ as_ratings <- function(x, rater_cols = NULL, call = rlang::caller_env()) {
   }
   x <- x[, rater_cols, drop = FALSE]
   if (ncol(x) < 2L) {
-    cli::cli_abort(
+    yh_abort(
       paste0(
         "Ratings need at least two columns ",
         "(e.g. {.field human} and {.field judge})."
@@ -898,7 +898,7 @@ as_ratings <- function(x, rater_cols = NULL, call = rlang::caller_env()) {
     )
   }
   if (nrow(x) < 2L) {
-    cli::cli_abort(
+    yh_abort(
       "Need at least 2 rated items to estimate agreement.",
       call = call
     )
@@ -962,7 +962,7 @@ coeff_fit <- function(ratings,
                       label_levels = NULL,
                       chance_levels = label_levels) {
   if (coefficient == "cohen_kappa" && ncol(ratings) != 2L) {
-    cli::cli_abort(
+    yh_abort(
       "{.val cohen_kappa} is defined for exactly two raters; got {ncol(ratings)}."
     )
   }
@@ -1039,7 +1039,7 @@ resolve_gwet_coefficient <- function(coefficients,
                                      call = rlang::caller_env()) {
   if (weights == "unweighted") {
     if ("gwet_ac2" %in% coefficients) {
-      cli::cli_abort(
+      yh_abort(
         c(
           "{.val gwet_ac2} requires non-default agreement weights.",
           i = paste0(
@@ -1055,7 +1055,7 @@ resolve_gwet_coefficient <- function(coefficients,
   }
   if ("gwet_ac1" %in% coefficients) {
     if (!auto) {
-      cli::cli_abort(
+      yh_abort(
         paste0(
           "Weighted Gwet agreement is AC2, not AC1. Request {.val gwet_ac2} ",
           "or leave {.arg coefficients} as {.code NULL} to select it ",

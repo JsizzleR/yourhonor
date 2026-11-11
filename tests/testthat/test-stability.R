@@ -94,6 +94,54 @@ test_that("weighted stability reports AC2 with a usable interval", {
   expect_gte(st$stability_conf_high, st$stability)
 })
 
+test_that("linear and quadratic stability is AC2, as agreement() and irrCAC score it", {
+  levels <- c("1", "2", "3", "4")
+  data <- tibble::tibble(input = paste("answer", 1:40))
+  # Every fifth item flips up one category on half its runs: near misses
+  # only, which a weighted coefficient credits in part.
+  judge <- function(d) {
+    item <- as.integer(sub("answer ", "", d$input, fixed = TRUE))
+    base <- (item %% 4L) + 1L
+    flip <- item %% 5L == 0L & runif(nrow(d)) < 0.5
+    as.character(pmin(base + flip, 4L))
+  }
+  runs <- function(weights) {
+    test_retest(
+      data, judge, input_cols = "input", n_runs = 3, label_levels = levels,
+      weights = weights, n_boot = 50, seed = 3
+    )
+  }
+  unweighted <- runs("unweighted")
+  estimates <- c(unweighted = unweighted$stability)
+  for (weights in c("linear", "quadratic")) {
+    st <- runs(weights)
+    expect_identical(st$weights, weights)
+    expect_identical(st$stability_coefficient, "gwet_ac2")
+    expect_identical(st$stability_status, "ok")
+    # The same seed draws the same runs; only the coefficient changes.
+    expect_identical(st$runs, unweighted$runs)
+    expect_identical(
+      st$pairwise_disagreement, unweighted$pairwise_disagreement
+    )
+    rated <- as.data.frame(st$runs)
+    ag <- agreement(
+      rated, rater_cols = names(rated), coefficients = "gwet_ac2",
+      label_levels = levels, weights = weights, n_boot = 30
+    )
+    expect_equal(st$stability, ag$estimate, info = weights)
+    oracle <- irrCAC::gwet.ac1.raw(
+      rated, weights = weights, categ.labels = levels
+    )$est$coeff.val
+    expect_equal(st$stability, oracle, tolerance = 1e-5, info = weights)
+    expect_lte(st$stability_conf_low, st$stability)
+    expect_gte(st$stability_conf_high, st$stability)
+    estimates[[weights]] <- st$stability
+  }
+  # Quadratic weights credit a one-step miss more than linear ones do.
+  expect_lt(estimates[["unweighted"]], estimates[["linear"]])
+  expect_lt(estimates[["linear"]], estimates[["quadratic"]])
+})
+
 test_that("fewer than two items with paired runs is insufficient_items", {
   one_scored <- matrix(c("C", NA, "P", NA, "C", NA), nrow = 3)
   st <- yourhonor:::summarize_stability_runs(one_scored, n_boot = 20)
@@ -110,7 +158,7 @@ test_that("fewer than two items with paired runs is insufficient_items", {
   expect_identical(st$stability_status, "insufficient_items")
   expect_error(
     yourhonor:::summarize_stability_runs(matrix(NA_character_, 2, 2)),
-    "Every stability judgment was missing"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -131,7 +179,7 @@ test_that("chance-corrected estimate and status are computed together", {
 })
 
 test_that("resampling the per-item vector matches the matrix statistic", {
-  set.seed(3)
+  withr::local_seed(3)
   runs <- matrix(sample(c("C", "P", NA), 60, replace = TRUE), nrow = 20)
   d <- yourhonor:::item_pairwise_disagreement(runs)
   idx <- sample.int(20, 20, replace = TRUE)
@@ -187,23 +235,29 @@ test_that("missing grades are counted and not treated as a label", {
 test_that("invalid run counts and labels error", {
   data <- tibble::tibble(input = "x")
   judge <- function(d) "C"
-  expect_error(test_retest(data, judge, n_runs = 1), "n_runs")
-  expect_error(test_retest(data, judge, n_runs = 0), "n_runs")
+  expect_error(
+    test_retest(data, judge, n_runs = 1), "n_runs",
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    test_retest(data, judge, n_runs = 0), "n_runs",
+    class = "yourhonor_input_error"
+  )
   expect_error(
     test_retest(data, function(d) "garbage", n_runs = 2,
                 input_cols = "input", label_levels = c("I", "C")),
-    "outside"
+    class = "yourhonor_judge_error"
   )
   expect_error(
     test_retest(data, judge, n_runs = 2, weights = "ordinal"),
-    "label_levels"
+    "label_levels", class = "yourhonor_input_error"
   )
   expect_error(
     test_retest(
       data, judge, input_cols = "input", n_runs = 2,
       label_levels = c("C", "C")
     ),
-    "unique"
+    class = "yourhonor_input_error"
   )
   err <- rlang::catch_cnd(test_retest(data, judge, n_runs = 1))
   expect_identical(rlang::call_name(err$call), "test_retest")
@@ -307,13 +361,13 @@ test_that("stability printing shows both intervals", {
     input_cols = "input", n_runs = 3, label_levels = c("I", "C"),
     n_boot = 30, seed = 1
   )
-  expect_snapshot(print(st), cran = TRUE)
+  expect_snapshot(print(st))
   flat <- test_retest(
     tibble::tibble(input = paste("answer", 1:6)), function(d) rep("C", nrow(d)),
     input_cols = "input", n_runs = 2, label_levels = c("I", "C"),
     n_boot = 30, seed = 1
   )
-  expect_snapshot(print(flat), cran = TRUE)
+  expect_snapshot(print(flat))
 })
 
 test_that("inferred factor levels are unioned with observed run labels", {

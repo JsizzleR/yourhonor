@@ -7,12 +7,13 @@ test_that("inferred label levels include labels only the judge used", {
   )
   cal <- calibrate_judge(gold, n_boot = 20, seed = 1)
   expect_identical(cal$label_levels, c("A", "B"))
-  expect_true(all(cal$agreement$status == "insufficient_reference_variation"))
+  expect_all(cal$agreement$status == "insufficient_reference_variation")
 
   # Supplied levels are still a contract on the judge's labels.
   expect_error(
     calibrate_judge(gold, label_levels = c("A", "C"), n_boot = 20, seed = 1),
-    "`judge_label` returned label outside `label_levels`"
+    "`judge_label` returned label outside `label_levels`",
+    class = "yourhonor_input_error"
   )
 })
 
@@ -37,7 +38,8 @@ test_that("a live judge's labels are inferred after grading", {
       gold, judge = judge, input_cols = "text", label_levels = c("A", "C"),
       n_boot = 20, seed = 1
     ),
-    "`judge` returned label outside `label_levels`"
+    "`judge` returned label outside `label_levels`",
+    class = "yourhonor_judge_error"
   )
 
   factor_judge <- function(d) {
@@ -71,17 +73,17 @@ test_that("structured judges may return keys as their exact string forms", {
   padded <- structured(function(id) sprintf("%02d", id))
   expect_error(
     calibrate_judge(gold, judge = padded, input_cols = "text", n_boot = 20),
-    "every input key exactly once"
+    class = "yourhonor_judge_error"
   )
   fractional <- structured(function(id) id + 0.5)
   expect_error(
     calibrate_judge(gold, judge = fractional, input_cols = "text", n_boot = 20),
-    "fractional or out-of-range key"
+    class = "yourhonor_judge_error"
   )
   logical_keys <- structured(function(id) rep(TRUE, length(id)))
   expect_error(
     calibrate_judge(gold, judge = logical_keys, input_cols = "text", n_boot = 20),
-    "keys must be the issued integer keys"
+    class = "yourhonor_judge_error"
   )
 })
 
@@ -91,11 +93,11 @@ test_that("a repeated coefficient is rejected", {
   )
   expect_error(
     calibrate_judge(gold, coefficients = c("gwet_ac1", "gwet_ac1"), n_boot = 20),
-    "must not repeat a coefficient"
+    class = "yourhonor_input_error"
   )
   expect_error(
     agreement(gold, coefficients = c("cohen_kappa", "gwet_ac1", "cohen_kappa")),
-    "must not repeat a coefficient"
+    class = "yourhonor_input_error"
   )
 })
 
@@ -161,6 +163,6 @@ test_that("ordinal label_levels must follow an ordered factor's order", {
   # Without label_levels the error names the order an ordered factor declares.
   expect_error(
     calibrate_judge(support_gold, scale = "ordinal", n_boot = 20),
-    "I < P < C"
+    "I < P < C", class = "yourhonor_input_error"
   )
 })

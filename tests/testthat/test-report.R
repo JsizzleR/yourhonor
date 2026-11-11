@@ -193,8 +193,8 @@ test_that("a required position probe flows through report() and write_audit()", 
   policy <- make_policy(required_probes = c("verbosity", "position"))
   rep <- report(make_cal(), bias = combined, policy = policy, output = "md")
   expect_identical(rep$decision, "PASS")
-  expect_true(all(c("bias_position", "bias_position_direction",
-    "bias_position_n", "bias_position_missing_rate") %in% rep$checks$check))
+  expect_all(c("bias_position", "bias_position_direction",
+    "bias_position_n", "bias_position_missing_rate") %in% rep$checks$check)
   expect_match(
     paste(format(rep), collapse = "\n"),
     "Required bias probes cleared the declared policy gates"

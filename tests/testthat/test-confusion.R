@@ -74,29 +74,29 @@ test_that("a declared but unobserved label has undefined metrics", {
 test_that("confusion errors are explicit", {
   expect_error(
     confusion(data.frame(human = c(NA, NA), judge = c("C", "P"))),
-    "No complete"
+    class = "yourhonor_input_error"
   )
   expect_error(
     confusion(data.frame(a = "C", b = "C", c = "C")),
-    "human_col"
+    "human_col", class = "yourhonor_input_error"
   )
   expect_error(
     confusion(data.frame(human = "C", judge = "C"), human_col = "human"),
-    "both"
+    class = "yourhonor_input_error"
   )
   expect_error(
     confusion(
       data.frame(human = "C", judge = "C"), human_col = "human",
       judge_col = "human"
     ),
-    "different"
+    class = "yourhonor_input_error"
   )
   expect_error(
     confusion(
       data.frame(human = "C", judge = "C"), human_col = "human",
       judge_col = "nope"
     ),
-    "nope"
+    "nope", class = "yourhonor_input_error"
   )
 })
 
@@ -180,24 +180,26 @@ test_that("explicit columns cannot be combined with a calibration", {
   )
   expect_error(
     confusion(cal, human_col = "zzz", judge_col = "yyy"),
-    "cannot be combined with a calibration"
+    "cannot be combined with a calibration", class = "yourhonor_input_error"
   )
   expect_error(
     confusion(cal, human_col = "human_label"),
-    "cannot be combined with a calibration"
+    "cannot be combined with a calibration", class = "yourhonor_input_error"
   )
   expect_error(
     confusion_metrics(cal, judge_col = "judge_label"),
-    "cannot be combined with a calibration"
+    "cannot be combined with a calibration", class = "yourhonor_input_error"
   )
   expect_error(
     confusion_metrics(confusion(cal), human_col = "a", judge_col = "b"),
-    "cannot be combined with a confusion tibble"
+    "cannot be combined with a confusion tibble",
+    class = "yourhonor_input_error"
   )
   conf <- confusion(data.frame(human = c("C", "P"), judge = c("C", "P")))
   expect_error(
     confusion_metrics(conf, human_col = "human"),
-    "cannot be combined with a confusion tibble"
+    "cannot be combined with a confusion tibble",
+    class = "yourhonor_input_error"
   )
 })
 
@@ -241,6 +243,7 @@ test_that("confusion_metrics applies label_levels to cached metrics", {
   expect_error(
     confusion_metrics(conf, label_levels = c("C", "P")),
     'Observed label not present in `label_levels`: "I"',
+    class = "yourhonor_input_error",
     fixed = TRUE
   )
   cal <- calibrate_judge(
@@ -258,24 +261,27 @@ test_that("duplicated column names are rejected before selection", {
   names(ratings) <- c("human", "human")
   expect_error(
     confusion(ratings, human_col = "human", judge_col = "judge"),
-    "duplicated column name: human"
+    "duplicated column name: human", class = "yourhonor_input_error"
   )
-  expect_error(confusion(ratings), "duplicated column name: human")
+  expect_error(
+    confusion(ratings), "duplicated column name: human",
+    class = "yourhonor_input_error"
+  )
   twice <- data.frame(1, 2, 3, 4)
   names(twice) <- c("human", "human", "judge", "judge")
   expect_error(
     confusion(twice, human_col = "human", judge_col = "judge"),
-    "duplicated column names: human and judge"
+    "duplicated column names: human and judge", class = "yourhonor_input_error"
   )
 })
 
 test_that("a 0/0 proportion is NA, not 0", {
   ratings <- data.frame(human = c("C", "P", "C"), judge = c("C", "P", "P"))
   row <- confusion(ratings, normalize = "row", label_levels = c("I", "P", "C"))
-  expect_true(all(is.na(row$prop[row$human_label == "I"])))
+  expect_all(is.na(row$prop[row$human_label == "I"]))
   expect_false(anyNA(row$prop[row$human_label != "I"]))
   col <- confusion(ratings, normalize = "col", label_levels = c("I", "P", "C"))
-  expect_true(all(is.na(col$prop[col$judge_label == "I"])))
+  expect_all(is.na(col$prop[col$judge_label == "I"]))
   expect_false(anyNA(col$prop[col$judge_label != "I"]))
   # An observed cell with no count is still a defined 0.
   expect_equal(row$prop[row$human_label == "C" & row$judge_label == "I"], 0)
@@ -293,16 +299,23 @@ test_that("confusion_metrics takes conf_level for a ratings data frame", {
   )
   expect_identical(m80, expected)
   m95 <- confusion_metrics(ratings, label_levels = levels)
-  expect_true(all(m80$recall_conf_low >= m95$recall_conf_low))
+  expect_all(m80$recall_conf_low >= m95$recall_conf_low)
   expect_true(any(m80$recall_conf_low > m95$recall_conf_low))
   expect_error(
-    confusion_metrics(ratings, conf_level = 1), "conf_level"
+    confusion_metrics(ratings, conf_level = 1), "conf_level",
+    class = "yourhonor_input_error"
   )
   # Stored metrics keep the level they were computed at.
   cal <- calibrate_judge(
     ratings, human_cols = "human", judge_col = "judge",
     label_levels = levels, n_boot = 20, seed = 1
   )
-  expect_error(confusion_metrics(cal, conf_level = 0.8), "conf_level")
-  expect_error(confusion_metrics(confusion(cal), conf_level = 0.8), "conf_level")
+  expect_error(
+    confusion_metrics(cal, conf_level = 0.8), "conf_level",
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    confusion_metrics(confusion(cal), conf_level = 0.8), "conf_level",
+    class = "yourhonor_input_error"
+  )
 })

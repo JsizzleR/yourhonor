@@ -59,7 +59,7 @@ test_that("native resample values equal irrCAC on random data", {
     oracle_calls <<- oracle_calls + 1L
     oracle(...)
   })
-  set.seed(20261111)
+  withr::local_seed(20261111)
   weight_schemes <- c("unweighted", "linear", "quadratic", "ordinal")
   scored <- 0L
   single_category <- 0L
@@ -264,7 +264,7 @@ test_that("native stability resample values equal chance_corrected_stability()",
     oracle_calls <<- oracle_calls + 1L
     oracle(...)
   })
-  set.seed(20261112)
+  withr::local_seed(20261112)
   weight_schemes <- c("unweighted", "linear", "quadratic", "ordinal")
   scored <- 0L
   unscored <- 0L
