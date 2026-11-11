@@ -1,5 +1,5 @@
-# The bootstrap scores resamples natively; irrCAC, through
-# safe_coeff_point(), is the oracle every native value must equal.
+# The bootstraps score resamples natively; irrCAC, through safe_coeff_point()
+# and chance_corrected_stability(), is the oracle every native value must equal.
 
 # The bootstrap as it was: one irrCAC call per resample per coefficient.
 irrcac_bootstrap <- function(ratings, coefficients, n_boot, weights,
@@ -212,4 +212,202 @@ test_that("kappa's native path is refused for more than two raters", {
     agreement_kernel_draws(kernel, matrix(1, 3, 1), "cohen_kappa"),
     "two raters"
   )
+})
+
+# The stability bootstrap as it was: one chance_corrected_stability() call
+# per resample, and so one irrCAC call for each resample past its
+# availability checks.
+irrcac_stability_bootstrap <- function(runs, item_disagreement, n_boot,
+                                       conf_level, weights, label_levels,
+                                       chance_levels, worst_case) {
+  n <- nrow(runs)
+  pairwise <- numeric(n_boot)
+  worst <- numeric(n_boot)
+  stability <- numeric(n_boot)
+  for (i in seq_len(n_boot)) {
+    idx <- sample.int(n, n, replace = TRUE)
+    pairwise[[i]] <- mean_or_na(item_disagreement[idx])
+    worst[[i]] <- mean_or_na(worst_case[idx])
+    stability[[i]] <- chance_corrected_stability(
+      runs[idx, , drop = FALSE], weights, label_levels, chance_levels
+    )$estimate
+  }
+  list(
+    pairwise = widen_to_wilson(
+      bootstrap_quantiles(pairwise, conf_level), item_disagreement, conf_level
+    ),
+    worst_case = widen_to_wilson(
+      bootstrap_quantiles(worst, conf_level), worst_case, conf_level
+    ),
+    stability = bootstrap_quantiles(stability, conf_level)
+  )
+}
+
+# Random runs: items judged in some runs and not others (some with one
+# judgment or none), runs missing on most items, and declared levels no run
+# used.
+random_runs <- function(n_items, n_runs, levels, used, missing) {
+  probs <- stats::runif(length(used)) + 0.2
+  runs <- matrix(
+    sample(used, n_items * n_runs, TRUE, probs), n_items, n_runs
+  )
+  runs[stats::runif(n_items * n_runs) < missing] <- NA
+  sparse <- sample.int(n_runs, 1)
+  runs[stats::runif(n_items) < 0.8, sparse] <- NA
+  runs
+}
+
+test_that("native stability resample values equal chance_corrected_stability()", {
+  oracle_calls <- 0L
+  oracle <- chance_corrected_stability
+  local_mocked_bindings(chance_corrected_stability = function(...) {
+    oracle_calls <<- oracle_calls + 1L
+    oracle(...)
+  })
+  set.seed(20261112)
+  weight_schemes <- c("unweighted", "linear", "quadratic", "ordinal")
+  scored <- 0L
+  unscored <- 0L
+  few_items <- 0L
+  single_category <- 0L
+  unused_level_cases <- 0L
+  fallbacks <- 0L
+  for (case in seq_len(48)) {
+    weights <- weight_schemes[[(case - 1L) %% 4L + 1L]]
+    n_levels <- sample(2:5, 1)
+    levels <- as.character(seq_len(n_levels))
+    used <- if (n_levels > 2L && case %% 3L == 0L) {
+      sort(sample(levels, n_levels - 1L))
+    } else {
+      levels
+    }
+    n_runs <- sample(2:5, 1)
+    n_items <- if (case %% 5L == 0L) sample(2:6, 1) else sample(8:60, 1)
+    runs <- random_runs(
+      n_items, n_runs, levels, used,
+      missing = if (case %% 4L < 2L) 0.3 else 0.05
+    )
+    if (all(is.na(runs))) next
+    chance <- chance_categories(runs, levels)
+    kernel <- stability_kernel(runs, weights, levels, chance)
+    idx <- replicate(40, sample.int(n_items, n_items, TRUE))
+    before <- oracle_calls
+    native <- stability_resample_values(
+      kernel, runs, idx, weights, levels, chance
+    )
+    fallbacks <- fallbacks + oracle_calls - before
+    expected <- vapply(seq_len(ncol(idx)), function(j) {
+      oracle(runs[idx[, j], , drop = FALSE], weights, levels, chance)$estimate
+    }, numeric(1))
+    expect_identical(native, expected, info = paste("case", case, weights))
+    usable <- rowSums(!is.na(runs)) >= 2L
+    enough <- colSums(matrix(usable[idx], n_items)) >= 2L
+    few_items <- few_items + sum(!enough)
+    single_category <- single_category + sum(vapply(
+      which(enough), function(j) {
+        samp <- runs[idx[, j], , drop = FALSE]
+        samp <- samp[rowSums(!is.na(samp)) >= 2L, , drop = FALSE]
+        length(unique(stats::na.omit(as.vector(samp)))) < 2L
+      }, logical(1)
+    ))
+    if (length(setdiff(levels, runs)) > 0L) {
+      unused_level_cases <- unused_level_cases + 1L
+    }
+    unscored <- unscored + sum(is.na(expected))
+    scored <- scored + sum(!is.na(expected))
+  }
+  # Resamples with fewer than two usable items and with a single category,
+  # and runs with declared levels nobody used, were compared, and irrCAC
+  # scored only the rare value the native arithmetic could not vouch for
+  # (the boundary test below makes it score one).
+  expect_gt(few_items, 0)
+  expect_gt(single_category, 0)
+  expect_gt(unused_level_cases, 0)
+  expect_gte(unscored, few_items + single_category)
+  expect_gt(scored, 1000)
+  expect_lt(fallbacks / scored, 0.01)
+})
+
+test_that("a stability resample on a rounding boundary is scored by irrCAC", {
+  # Linear AC2 is 1/64 = 0.015625 here, halfway between two five-decimal
+  # values: the native sums round it down to 0.01562 and irrCAC's own sums
+  # round it up to 0.01563, so irrCAC must score it.
+  runs <- matrix(
+    c("b", "a", "b", "b", "c", "b", "b", "c", "b", "c",
+      "c", "c", "b", "a", "a"),
+    nrow = 5
+  )
+  levels <- c("a", "b", "c")
+  expected <- chance_corrected_stability(runs, "linear", levels, levels)
+  expect_identical(expected$estimate, 0.01563)
+  kernel <- stability_kernel(runs, "linear", levels, levels)
+  raw <- agreement_kernel_draws(kernel, matrix(1, 5, 1), "gwet_ac1")$gwet_ac1
+  expect_true(raw$oracle)
+  expect_false(identical(raw$value, expected$estimate))
+  expect_identical(
+    stability_resample_values(
+      kernel, runs, matrix(seq_len(5), ncol = 1), "linear", levels, levels
+    ),
+    expected$estimate
+  )
+})
+
+test_that("the native stability bootstrap draws what the irrCAC loop drew", {
+  levels <- c("I", "P", "C")
+  complete <- cbind(
+    rep(c("I", "P", "C", "C", "P"), 6),
+    rep(c("I", "C", "C", "P", "P"), 6),
+    rep(c("I", "C", "P", "P", "P"), 6)
+  )
+  holes <- cbind(
+    rep(c("I", "P", "C", "C", NA), 5),
+    rep(c("I", NA, "C", "P", NA), 5),
+    rep(c("P", "P", NA, "C", "I"), 5)
+  )
+  # One usable item: every resample is insufficient_items or draws it twice.
+  lone <- cbind(c("I", NA, NA, "C"), c("P", "C", NA, NA))
+  for (weights in c("unweighted", "ordinal", "quadratic")) {
+    for (runs in list(complete, holes, lone)) {
+      d <- item_pairwise_disagreement(runs)
+      wc <- item_worst_case_disagreement(runs, d)
+      chance <- chance_categories(runs, levels)
+      old <- withr::with_seed(3, irrcac_stability_bootstrap(
+        runs, d, 120, 0.9, weights, levels, chance, wc
+      ))
+      # A chunk of seven columns at most: chunking must not move a draw.
+      new <- withr::with_seed(3, bootstrap_stability(
+        runs, d, 120, 0.9, weights, levels, chance, wc,
+        chunk_cells = 7L * nrow(runs)
+      ))
+      expect_identical(new, old, info = weights)
+      whole <- withr::with_seed(3, bootstrap_stability(
+        runs, d, 120, 0.9, weights, levels, chance, wc
+      ))
+      expect_identical(whole, old, info = weights)
+    }
+  }
+})
+
+test_that("the stability bootstrap holds one chunk of resamples at a time", {
+  runs <- cbind(rep(c("I", "P", "C"), 10), rep(c("I", "C", "C"), 10))
+  widths <- integer(0)
+  states <- list()
+  local_mocked_bindings(
+    stability_resample_values = function(kernel, runs, idx, ...) {
+      widths <<- c(widths, ncol(idx))
+      states[[length(states) + 1L]] <<- get(".Random.seed", globalenv())
+      rep(0, ncol(idx))
+    }
+  )
+  levels <- c("I", "P", "C")
+  d <- item_pairwise_disagreement(runs)
+  withr::with_seed(8, bootstrap_stability(
+    runs, d, 95, 0.95, "unweighted", levels, levels, chunk_cells = 300L
+  ))
+  expect_identical(widths, c(rep(10L, 9), 5L))
+  expected <- withr::with_seed(8, lapply(widths, function(width) {
+    for (i in seq_len(width)) sample.int(30L, 30L, replace = TRUE)
+    get(".Random.seed", globalenv())
+  }))
+  expect_identical(states, expected)
 })

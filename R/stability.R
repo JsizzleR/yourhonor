@@ -393,6 +393,13 @@ wilson_interval <- function(probability, n, conf_level) {
 # the resampled label matrix. All three use the same item draw so the
 # intervals describe the same resamples; each worst-case draw is at least the
 # draw of every completion of the missing judgments.
+#
+# The draws are those of one sample.int(n, n, replace = TRUE) per iteration,
+# drawn and scored a chunk at a time as bootstrap_coefficients() does, so the
+# index and count matrices never exceed one chunk (bootstrap_chunk_cells, or
+# one resample when n is larger) however large n_boot is. The chance-corrected
+# draw is scored natively (stability_resample_values()), with
+# chance_corrected_stability() as its oracle.
 bootstrap_stability <- function(runs,
                                 item_disagreement,
                                 n_boot,
@@ -400,18 +407,29 @@ bootstrap_stability <- function(runs,
                                 weights,
                                 label_levels,
                                 chance_levels = label_levels,
-                                worst_case = item_disagreement) {
+                                worst_case = item_disagreement,
+                                chunk_cells = bootstrap_chunk_cells) {
   n <- nrow(runs)
   pairwise <- numeric(n_boot)
   worst <- numeric(n_boot)
   stability <- numeric(n_boot)
-  for (i in seq_len(n_boot)) {
-    idx <- sample.int(n, n, replace = TRUE)
-    pairwise[[i]] <- mean_or_na(item_disagreement[idx])
-    worst[[i]] <- mean_or_na(worst_case[idx])
-    stability[[i]] <- chance_corrected_stability(
-      runs[idx, , drop = FALSE], weights, label_levels, chance_levels
-    )$estimate
+  if (n_boot >= 1L) {
+    kernel <- stability_kernel(runs, weights, label_levels, chance_levels)
+    chunk <- max(1L, min(n_boot, chunk_cells %/% n))
+    resample_mean <- function(x, idx) {
+      vapply(seq_len(ncol(idx)), function(j) mean_or_na(x[idx[, j]]),
+             numeric(1))
+    }
+    for (first in seq(1L, n_boot, by = chunk)) {
+      iters <- first:min(n_boot, first + chunk - 1L)
+      idx <- matrix(0L, n, length(iters))
+      for (j in seq_along(iters)) idx[, j] <- sample.int(n, n, replace = TRUE)
+      pairwise[iters] <- resample_mean(item_disagreement, idx)
+      worst[iters] <- resample_mean(worst_case, idx)
+      stability[iters] <- stability_resample_values(
+        kernel, runs, idx, weights, label_levels, chance_levels
+      )
+    }
   }
   list(
     pairwise = widen_to_wilson(
@@ -422,6 +440,54 @@ bootstrap_stability <- function(runs,
     ),
     stability = bootstrap_quantiles(stability, conf_level)
   )
+}
+
+# The native terms of chance_corrected_stability() over the items it can
+# score: those with at least two judgments, every one in a chance category
+# (chance_categories() is taken over exactly those items). NULL when no
+# resample can be scored: no such item, or fewer than two chance categories,
+# so every resample observes at most one.
+stability_kernel <- function(runs, weights, label_levels, chance_levels) {
+  usable <- which(rowSums(!is.na(runs)) >= 2L)
+  if (length(usable) == 0L || length(chance_levels) < 2L) return(NULL)
+  kernel <- agreement_kernel(
+    runs[usable, , drop = FALSE], weights, label_levels, chance_levels
+  )
+  kernel$usable <- usable
+  kernel
+}
+
+# Each resample's chance-corrected value, given its item indices into `runs`
+# as the columns of `idx`: what chance_corrected_stability() gives on
+# runs[idx[, j], ]. A resample keeps only its items with two judgments, so its
+# counts are those items' counts; one with fewer than two such items is
+# insufficient_items and one that observes a single category is
+# insufficient_variation, both NA. Every other value is native unless
+# agreement_kernel_draws() cannot vouch for it, and chance_corrected_stability()
+# (irrCAC) then scores that resample from the rows, in the order, it would
+# have been given.
+stability_resample_values <- function(kernel,
+                                      runs,
+                                      idx,
+                                      weights,
+                                      label_levels,
+                                      chance_levels) {
+  if (is.null(kernel)) return(rep(NA_real_, ncol(idx)))
+  counts <- apply(idx, 2L, tabulate, nbins = nrow(runs))
+  dim(counts) <- dim(idx)
+  counts <- counts[kernel$usable, , drop = FALSE]
+  native <- agreement_kernel_draws(kernel, counts, "gwet_ac1")$gwet_ac1
+  value <- native$value
+  oracle <- native$oracle
+  few <- colSums(counts) < 2
+  value[few] <- NA_real_
+  oracle[few] <- FALSE
+  for (j in which(oracle)) {
+    value[[j]] <- chance_corrected_stability(
+      runs[idx[, j], , drop = FALSE], weights, label_levels, chance_levels
+    )$estimate
+  }
+  value
 }
 
 # A sample with no observed disagreement bootstraps to a zero-width interval at
