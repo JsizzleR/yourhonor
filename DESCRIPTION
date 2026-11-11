@@ -24,6 +24,7 @@ Depends:
 Imports:
     cli,
     irrCAC,
+    jsonlite,
     rlang (>= 1.1.0),
     stats,
     tibble,
@@ -31,7 +32,6 @@ Imports:
     withr
 Suggests:
     ggplot2,
-    jsonlite,
     knitr,
     rmarkdown,
     testthat (>= 3.0.0)

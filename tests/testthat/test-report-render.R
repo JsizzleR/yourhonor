@@ -232,7 +232,7 @@ test_that("evidence the report validates carries every field it requires", {
 
 test_that("policies print their gates", {
   minimal <- render_policy(coefficient = NULL)
-  expect_snapshot(print(minimal), cran = TRUE)
+  expect_snapshot(print(minimal))
   expect_invisible(print(minimal))
   expect_identical(withVisible(print(minimal))$value, minimal)
 
@@ -245,7 +245,7 @@ test_that("policies print their gates", {
     max_probe_flip_rate = 0.1, max_probe_directional_rate = 0.1,
     max_probe_missing_rate = 0.01, conf_level = 0.9
   )
-  expect_snapshot(print(full), cran = TRUE)
+  expect_snapshot(print(full))
 })
 
 test_that("interval labels keep the confidence level's digits", {
