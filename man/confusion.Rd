@@ -34,8 +34,10 @@ calibration object, which carries its own pairing.}
 }
 \value{
 A tibble with \code{human_label}, \code{judge_label}, \code{n}, and \code{prop}, in
-\code{label_levels} order. The resolved level order is attached as the
-\code{"label_levels"} attribute. Per-class metrics remain attached for
+\code{label_levels} order. \code{prop} is \code{NA} where its denominator is zero (the
+row of a human label never observed under \code{normalize = "row"}, or the
+column of a judge label never used under \code{normalize = "col"}). The
+resolved level order is attached as the \code{"label_levels"} attribute. Per-class metrics remain attached for
 compatibility and are also available through \code{\link[=confusion_metrics]{confusion_metrics()}}.
 }
 \description{

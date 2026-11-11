@@ -268,3 +268,41 @@ test_that("duplicated column names are rejected before selection", {
     "duplicated column names: human and judge"
   )
 })
+
+test_that("a 0/0 proportion is NA, not 0", {
+  ratings <- data.frame(human = c("C", "P", "C"), judge = c("C", "P", "P"))
+  row <- confusion(ratings, normalize = "row", label_levels = c("I", "P", "C"))
+  expect_true(all(is.na(row$prop[row$human_label == "I"])))
+  expect_false(anyNA(row$prop[row$human_label != "I"]))
+  col <- confusion(ratings, normalize = "col", label_levels = c("I", "P", "C"))
+  expect_true(all(is.na(col$prop[col$judge_label == "I"])))
+  expect_false(anyNA(col$prop[col$judge_label != "I"]))
+  # An observed cell with no count is still a defined 0.
+  expect_equal(row$prop[row$human_label == "C" & row$judge_label == "I"], 0)
+})
+
+test_that("confusion_metrics takes conf_level for a ratings data frame", {
+  ratings <- data.frame(
+    human = c("C", "C", "P", "I", "C", "P", "I", "C"),
+    judge = c("C", "C", "C", "I", "C", "P", "P", "C")
+  )
+  levels <- c("I", "P", "C")
+  m80 <- confusion_metrics(ratings, label_levels = levels, conf_level = 0.8)
+  expected <- attr(
+    confusion(ratings, label_levels = levels, conf_level = 0.8), "metrics"
+  )
+  expect_identical(m80, expected)
+  m95 <- confusion_metrics(ratings, label_levels = levels)
+  expect_true(all(m80$recall_conf_low >= m95$recall_conf_low))
+  expect_true(any(m80$recall_conf_low > m95$recall_conf_low))
+  expect_error(
+    confusion_metrics(ratings, conf_level = 1), "conf_level"
+  )
+  # Stored metrics keep the level they were computed at.
+  cal <- calibrate_judge(
+    ratings, human_cols = "human", judge_col = "judge",
+    label_levels = levels, n_boot = 20, seed = 1
+  )
+  expect_error(confusion_metrics(cal, conf_level = 0.8), "conf_level")
+  expect_error(confusion_metrics(confusion(cal), conf_level = 0.8), "conf_level")
+})

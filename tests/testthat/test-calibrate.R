@@ -21,7 +21,7 @@ test_that("multiple human raters produce reliability and per-rater evidence", {
     label_levels = c("I", "P", "C"), n_boot = 100, seed = 1
   )
   expect_false(is.null(cal$human_reliability))
-  expect_identical(cal$human_ceiling, cal$human_reliability)
+  expect_false("human_ceiling" %in% names(cal))
   expect_setequal(
     cal$human_reliability$coefficient,
     c("krippendorff_alpha", "gwet_ac1")
@@ -80,7 +80,7 @@ test_that("single human rater has no reliability benchmark", {
     make_gold(), label_levels = c("I", "P", "C"), n_boot = 50, seed = 1
   )
   expect_null(cal$human_reliability)
-  expect_null(cal$human_ceiling)
+  expect_false("human_ceiling" %in% names(cal))
 })
 
 test_that("missing human columns and duplicate IDs error", {
@@ -595,5 +595,123 @@ test_that("structured output is character and cannot carry the judge key", {
   graded <- grade_blind(function(d) rep("C", nrow(d)), gold["input"], "C")
   expect_named(
     graded, c("label", "label_levels", "visible_output", "blinding_map")
+  )
+})
+
+test_that("a degenerate interval prints as degenerate with the exact bound", {
+  gold <- tibble::tibble(
+    human_label = rep(c("a", "b"), 10),
+    judge_label = rep(c("a", "b"), 10)
+  )
+  cal <- calibrate_judge(gold, n_boot = 200, seed = 1)
+  expect_true(all(cal$agreement$boundary_degenerate))
+  # Whitespace is normalised because cli wraps at the console width.
+  out <- gsub("\\s+", " ", paste(cli::cli_fmt(print(cal)), collapse = " "))
+  exact <- fmt_num(cal$agreement$conf_low_exact[[1]])
+  expect_no_match(out, "[1.00, 1.00]", fixed = TRUE)
+  expect_match(
+    out,
+    paste0("cohen_kappa: 1.00 [degenerate; exact lower bound ", exact,
+           "] (almost perfect)"),
+    fixed = TRUE
+  )
+})
+
+test_that("gold columns the result writes are reserved", {
+  base <- tibble::tibble(
+    human_label = c("a", "b", "a", "b"),
+    judge_label = c("a", "b", "b", "b")
+  )
+  for (col in c("agree", ".judge_item_id")) {
+    gold <- base
+    gold[[col]] <- 1:4
+    expect_error(
+      calibrate_judge(gold, n_boot = 20, seed = 1),
+      paste0(col, ".*reserved"),
+      info = col
+    )
+  }
+  multi <- tibble::tibble(
+    h1 = c("a", "b", "a", "b"), h2 = c("a", "b", "a", "b"),
+    judge_label = c("a", "b", "b", "b")
+  )
+  for (col in c("human_consensus", "n_human_observed", "consensus_tie")) {
+    gold <- multi
+    gold[[col]] <- 1:4
+    expect_error(
+      calibrate_judge(gold, human_cols = c("h1", "h2"), n_boot = 20, seed = 1),
+      paste0(col, ".*reserved"),
+      info = col
+    )
+    # One rater writes no consensus columns, so the name is free there.
+    single <- base
+    single[[col]] <- 1:4
+    cal <- calibrate_judge(single, n_boot = 20, seed = 1)
+    expect_identical(cal$items[[col]], 1:4, info = col)
+  }
+  # A live judge's labels are written under `judge_col`, so it is reserved too.
+  live <- tibble::tibble(x = letters[1:4], human_label = c("a", "b", "a", "b"))
+  expect_error(
+    calibrate_judge(
+      live, judge = function(d) rep("a", nrow(d)), input_cols = "x",
+      judge_col = "agree", n_boot = 20, seed = 1
+    ),
+    "`judge_col`.*reserved"
+  )
+})
+
+test_that("an unstructured judge must return an atomic vector without dim", {
+  gold <- tibble::tibble(x = letters[1:4], human_label = c("a", "b", "a", "b"))
+  for (judge in list(
+    function(d) matrix(c("a", "b", "a", "b"), 2, 2),
+    function(d) list(list("a"), list("b"), list("a"), list("b")),
+    function(d) list("a", "b", "a", "b"),
+    function(d) array(c("a", "b", "a", "b"))
+  )) {
+    expect_error(
+      calibrate_judge(gold, judge = judge, input_cols = "x", n_boot = 20),
+      "atomic vector"
+    )
+  }
+  cal <- calibrate_judge(
+    gold, judge = function(d) c("a", "b", "a", "b")[d$.item_id],
+    input_cols = "x", n_boot = 20, seed = 1
+  )
+  expect_identical(cal$n_items, 4L)
+})
+
+test_that("input_cols is refused without a judge function", {
+  expect_error(
+    calibrate_judge(make_gold(), input_cols = "input", n_boot = 20),
+    "input_cols.*judge = NULL"
+  )
+  expect_error(
+    calibrate_judge(make_gold(), input_cols = "nonexistent", n_boot = 20),
+    "input_cols.*judge = NULL"
+  )
+  cal <- calibrate_judge(make_gold(), n_boot = 20, seed = 1)
+  expect_null(cal$input_cols)
+  expect_identical(cal$provenance$input_cols, character(0))
+})
+
+test_that("a structured judge's label column must be atomic without dim", {
+  gold <- tibble::tibble(x = letters[1:4], human_label = c("a", "b", "a", "b"))
+  judge <- function(d) {
+    out <- tibble::tibble(.item_id = d$.item_id)
+    out$label <- lapply(c("a", "b", "a", "b"), list)
+    out
+  }
+  expect_error(
+    calibrate_judge(gold, judge = judge, input_cols = "x", n_boot = 20),
+    "label.*atomic vector"
+  )
+  matrix_judge <- function(d) {
+    out <- tibble::tibble(.item_id = d$.item_id)
+    out$label <- matrix(rep("a", 2 * nrow(d)), ncol = 2)
+    out
+  }
+  expect_error(
+    calibrate_judge(gold, judge = matrix_judge, input_cols = "x", n_boot = 20),
+    "label.*atomic vector"
   )
 })

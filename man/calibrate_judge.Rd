@@ -29,7 +29,8 @@ calibrate_judge(
 precomputed labels from \code{judge_col}.}
 
 \item{input_cols}{Columns visible to \code{judge}. Required when \code{judge} is a
-function. Human columns and \code{judge_col} are forbidden.}
+function, and refused when \code{judge = NULL}, where no judge receives them.
+Human columns and \code{judge_col} are forbidden.}
 
 \item{id_col}{Optional unique item identifier. A sequential internal ID is
 generated when omitted.}
@@ -44,11 +45,13 @@ human-reliability benchmark.}
 \item{label_levels}{Complete label universe in intended order. Labels are
 matched exactly (case and whitespace are significant) and empty labels are
 rejected; represent a failed judgement as \code{NA}. Required for
-\code{scale = "ordinal"}. When \code{NULL}, the universe is inferred from the human
-and judge labels together: when factor columns (or a judge returning a
-factor) declare at least two levels between them, those levels come
-first, then any other observed label; otherwise the observed labels in
-the order first seen. A label
+\code{scale = "ordinal"}, where a warning is raised when it orders the levels
+of an ordered factor column (a human column, or \code{judge_col} when
+\code{judge = NULL}) neither forwards nor reversed. When \code{NULL}, the universe
+is inferred from the human and judge labels together: when factor
+columns (or a judge returning a factor) declare at least two levels
+between them, those levels come first, then any other observed label;
+otherwise the observed labels in the order first seen. A label
 only the judge used is then a category, not an error; when
 \code{label_levels} is supplied, every human and judge label must be in it.}
 
@@ -74,16 +77,16 @@ evidence so \code{\link[=report]{report()}} can prevent accidental cross-run bun
 \value{
 A \code{yourhonor_calibration} object with agreement, confusion and
 per-class metrics, human reliability, judge-versus-each-rater agreement,
-item-level evidence, label metadata, and provenance. \code{human_ceiling} remains
-as a compatibility alias for \code{human_reliability} but is no longer described
-as an upper bound.
+item-level evidence, label metadata, and provenance.
 
 Item-level elements:
 \itemize{
 \item \code{items}: \code{gold} plus \code{.item_id} (source-row key), \code{.judge_item_id}
 (the shuffled key the judge saw; \code{NA} when \code{judge = NULL}), the judge
 label, \code{agree}, and for several raters \code{human_consensus},
-\code{n_human_observed}, and \code{consensus_tie}.
+\code{n_human_observed}, and \code{consensus_tie}. These names are reserved: a
+\code{gold} column (or \code{judge_col}) using one is an error rather than being
+overwritten.
 \item \code{judge_output}: the judge's own returned rows, in the order returned
 by the judge, keyed by \code{.judge_item_id} with \code{.item_id} joined in and
 \code{label} as character; \code{NULL} when \code{judge = NULL}. The judge must not

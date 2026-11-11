@@ -120,3 +120,45 @@ test_that("all-missing ratings name the actual problem", {
   expect_match(conditionMessage(err), "no non-missing ratings")
   expect_no_match(conditionMessage(err), "label_levels")
 })
+
+test_that("ordinal label_levels must follow an ordered factor's order", {
+  # support_gold's label columns are ordered I < P < C.
+  expect_warning(
+    scrambled <- calibrate_judge(
+      support_gold, scale = "ordinal", label_levels = c("C", "I", "P"),
+      n_boot = 20, seed = 1
+    ),
+    "human_label.*I < P < C"
+  )
+  expect_identical(scrambled$label_levels, c("C", "I", "P"))
+  # Forwards and reversed are both order-consistent; so is a superset.
+  for (levels in list(c("I", "P", "C"), c("C", "P", "I"), c("I", "X", "P", "C"))) {
+    expect_no_warning(
+      calibrate_judge(
+        support_gold, scale = "ordinal", label_levels = levels,
+        n_boot = 20, seed = 1
+      )
+    )
+  }
+  # A nominal scale has no order to contradict.
+  expect_no_warning(
+    calibrate_judge(
+      support_gold, label_levels = c("C", "I", "P"), n_boot = 20, seed = 1
+    )
+  )
+  # The precomputed judge column is checked as well as the human columns.
+  judge_only <- support_gold
+  judge_only$human_label <- as.character(judge_only$human_label)
+  expect_warning(
+    calibrate_judge(
+      judge_only, scale = "ordinal", label_levels = c("P", "I", "C"),
+      n_boot = 20, seed = 1
+    ),
+    "judge_label"
+  )
+  # Without label_levels the error names the order an ordered factor declares.
+  expect_error(
+    calibrate_judge(support_gold, scale = "ordinal", n_boot = 20),
+    "I < P < C"
+  )
+})

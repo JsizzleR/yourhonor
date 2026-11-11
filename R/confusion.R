@@ -18,8 +18,10 @@
 #'   calibration object, which carries its own pairing.
 #'
 #' @return A tibble with `human_label`, `judge_label`, `n`, and `prop`, in
-#'   `label_levels` order. The resolved level order is attached as the
-#'   `"label_levels"` attribute. Per-class metrics remain attached for
+#'   `label_levels` order. `prop` is `NA` where its denominator is zero (the
+#'   row of a human label never observed under `normalize = "row"`, or the
+#'   column of a judge label never used under `normalize = "col"`). The
+#'   resolved level order is attached as the `"label_levels"` attribute. Per-class metrics remain attached for
 #'   compatibility and are also available through [confusion_metrics()].
 #' @export
 #' @examples
@@ -86,8 +88,10 @@ build_confusion <- function(x,
     row = ave(df$n, df$human_label, FUN = sum),
     col = ave(df$n, df$judge_label, FUN = sum)
   )
+  # 0/0 is an undefined share, not a zero one. A zero denominator has only
+  # zero counts beneath it, so NaN is the one non-finite case.
   prop <- df$n / denom
-  prop[!is.finite(prop)] <- 0
+  prop[is.nan(prop)] <- NA_real_
   df$prop <- prop
 
   out <- tibble::as_tibble(df)
@@ -217,12 +221,18 @@ infer_confusion_cols <- function(x, call = rlang::caller_env()) {
 #'   with zero-support rows for labels not seen.
 #' @param human_col,judge_col Passed to [confusion()] for a ratings data frame.
 #'   Cannot be combined with a calibration object or a confusion tibble.
+#' @param conf_level Confidence level for the exact per-class intervals of a
+#'   ratings data frame; `NULL` uses 0.95. A calibration object or a confusion
+#'   tibble keeps the level its metrics were computed at, so `conf_level`
+#'   cannot be combined with one: set it in [calibrate_judge()] or
+#'   [confusion()] instead.
 #' @return A tibble with one row per label.
 #' @export
 confusion_metrics <- function(x,
                               label_levels = NULL,
                               human_col = NULL,
-                              judge_col = NULL) {
+                              judge_col = NULL,
+                              conf_level = NULL) {
   call <- rlang::current_env()
   is_calibration <- inherits(x, "yourhonor_calibration")
   cached <- if (is_calibration) {
@@ -233,10 +243,20 @@ confusion_metrics <- function(x,
   if (!is.null(cached)) {
     what <- if (is_calibration) "a calibration object" else "a confusion tibble"
     check_no_column_selection(human_col, judge_col, what = what, call = call)
+    if (!is.null(conf_level)) {
+      cli::cli_abort(
+        paste0(
+          "{.arg conf_level} cannot be combined with {what}, whose metrics ",
+          "keep the level they were computed at."
+        ),
+        call = call
+      )
+    }
     return(reindex_class_metrics(cached, label_levels, call = call))
   }
+  if (is.null(conf_level)) conf_level <- 0.95
   conf <- build_confusion(
-    x, "none", label_levels, 0.95, human_col, judge_col, call = call
+    x, "none", label_levels, conf_level, human_col, judge_col, call = call
   )
   attr(conf, "metrics", exact = TRUE)
 }

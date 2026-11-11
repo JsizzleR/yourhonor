@@ -4,7 +4,13 @@
 \alias{confusion_metrics}
 \title{Per-class judge metrics}
 \usage{
-confusion_metrics(x, label_levels = NULL, human_col = NULL, judge_col = NULL)
+confusion_metrics(
+  x,
+  label_levels = NULL,
+  human_col = NULL,
+  judge_col = NULL,
+  conf_level = NULL
+)
 }
 \arguments{
 \item{x}{A \code{yourhonor_calibration} object, a confusion tibble returned by
@@ -17,6 +23,12 @@ with zero-support rows for labels not seen.}
 
 \item{human_col, judge_col}{Passed to \code{\link[=confusion]{confusion()}} for a ratings data frame.
 Cannot be combined with a calibration object or a confusion tibble.}
+
+\item{conf_level}{Confidence level for the exact per-class intervals of a
+ratings data frame; \code{NULL} uses 0.95. A calibration object or a confusion
+tibble keeps the level its metrics were computed at, so \code{conf_level}
+cannot be combined with one: set it in \code{\link[=calibrate_judge]{calibrate_judge()}} or
+\code{\link[=confusion]{confusion()}} instead.}
 }
 \value{
 A tibble with one row per label.

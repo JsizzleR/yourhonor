@@ -49,7 +49,8 @@
 #' @param judge A function receiving the redacted judge input, or `NULL` to read
 #'   precomputed labels from `judge_col`.
 #' @param input_cols Columns visible to `judge`. Required when `judge` is a
-#'   function. Human columns and `judge_col` are forbidden.
+#'   function, and refused when `judge = NULL`, where no judge receives them.
+#'   Human columns and `judge_col` are forbidden.
 #' @param id_col Optional unique item identifier. A sequential internal ID is
 #'   generated when omitted.
 #' @param human_cols Human-rater columns. Supplying more than one enables the
@@ -60,11 +61,13 @@
 #' @param label_levels Complete label universe in intended order. Labels are
 #'   matched exactly (case and whitespace are significant) and empty labels are
 #'   rejected; represent a failed judgement as `NA`. Required for
-#'   `scale = "ordinal"`. When `NULL`, the universe is inferred from the human
-#'   and judge labels together: when factor columns (or a judge returning a
-#'   factor) declare at least two levels between them, those levels come
-#'   first, then any other observed label; otherwise the observed labels in
-#'   the order first seen. A label
+#'   `scale = "ordinal"`, where a warning is raised when it orders the levels
+#'   of an ordered factor column (a human column, or `judge_col` when
+#'   `judge = NULL`) neither forwards nor reversed. When `NULL`, the universe
+#'   is inferred from the human and judge labels together: when factor
+#'   columns (or a judge returning a factor) declare at least two levels
+#'   between them, those levels come first, then any other observed label;
+#'   otherwise the observed labels in the order first seen. A label
 #'   only the judge used is then a category, not an error; when
 #'   `label_levels` is supplied, every human and judge label must be in it.
 #' @param scale Whether labels are nominal or ordinal.
@@ -83,15 +86,15 @@
 #'
 #' @return A `yourhonor_calibration` object with agreement, confusion and
 #'   per-class metrics, human reliability, judge-versus-each-rater agreement,
-#'   item-level evidence, label metadata, and provenance. `human_ceiling` remains
-#'   as a compatibility alias for `human_reliability` but is no longer described
-#'   as an upper bound.
+#'   item-level evidence, label metadata, and provenance.
 #'
 #'   Item-level elements:
 #'   * `items`: `gold` plus `.item_id` (source-row key), `.judge_item_id`
 #'     (the shuffled key the judge saw; `NA` when `judge = NULL`), the judge
 #'     label, `agree`, and for several raters `human_consensus`,
-#'     `n_human_observed`, and `consensus_tie`.
+#'     `n_human_observed`, and `consensus_tie`. These names are reserved: a
+#'     `gold` column (or `judge_col`) using one is an error rather than being
+#'     overwritten.
 #'   * `judge_output`: the judge's own returned rows, in the order returned
 #'     by the judge, keyed by `.judge_item_id` with `.item_id` joined in and
 #'     `label` as character; `NULL` when `judge = NULL`. The judge must not
@@ -148,6 +151,15 @@ calibrate_judge <- function(gold,
   if (judge_col %in% human_cols) {
     cli::cli_abort("{.arg judge_col} must differ from every {.arg human_cols} entry.")
   }
+  check_reserved_gold_cols(gold, human_cols, judge_col)
+  if (is.null(judge) && !is.null(input_cols)) {
+    cli::cli_abort(
+      paste0(
+        "{.arg input_cols} names the columns a judge function sees; with ",
+        "{.code judge = NULL} no judge receives them."
+      )
+    )
+  }
   missing_humans <- setdiff(human_cols, names(gold))
   if (length(missing_humans) > 0L) {
     cli::cli_abort(
@@ -155,8 +167,25 @@ calibrate_judge <- function(gold,
     )
   }
   human_source <- gold[human_cols]
+  # Gold columns whose declared order an ordinal `label_levels` must respect.
+  ordered_sources <- human_source
+  if (is.null(judge) && judge_col %in% names(gold)) {
+    ordered_sources[[judge_col]] <- gold[[judge_col]]
+  }
+  ordered_sources <- Filter(is.ordered, as.list(ordered_sources))
   if (scale == "ordinal" && is.null(label_levels)) {
-    cli::cli_abort("{.arg label_levels} is required when {.code scale = 'ordinal'}.")
+    hint <- if (length(ordered_sources) > 0L) {
+      name <- names(ordered_sources)[[1]]
+      order <- paste(inferred_factor_levels(ordered_sources[[1]]), collapse = " < ")
+      c(i = paste0(
+        "{.field {name}} is an ordered factor ({order}); pass those levels ",
+        "as {.arg label_levels} to use that order."
+      ))
+    }
+    cli::cli_abort(c(
+      "{.arg label_levels} is required when {.code scale = 'ordinal'}.",
+      hint
+    ))
   }
   # Supplied levels are checked against the human labels here and against the
   # judge's labels as they are graded. Left NULL, the universe is inferred
@@ -166,6 +195,7 @@ calibrate_judge <- function(gold,
   if (length(human_levels) == 0L) {
     cli::cli_abort("Human ratings contain no observed labels.")
   }
+  if (scale == "ordinal") check_ordinal_order(human_levels, ordered_sources)
   if (is.null(weights)) weights <- if (scale == "ordinal") "ordinal" else "unweighted"
   weights <- rlang::arg_match(weights, c("unweighted", "linear", "quadratic", "ordinal"))
   if (scale == "nominal" && weights != "unweighted") {
@@ -305,7 +335,6 @@ calibrate_judge <- function(gold,
       confusion = conf,
       confusion_metrics = conf_metrics,
       human_reliability = human_reliability,
-      human_ceiling = human_reliability,
       per_rater_agreement = per_rater,
       items = items,
       ratings = ratings_full,
@@ -351,7 +380,15 @@ print.yourhonor_calibration <- function(x, ...) {
   cli::cli_ul()
   for (i in seq_len(nrow(x$agreement))) {
     ag <- x$agreement[i, ]
-    if (ag$status == "ok") {
+    if (ag$status == "ok" && isTRUE(ag$boundary_degenerate)) {
+      # A zero-width bootstrap pinned at the boundary is not an interval;
+      # the exact bound is the usable one (see `agreement()`).
+      cli::cli_li(paste0(
+        "{.strong {ag$coefficient}}: {fmt_num(ag$estimate)} ",
+        "[degenerate; exact lower bound {fmt_num(ag$conf_low_exact)}] ",
+        "({ag$interpretation})"
+      ))
+    } else if (ag$status == "ok") {
       # One string: `cli_li()`'s second positional argument is `labels`, so
       # a second fragment would be swallowed rather than printed.
       cli::cli_li(paste0(
@@ -398,6 +435,70 @@ print.yourhonor_calibration <- function(x, ...) {
   }
   cli::cli_alert_info("No deployment decision is implied; call report() with a policy to assess one.")
   invisible(x)
+}
+
+# Columns `calibrate_judge()` writes into `items`. A gold column of the same
+# name would be silently replaced there, and `judge_col` is written over
+# whatever it names. The consensus columns exist only for several raters, so a
+# single-rater gold set may use those names freely.
+calibration_output_cols <- function(n_raters) {
+  c(
+    ".judge_item_id", "agree",
+    if (n_raters > 1L) c("human_consensus", "n_human_observed", "consensus_tie")
+  )
+}
+
+check_reserved_gold_cols <- function(gold,
+                                     human_cols,
+                                     judge_col,
+                                     call = rlang::caller_env()) {
+  reserved <- calibration_output_cols(length(human_cols))
+  clash <- intersect(names(gold), reserved)
+  if (length(clash) > 0L) {
+    cli::cli_abort(
+      paste0(
+        "{.arg gold} {cli::qty(length(clash))}column{?s} {.field {clash}} ",
+        "{?is/are} reserved for the calibration's item table; rename ",
+        "{?it/them}."
+      ),
+      call = call
+    )
+  }
+  if (judge_col %in% c(".item_id", reserved)) {
+    cli::cli_abort(
+      "{.arg judge_col} {.val {judge_col}} is reserved for the calibration's item table.",
+      call = call
+    )
+  }
+  invisible(NULL)
+}
+
+# An ordinal `label_levels` sets the weights, so one that scrambles an ordered
+# factor's declared order changes the coefficients without any error. Forwards
+# and reversed orders weight alike; labels outside the factor are ignored.
+check_ordinal_order <- function(label_levels, ordered_sources) {
+  bad <- character(0)
+  for (name in names(ordered_sources)) {
+    declared <- inferred_factor_levels(ordered_sources[[name]])
+    supplied <- label_levels[label_levels %in% declared]
+    expected <- declared[declared %in% supplied]
+    if (!identical(supplied, expected) && !identical(supplied, rev(expected))) {
+      bad[[name]] <- paste(declared, collapse = " < ")
+    }
+  }
+  if (length(bad) == 0L) return(invisible(NULL))
+  # Column names and labels are data; escape them before cli interpolates.
+  escape <- function(x) gsub("}", "}}", gsub("{", "{{", x, fixed = TRUE), fixed = TRUE)
+  lines <- paste0(escape(names(bad)), ": ", escape(bad))
+  cli::cli_warn(c(
+    paste0(
+      "{.arg label_levels} orders the levels of {cli::qty(length(bad))}",
+      "{?an ordered factor column/ordered factor columns} neither forwards ",
+      "nor reversed:"
+    ),
+    stats::setNames(lines, rep("*", length(lines))),
+    i = "Ordinal weights follow {.arg label_levels} as supplied."
+  ))
 }
 
 # A judge abstention is a missing judge label on an item that has a human
@@ -676,6 +777,17 @@ grade_keyed <- function(judge,
         call = call
       )
     }
+    # The same shape contract as an unstructured return: a list column would
+    # become deparsed labels and a matrix column is several labels per row.
+    if (!is.atomic(out$label) || !is.null(dim(out$label))) {
+      cli::cli_abort(
+        paste0(
+          "{context} column {.field label} must be an atomic vector (one ",
+          "label per row, with no {.code dim}), not {.cls {class(out$label)}}."
+        ),
+        call = call
+      )
+    }
     output <- tibble::as_tibble(out)
     for (col in key_cols) {
       output[[col]] <- align_output_key(
@@ -699,6 +811,19 @@ grade_keyed <- function(judge,
     # returned.
     output$label <- as.character(output$label)
   } else {
+    # A matrix would be read column-major and a list would yield deparsed
+    # labels such as `list("b")`, so only a plain vector is one label per row.
+    if (!is.atomic(out) || !is.null(dim(out))) {
+      cli::cli_abort(
+        paste0(
+          "The judge must return an atomic vector of labels (one per row, ",
+          "with no {.code dim}) or a data frame with {.field label} and ",
+          "{cli::qty(length(key_cols))}key column{?s} {.field {key_cols}}, ",
+          "not {.cls {class(out)}}."
+        ),
+        call = call
+      )
+    }
     if (length(out) != nrow(data)) {
       cli::cli_abort(
         paste0(
