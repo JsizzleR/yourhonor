@@ -88,56 +88,245 @@ as.character.yourhonor_report <- function(x, ...) {
   format(x, output = "md")
 }
 
-render_console_report <- function(report) {
-  x <- report$calibration
-  bias <- report$bias
-  stability <- report$stability
-  policy <- report$policy
-  head <- headline_row(x, policy)
+# Report sections -------------------------------------------------------------
+#
+# A report is one list of sections, built once and rendered twice: the
+# console and Markdown renderers differ only in how they draw a block and in
+# the inline styles (`style`) the sections are written with. A section added
+# here appears in both renderings; it cannot be written for one and forgotten
+# in the other, which is how the two hand-written renderers drifted.
+#
+# A section returns a list of blocks:
+#   title  the decision and the usable-item count; each renderer frames it
+#          its own way (a console rule, a Markdown heading);
+#   para   one sentence or paragraph;
+#   list   a labelled list of items (a heading in Markdown);
+#   note   a paragraph the console raises as an alert (`kind`).
+report_sections <- function(report, style) {
+  c(
+    title_section(report),
+    agreement_section(report, style),
+    class_section(report, style),
+    reliability_section(report, style),
+    bias_section(report, style),
+    stability_section(report, style),
+    binding_section(report, style),
+    checks_section(report, style)
+  )
+}
 
-  cli::cli_h1("yourhonor assessment: {report$decision}")
-  cli::cli_text("Judge evidence: n = {x$n_items} of {x$n_input}.")
-  print_agreement_line(head)
-  print_class_lines(x$confusion_metrics)
-  reliability <- human_reliability_gwet(x)
-  if (!is.null(reliability)) {
-    cli::cli_text(
-      "Human reliability benchmark: {reliability$coefficient} = ",
-      "{fmt_num(reliability$estimate)}."
+block_para <- function(text) list(list(type = "para", text = text))
+
+# A list with nothing in it reads as not available in both renderings, never
+# as an empty heading or bullet.
+block_list <- function(label, items) {
+  if (length(items) == 0L) {
+    return(block_para(paste0(label, ": not available.")))
+  }
+  list(list(type = "list", label = label, items = items))
+}
+
+block_note <- function(text, kind = c("info", "warning")) {
+  list(list(type = "note", text = text, kind = rlang::arg_match(kind)))
+}
+
+# Inline styles. The console ones go through cli's own theme, so the plain
+# text matches the Markdown with its markup removed.
+console_inline <- function(markup) {
+  force(markup)
+  function(x) {
+    vapply(x, function(one) {
+      cli::format_inline(paste0("{", markup, " {one}}"))
+    }, character(1), USE.NAMES = FALSE)
+  }
+}
+
+report_styles <- list(
+  console = list(
+    name = "console",
+    strong = console_inline(".strong"),
+    val = console_inline(".val"),
+    code = console_inline(".code")
+  ),
+  md = list(
+    name = "md",
+    strong = function(x) paste0("**", x, "**"),
+    val = function(x) paste0("`", x, "`"),
+    code = function(x) paste0("`", x, "`")
+  )
+)
+
+title_section <- function(report) {
+  x <- report$calibration
+  list(list(
+    type = "title", decision = report$decision,
+    n_items = x$n_items, n_input = x$n_input
+  ))
+}
+
+# The headline labels the bootstrap interval and shows the exact lower bound
+# beside it, because a policy assesses the smaller of the two: an interval
+# printed bare read as the bound the check compared when it was not.
+agreement_section <- function(report, style) {
+  x <- report$calibration
+  head <- headline_row(x, report$policy)
+  if (!identical(head$status, "ok")) {
+    return(block_para(sprintf(
+      "Agreement with humans (%s): not estimable (%s).",
+      head$coefficient, head$status
+    )))
+  }
+  exact <- head$conf_low_exact
+  exact_text <- if (length(exact) == 1L && is.finite(exact)) {
+    paste0(", exact lower bound ", fmt_num(exact))
+  } else {
+    ""
+  }
+  interval <- if (isTRUE(head$boundary_degenerate)) {
+    paste0(
+      conf_level_label(x$conf_level),
+      "bootstrap interval degenerate (zero width at the boundary)"
+    )
+  } else {
+    sprintf(
+      "%sbootstrap interval [%s, %s]",
+      conf_level_label(x$conf_level),
+      fmt_num(head$conf_low), fmt_num(head$conf_high)
     )
   }
-  if (is.null(bias)) {
-    cli::cli_text("Bias probes: NOT ASSESSED.")
-  } else {
-    cli::cli_text("{bias_summary(bias, report$checks, policy)}")
+  block_para(sprintf(
+    "Agreement with humans: %s (%s); %s%s.",
+    style$strong(paste0(head$coefficient, " = ", fmt_num(head$estimate))),
+    head$interpretation, interval, exact_text
+  ))
+}
+
+conf_level_label <- function(conf_level) {
+  if (length(conf_level) != 1L || !is.finite(conf_level)) return("")
+  # Ten significant digits: enough that no level short of 1 reads as 100%,
+  # few enough that 0.95 does not print its binary residue.
+  paste0(trimws(formatC(100 * conf_level, format = "fg", digits = 10)), "% ")
+}
+
+# Every class is listed, so a rare class with poor recall is never hidden
+# behind a single summary line.
+class_section <- function(report, style) {
+  metrics <- report$calibration$confusion_metrics
+  if (is.null(metrics)) return(block_list("Per-class evidence", character(0)))
+  block_list("Per-class evidence", sprintf(
+    "%s: support %d, precision %s, recall %s",
+    style$val(metrics$label), as.integer(metrics$support),
+    fmt_num(metrics$precision), fmt_num(metrics$recall)
+  ))
+}
+
+reliability_section <- function(report, style) {
+  reliability <- human_reliability_gwet(report$calibration)
+  if (is.null(reliability)) return(list())
+  block_para(sprintf(
+    "Human reliability benchmark: %s = %s.",
+    reliability$coefficient, fmt_num(reliability$estimate)
+  ))
+}
+
+bias_section <- function(report, style) {
+  if (is.null(report$bias)) {
+    return(block_para(paste0(
+      "Bias probes: ", style$strong("NOT ASSESSED"), "."
+    )))
   }
+  block_para(bias_summary(report$bias, report$checks, report$policy))
+}
+
+# The stability evidence is one section, so a line added to it (a further
+# bound, say) is written here once.
+stability_section <- function(report, style) {
+  stability <- report$stability
   if (is.null(stability)) {
-    cli::cli_text("Test-retest stability: NOT ASSESSED.")
-  } else {
-    cli::cli_text(
-      "Pairwise disagreement: {fmt_num(stability$pairwise_disagreement)} ",
-      "[{fmt_num(stability$pairwise_disagreement_conf_low)}, ",
-      "{fmt_num(stability$pairwise_disagreement_conf_high)}]."
-    )
+    return(block_para(paste0(
+      "Test-retest stability: ", style$strong("NOT ASSESSED"), "."
+    )))
   }
-  if (is.null(policy)) {
-    cli::cli_alert_info("Descriptive only: no acceptance policy was supplied.")
-  } else {
-    cli::cli_h2("policy checks")
-    lines <- format_check_lines(report$checks, style = "console")
-    for (line in lines) cli::cli_text("{line}")
+  block_para(sprintf(
+    "Pairwise disagreement: %s [%s, %s].",
+    fmt_num(stability$pairwise_disagreement),
+    fmt_num(stability$pairwise_disagreement_conf_low),
+    fmt_num(stability$pairwise_disagreement_conf_high)
+  ))
+}
+
+binding_section <- function(report, style) {
+  x <- report$calibration
+  if (supplied_evidence_is_bound(x, report$bias, report$stability)) {
+    return(list())
   }
-  if (!supplied_evidence_is_bound(x, bias, stability)) {
-    cli::cli_alert_warning(
-      "Supplied secondary evidence is UNBOUND; use one audit_id across all runs."
+  block_note(paste0(
+    "Evidence binding: ", style$strong("UNBOUND"), ". Use one ",
+    style$code("audit_id"), " across calibration, bias, and stability."
+  ), kind = "warning")
+}
+
+# Without a policy the checks hold one NOT_ASSESSED row saying so; it is
+# rendered like any other check rather than replaced by a separate notice.
+checks_section <- function(report, style) {
+  block_list("Assessment checks", check_items(report$checks, style$name))
+}
+
+render_console_report <- function(report) {
+  for (block in report_sections(report, report_styles$console)) {
+    switch(block$type,
+      title = {
+        cli::cli_h1("yourhonor assessment: {block$decision}")
+        cli::cli_text(
+          "Judge evidence: n = {block$n_items} of {block$n_input}."
+        )
+      },
+      para = cli::cli_text("{block$text}"),
+      list = {
+        cli::cli_text("{block$label}:")
+        cli::cli_ul()
+        for (item in block$items) cli::cli_li("{item}")
+        cli::cli_end()
+      },
+      note = if (identical(block$kind, "warning")) {
+        cli::cli_alert_warning("{block$text}")
+      } else {
+        cli::cli_alert_info("{block$text}")
+      }
     )
   }
   invisible(NULL)
 }
 
+build_markdown <- function(report) {
+  blocks <- report_sections(report, report_styles$md)
+  rendered <- lapply(blocks, function(block) {
+    switch(block$type,
+      title = c(
+        sprintf(
+          "## Judge evidence (n = %d of %d)", block$n_items, block$n_input
+        ),
+        "",
+        sprintf("Assessment: **%s**.", block$decision)
+      ),
+      para = block$text,
+      list = c(paste("###", block$label), "", paste0("- ", block$items)),
+      note = block$text
+    )
+  })
+  # Every block is its own Markdown paragraph.
+  utils::head(unlist(lapply(rendered, function(lines) c(lines, ""))), -1L)
+}
+
 # Render `value (op threshold)` for every check so a FAIL line shows how far
 # the evidence sat from its gate; the policy-less placeholder has neither.
 format_check_lines <- function(checks, style = c("console", "md")) {
+  style <- rlang::arg_match(style)
+  items <- check_items(checks, style)
+  if (style == "md") paste0("- ", items) else items
+}
+
+check_items <- function(checks, style = c("console", "md")) {
   style <- rlang::arg_match(style)
   pair <- fmt_check_pair(checks$value, checks$threshold)
   measure <- ifelse(
@@ -147,7 +336,7 @@ format_check_lines <- function(checks, style = c("console", "md")) {
   )
   if (style == "md") {
     sprintf(
-      "- **%s** `%s`%s: %s",
+      "**%s** `%s`%s: %s",
       checks$status, checks$check, measure, checks$reason
     )
   } else {
@@ -280,45 +469,71 @@ append_unscored <- function(summary, unscored) {
   )
 }
 
-validate_report_evidence <- function(x, bias, stability) {
+# The fields report() and write_audit() read from supplied evidence. They
+# are named once here, and test-report-render.R checks that the outputs of
+# probe_bias(), probe_position(), combine_bias() and test_retest() carry
+# every one, so a constructor that drops a field fails a test rather than
+# a caller's report.
+report_bias_fields <- c(
+  "probe", "flip_rate", "directional_rate", "directional_conf_low",
+  "directional_conf_high", "conf_low", "conf_high",
+  "n_scored", "n_input", "n_unscored", "statistic", "n_directional_items",
+  "missing_rate", "n_discordant", "p_value", "verdict", "status",
+  "conf_level"
+)
+
+report_stability_fields <- c(
+  "pairwise_disagreement", "pairwise_disagreement_conf_low",
+  "pairwise_disagreement_conf_high", "missing_rate", "pairwise_ci_reliable",
+  "n_items", "n_items_scored", "n_runs", "label_levels", "weights",
+  "conf_level", "n_boot", "pairwise_n_boot_effective",
+  "stability_n_boot_effective", "stability", "stability_coefficient",
+  "stability_conf_low", "stability_conf_high", "stability_status",
+  "stability_boundary_degenerate", "stability_ci_reliable", "audit_id"
+)
+
+check_evidence_fields <- function(evidence, required, arg,
+                                  call = rlang::caller_env()) {
+  missing <- setdiff(required, names(evidence))
+  if (length(missing) > 0L) {
+    cli::cli_abort(
+      paste0(
+        "{.arg {arg}} lacks required audit ",
+        "{cli::qty(missing)}field{?s} {.field {missing}}."
+      ),
+      call = call
+    )
+  }
+}
+
+validate_report_evidence <- function(x, bias, stability,
+                                     call = rlang::caller_env()) {
   if (!is.null(bias)) {
     if (!inherits(bias, "yourhonor_bias")) {
-      cli::cli_abort("{.arg bias} must be a {.cls yourhonor_bias} object.")
+      cli::cli_abort(
+        "{.arg bias} must be a {.cls yourhonor_bias} object.", call = call
+      )
     }
-    required <- c(
-      "probe", "flip_rate", "directional_rate", "directional_conf_low",
-      "directional_conf_high", "conf_low", "conf_high",
-      "n_scored", "n_input", "n_unscored", "statistic", "n_directional_items",
-      "missing_rate", "n_discordant", "p_value", "verdict", "status",
-      "conf_level"
-    )
-    if (!all(required %in% names(bias))) {
-      cli::cli_abort("{.arg bias} lacks required audit fields.")
-    }
+    check_evidence_fields(bias, report_bias_fields, "bias", call = call)
   }
   if (!is.null(stability)) {
     if (!inherits(stability, "yourhonor_stability")) {
-      cli::cli_abort("{.arg stability} must be a {.cls yourhonor_stability} object.")
+      cli::cli_abort(
+        "{.arg stability} must be a {.cls yourhonor_stability} object.",
+        call = call
+      )
     }
-    required <- c(
-      "pairwise_disagreement", "pairwise_disagreement_conf_low",
-      "pairwise_disagreement_conf_high", "missing_rate", "pairwise_ci_reliable",
-      "n_items", "n_items_scored", "n_runs", "label_levels", "weights",
-      "conf_level", "n_boot", "pairwise_n_boot_effective",
-      "stability_n_boot_effective", "stability", "stability_coefficient",
-      "stability_conf_low", "stability_conf_high", "stability_status",
-      "stability_boundary_degenerate", "stability_ci_reliable", "audit_id"
+    check_evidence_fields(
+      stability, report_stability_fields, "stability", call = call
     )
-    if (!all(required %in% names(stability))) {
-      cli::cli_abort("{.arg stability} lacks required audit fields.")
-    }
   }
 
   ids <- lapply(Filter(Negate(is.null), list(x, bias, stability)), audit_id)
   present <- unlist(Filter(is_binding_id, ids), use.names = FALSE)
   if (length(unique(present)) > 1L) {
     cli::cli_abort(
-      "Calibration, bias, and stability {.arg audit_id} values do not match."
+      "Calibration, bias, and stability {.arg audit_id} values do not match.",
+      call = call
     )
   }
   invisible(NULL)
@@ -340,102 +555,76 @@ human_reliability_gwet <- function(x) {
   list(coefficient = row$coefficient[[1]], estimate = row$estimate[[1]])
 }
 
-print_agreement_line <- function(head) {
-  if (!identical(head$status, "ok")) {
-    cli::cli_text(
-      "Agreement evidence ({head$coefficient}): not estimable ({head$status})."
+#' @export
+print.yourhonor_policy <- function(x, ...) {
+  cli::cli_h1("yourhonor acceptance policy")
+  coefficient <- if (is.null(x$coefficient)) {
+    paste(
+      "the calibration's Gwet coefficient",
+      "(gwet_ac1 unweighted, gwet_ac2 weighted)"
     )
   } else {
-    cli::cli_text(
-      "Agreement evidence: {.strong {head$coefficient}} = {fmt_num(head$estimate)} ",
-      "[{fmt_num(head$conf_low)}, {fmt_num(head$conf_high)}] ({head$interpretation})."
-    )
+    x$coefficient
   }
+  cli::cli_text("Agreement coefficient: {coefficient}.")
+  cli::cli_text("Confidence level: {fmt_check_number(x$conf_level)}.")
+
+  policy_gate_list("Calibration", c(
+    policy_gate("agreement", "lower >=", x$min_agreement_lower),
+    policy_gate("usable items", ">=", x$min_n),
+    policy_gate("class support", ">=", x$min_class_n),
+    policy_gate("recall", "lower >=", x$min_recall),
+    policy_gate("precision", "lower >=", x$min_precision),
+    policy_gate("missing rate", "<=", x$max_missing_rate),
+    policy_gate("judge abstention rate", "upper <=", x$max_abstention_rate),
+    policy_gate("human reliability", "lower >=", x$min_human_reliability_lower)
+  ))
+
+  if (is.null(x$max_pairwise_disagreement)) {
+    cli::cli_text("Stability: outside the policy.")
+  } else {
+    policy_gate_list("Stability", c(
+      policy_gate(
+        "pairwise disagreement", "upper <=", x$max_pairwise_disagreement
+      ),
+      policy_gate("items", ">=", x$min_stability_n),
+      policy_gate("runs", ">=", x$min_stability_runs),
+      policy_gate("missing rate", "<=", x$max_stability_missing_rate)
+    ))
+  }
+
+  if (length(x$required_probes) == 0L) {
+    cli::cli_text("Bias: outside the policy.")
+  } else {
+    probes <- x$required_probes
+    policy_gate_list("Bias (required probes: {.val {probes}})", c(
+      policy_gate("scored items", ">=", x$min_probe_n),
+      policy_gate("flip rate", "upper <=", x$max_probe_flip_rate),
+      policy_gate("directional rate", "upper <=", x$max_probe_directional_rate),
+      policy_gate("missing rate", "<=", x$max_probe_missing_rate)
+    ))
+  }
+  cli::cli_text(
+    "Assess it with {.code report(calibration, policy = <this policy>)}."
+  )
+  invisible(x)
 }
 
-# The console shows the same per-class facts as the Markdown report, so a
-# rare class with poor recall is never hidden behind a single summary line.
-print_class_lines <- function(metrics) {
-  if (is.null(metrics) || nrow(metrics) == 0L) {
-    cli::cli_text("Per-class evidence: not available.")
-    return(invisible(NULL))
+# One `name op threshold` line per gate the policy sets; a gate left NULL is
+# not listed. A named threshold (per-class recall or precision) lists each
+# class.
+policy_gate <- function(name, op, threshold) {
+  if (is.null(threshold)) return(character(0))
+  values <- vapply(threshold, fmt_check_number, character(1))
+  if (is.null(names(threshold))) {
+    return(paste(name, op, values))
   }
-  cli::cli_text("Per-class evidence:")
+  paste0(name, " (", names(threshold), ") ", op, " ", values)
+}
+
+policy_gate_list <- function(label, gates, .envir = parent.frame()) {
+  cli::cli_text(paste0(label, ":"), .envir = .envir)
   cli::cli_ul()
-  for (i in seq_len(nrow(metrics))) {
-    row <- metrics[i, ]
-    cli::cli_li(paste0(
-      "{.val {row$label}}: support {row$support}, precision ",
-      "{fmt_num(row$precision)}, recall {fmt_num(row$recall)}"
-    ))
-  }
+  for (gate in gates) cli::cli_li("{gate}")
   cli::cli_end()
-  invisible(NULL)
-}
-
-build_markdown <- function(report) {
-  x <- report$calibration
-  bias <- report$bias
-  stability <- report$stability
-  policy <- report$policy
-  head <- headline_row(x, policy)
-  lines <- c(
-    sprintf("## Judge evidence (n = %d of %d)", x$n_items, x$n_input),
-    "",
-    sprintf("Assessment: **%s**.", report$decision),
-    ""
-  )
-  if (identical(head$status, "ok")) {
-    lines <- c(lines, sprintf(
-      "Agreement with humans: **%s = %s** [%s, %s] (%s).",
-      head$coefficient, fmt_num(head$estimate), fmt_num(head$conf_low),
-      fmt_num(head$conf_high), head$interpretation
-    ))
-  } else {
-    lines <- c(lines, sprintf(
-      "Agreement with humans (%s): not estimable (%s).",
-      head$coefficient, head$status
-    ))
-  }
-  metrics <- x$confusion_metrics
-  class_lines <- sprintf(
-    "- `%s`: support %d, precision %s, recall %s",
-    metrics$label, metrics$support, fmt_num(metrics$precision), fmt_num(metrics$recall)
-  )
-  lines <- c(lines, "", "### Per-class evidence", "", class_lines)
-
-  reliability <- human_reliability_gwet(x)
-  if (!is.null(reliability)) {
-    lines <- c(lines, "", sprintf(
-      "Human reliability benchmark: %s = %s.",
-      reliability$coefficient, fmt_num(reliability$estimate)
-    ))
-  }
-  if (is.null(bias)) {
-    lines <- c(lines, "", "Bias probes: **NOT ASSESSED**.")
-  } else {
-    lines <- c(lines, "", bias_summary(bias, report$checks, policy))
-  }
-  if (is.null(stability)) {
-    lines <- c(lines, "Test-retest stability: **NOT ASSESSED**.")
-  } else {
-    lines <- c(lines, sprintf(
-      "Pairwise disagreement: %s [%s, %s].",
-      fmt_num(stability$pairwise_disagreement),
-      fmt_num(stability$pairwise_disagreement_conf_low),
-      fmt_num(stability$pairwise_disagreement_conf_high)
-    ))
-  }
-
-  if (!supplied_evidence_is_bound(x, bias, stability)) {
-    lines <- c(
-      lines, "",
-      "Evidence binding: **UNBOUND**. Use one `audit_id` across calibration, bias, and stability."
-    )
-  }
-
-  c(
-    lines, "", "### Assessment checks", "",
-    format_check_lines(report$checks, style = "md")
-  )
 }

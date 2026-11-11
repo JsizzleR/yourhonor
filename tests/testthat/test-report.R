@@ -126,7 +126,7 @@ test_that("markdown reports print as plain lines", {
 test_that("console reports the explicit assessment state", {
   out <- cli::cli_fmt(print(report(make_cal(), output = "console")))
   expect_match(paste(out, collapse = "\n"), "yourhonor assessment: NOT_ASSESSED")
-  expect_match(paste(out, collapse = "\n"), "Descriptive only")
+  expect_match(paste(out, collapse = "\n"), "evidence is descriptive only")
 })
 
 test_that("console reports render policy, bias, and stability evidence", {
@@ -141,7 +141,7 @@ test_that("console reports render policy, bias, and stability evidence", {
   expect_match(out, "yourhonor assessment: PASS")
   expect_match(out, "Required bias probes cleared the declared policy gates")
   expect_match(out, "Pairwise disagreement: 0.00")
-  expect_match(out, "policy checks")
+  expect_match(out, "Assessment checks")
   expect_match(out, "PASS: usable_items = 300 \\(>= 50\\)")
   expect_match(out, "PASS: bias_verbosity = 0\\.\\d+ \\(upper <= 0.1\\)")
   expect_false(grepl("UNBOUND", out))
