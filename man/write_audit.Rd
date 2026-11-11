@@ -80,7 +80,9 @@ unavailable: the observed value, or for an interval check the bound
 assessed, which for a bias probe's flip-rate and directional checks
 counts every unscored item against the probe over \code{n_input}: as a flip
 for the flip rate, towards the worse direction for the directional
-rate), \code{op} (the
+rate, and for the stability disagreement check counts every pair
+involving a missing judgment as a disagreement over all \code{n_items}, so
+it can exceed \code{stability.pairwise_disagreement_conf_high}), \code{op} (the
 comparison the check encodes: \code{">="}, \code{"<="}, \code{"lower >="},
 \code{"upper <="}, or \code{"="}), a numeric \code{threshold}, and \code{reason}. Without a
 policy the single placeholder check has \code{null} \code{op} and \code{threshold}.
@@ -99,7 +101,9 @@ so a reader can rebuild the matrix in \code{label_levels} order.
 with the columns of the bias tibble.
 \item \code{stability}: \code{null}, or the scalar summary fields of a
 \code{yourhonor_stability} object (\code{n_items}, \code{n_items_scored}, \code{n_runs},
-\verb{pairwise_disagreement*}, \verb{gwet_*}, \code{missing_rate}, \verb{*_ci_reliable}),
+\code{pairwise_disagreement} with its observed \code{pairwise_disagreement_conf_low}
+and \code{pairwise_disagreement_conf_high}, \verb{gwet_*}, \code{missing_rate},
+\verb{*_ci_reliable}),
 \code{label_levels} (array), and \code{provenance}.
 \item \code{provenance}: the calibration provenance. The keys \code{input_cols},
 \code{human_cols}, \code{label_levels}, and \code{content_cols} are always arrays, even

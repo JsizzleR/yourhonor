@@ -788,6 +788,7 @@ grade_keyed <- function(judge,
         call = call
       )
     }
+    out$label <- nan_to_na(out$label)
     output <- tibble::as_tibble(out)
     for (col in key_cols) {
       output[[col]] <- align_output_key(
@@ -833,14 +834,15 @@ grade_keyed <- function(judge,
         call = call
       )
     }
+    out <- nan_to_na(out)
     labels <- out
     output <- tibble::as_tibble(data[key_cols])
     output$label <- as.character(out)
   }
   # A judge returning a factor has declared its own label universe. Keep those
-  # levels so a caller without `label_levels` (see `test_retest()`) counts
-  # declared-but-unobserved labels toward chance agreement, as
-  # `stability_vitals()` does for a factor score column.
+  # levels so a caller without `label_levels` (see `test_retest()`) accepts
+  # them as the universe, as `stability_vitals()` does for a factor score
+  # column; an unused one changes no unweighted coefficient.
   inferred_levels <- if (is.null(label_levels) && is.factor(labels)) {
     inferred_factor_levels(labels)
   } else {
@@ -854,6 +856,15 @@ grade_keyed <- function(judge,
     )
   }
   list(label = labels, output = output, label_levels = inferred_levels)
+}
+
+# `NaN` is a missing double or complex in R (`is.na(NaN)` is `TRUE`), but
+# `as.character()` turns it into the label "NaN" (or "NaN+0i"), which would make a judge
+# that fails to produce a score look like one that answered "NaN" every time,
+# and so perfectly stable. It is a missing judgment.
+nan_to_na <- function(x) {
+  if (is.double(x) || is.complex(x)) x[is.nan(x)] <- NA
+  x
 }
 
 # A judge that parses JSON often hands its keys back as strings. A string key

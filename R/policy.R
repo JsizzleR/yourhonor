@@ -26,16 +26,31 @@
 #'   scalar applies to all classes; a named vector applies only to named classes.
 #' @param max_missing_rate Maximum fraction of calibration rows without a usable
 #'   judge-consensus pair.
-#' @param max_pairwise_disagreement Maximum stability disagreement. Set `NULL`
-#'   explicitly when stability is outside this policy.
+#' @param max_pairwise_disagreement Maximum upper confidence bound for mean
+#'   pairwise stability disagreement. The upper bound assessed is the
+#'   stability's `pairwise_disagreement_worst_case_high`, which counts every
+#'   pair involving a missing judgment as a disagreement over all `n_items`
+#'   items (see [test_retest()]); the lower bound is the observed
+#'   `pairwise_disagreement_conf_low`. Counting missing judgments this way
+#'   can therefore turn this check's `PASS` into `INDETERMINATE` but never
+#'   into `FAIL`: a `FAIL` rests on the observed judgments' interval alone,
+#'   as without the worst case. (Abstaining on runs that agree can still
+#'   raise that observed interval, since it is the judge's own evidence.) Set `NULL` explicitly when
+#'   stability is outside this policy.
 #' @param min_stability_n Minimum independent items with at least two stability
-#'   judgments. Required when `max_pairwise_disagreement` is not `NULL` and
+#'   judgments (`n_items_scored`; items counted only by the worst case do not
+#'   count). Required when `max_pairwise_disagreement` is not `NULL` and
 #'   rejected otherwise.
 #' @param min_stability_runs Minimum repeated judge runs. Required when
 #'   `max_pairwise_disagreement` is not `NULL` and rejected otherwise.
 #' @param max_stability_missing_rate Maximum fraction of individual repeated
-#'   judgments that may be missing. Required when stability is in the policy
-#'   and rejected otherwise.
+#'   judgments that may be missing. Below this rate missing judgments still
+#'   count against the disagreement check: its upper bound treats each one
+#'   as disagreeing with its item's other runs (see
+#'   `max_pairwise_disagreement`), so a judge cannot pass by abstaining on the
+#'   items where it is unstable. Only cells of the run matrix are counted: an
+#'   item or run absent from the evidence entirely is not missing. Required
+#'   when stability is in the policy and rejected otherwise.
 #' @param required_probes Bias probes that must be present and free of detected
 #'   signal.
 #' @param min_probe_n Minimum paired comparisons required for every required
@@ -745,19 +760,14 @@ stability_checks <- function(x, stability, policy) {
       "stability_confidence_level", stability$conf_level, policy$conf_level
     )
   } else if (!isTRUE(stability$pairwise_ci_reliable) ||
-             !is.finite(stability$pairwise_disagreement_conf_low) ||
-             !is.finite(stability$pairwise_disagreement_conf_high)) {
+             !is_finite_number(stability$pairwise_disagreement_conf_low) ||
+             !is_finite_number(stability$pairwise_disagreement_conf_high)) {
     assessment_row(
       check, "INDETERMINATE", NA_real_, "upper <=", threshold,
       "Stability interval is unavailable or unreliable."
     )
   } else {
-    interval_max_check(
-      check,
-      stability$pairwise_disagreement_conf_low,
-      stability$pairwise_disagreement_conf_high,
-      threshold
-    )
+    stability_interval_check(check, stability, threshold)
   }
   list(
     disagreement_row,
@@ -773,6 +783,51 @@ stability_checks <- function(x, stability, policy) {
       "Too many stability judgments were missing."
     )
   )
+}
+
+# The assessed interval is the observed lower bound with the worst-case upper
+# bound, in which every pair involving a missing judgment is a disagreement
+# over all `n_items` items (summarize_stability_runs()). The observed interval
+# is validated first so the substituted bound cannot repair a malformed one,
+# and the larger of the two uppers is used so the bound can only widen. A
+# lower bound left unchanged means missing judgments can turn PASS into
+# INDETERMINATE but never cause a FAIL. Without a usable worst-case bound (an
+# object from before it existed) the observed interval can still FAIL, since
+# that rests on the observed lower bound alone, but it cannot PASS.
+stability_interval_check <- function(check, stability, threshold) {
+  low <- stability$pairwise_disagreement_conf_low
+  high <- stability$pairwise_disagreement_conf_high
+  unusable <- interval_unusable_reason(low, high)
+  if (!is.null(unusable)) {
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_, "upper <=", threshold, unusable
+    ))
+  }
+  worst <- stability$pairwise_disagreement_worst_case_high
+  if (!is_finite_number(worst)) {
+    if (low > threshold) return(interval_max_check(check, low, high, threshold))
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_, "upper <=", threshold,
+      "The worst-case stability bound for missing judgments is unavailable."
+    ))
+  }
+  # An observed FAIL reports the observed upper, which the evidence's own
+  # interval shows; the worst case only matters where it can block a PASS.
+  assessed <- if (low > threshold) high else max(high, worst)
+  row <- interval_max_check(check, low, assessed, threshold)
+  n_missing <- sum(is.na(stability$runs))
+  if (!identical(row$status, "FAIL") && worst > high && n_missing > 0L) {
+    row$reason <- paste0(
+      row$reason, " The upper bound counts every pair involving one of the ",
+      n_missing, " missing judgment", if (n_missing == 1L) "" else "s",
+      " as a disagreement, over all ", stability$n_items, " items."
+    )
+  }
+  row
+}
+
+is_finite_number <- function(x) {
+  is.numeric(x) && length(x) == 1L && is.finite(x)
 }
 
 # Evidence binding ------------------------------------------------------------

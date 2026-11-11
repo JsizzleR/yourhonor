@@ -715,3 +715,26 @@ test_that("a structured judge's label column must be atomic without dim", {
     "label.*atomic vector"
   )
 })
+
+test_that("a judge that returns NaN abstains rather than labelling NaN", {
+  gold <- tibble::tibble(
+    id = 1:40, input = paste("q", 1:40), human_label = rep(c(1, 2), 20)
+  )
+  judge <- function(d) {
+    item <- as.integer(sub("q ", "", d$input, fixed = TRUE))
+    ifelse(item <= 4, NaN, rep(c(1, 2), 20)[item])
+  }
+  cal <- suppressWarnings(calibrate_judge(
+    gold, judge, input_cols = "input", id_col = "id", n_boot = 20, seed = 1
+  ))
+  expect_equal(cal$n_judge_abstentions, 4)
+  expect_false("NaN" %in% cal$label_levels)
+  structured <- function(d) {
+    tibble::tibble(.item_id = d$.item_id, label = judge(d))
+  }
+  cal2 <- suppressWarnings(calibrate_judge(
+    gold, structured, input_cols = "input", id_col = "id", n_boot = 20,
+    seed = 1
+  ))
+  expect_equal(cal2$n_judge_abstentions, 4)
+})

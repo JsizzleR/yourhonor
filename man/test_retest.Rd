@@ -34,13 +34,15 @@ exposed to the judge unless explicitly included in \code{input_cols}.}
 \item{seed}{Optional R random seed. This does not force deterministic behavior
 from a remote model provider.}
 
-\item{label_levels}{Optional complete label universe. Declared levels no run
-used do not count toward Gwet's chance term; see \code{\link[=agreement]{agreement()}}.}
+\item{label_levels}{Optional complete label universe. Unweighted, a
+declared level no run used changes no coefficient. Weighted, the weights
+come from the full declared scale, so an unused level can still change
+AC2; see \code{\link[=agreement]{agreement()}}.}
 
 \item{weights}{Agreement weights passed to Gwet's coefficient; see
 \code{\link[=agreement]{agreement()}} for the weight schemes.}
 
-\item{conf_level}{Confidence level for both intervals.}
+\item{conf_level}{Confidence level for every interval.}
 
 \item{n_boot}{Number of item-bootstrap resamples.}
 
@@ -52,7 +54,8 @@ A \code{yourhonor_stability} object with raw runs, per-item evidence,
 missingness, pairwise disagreement, Gwet agreement, and intervals.
 \code{stability_status} explains why chance-corrected agreement is unavailable;
 in particular, one observed category is \code{insufficient_variation}, not
-perfect AC1/AC2. The pairwise-disagreement interval remains available.
+perfect AC1/AC2, and \code{stability_conf_low} and \code{stability_conf_high}
+are then \code{NA}. The pairwise-disagreement interval remains available.
 
 The pairwise-disagreement interval is a hybrid: the percentile item
 bootstrap widened to include a Wilson score interval for the mean
@@ -61,6 +64,26 @@ keeps a zero-disagreement sample from producing a zero-width interval and
 typically sets both bounds once \code{n_runs > 2}, so this interval is
 conservative relative to the bootstrap alone and widens only, never
 narrows. The chance-corrected interval is the plain item bootstrap.
+
+Missing judgments are left out of the observed statistics, so a judge
+that abstains where it would have been unstable looks stable there. The
+worst-case fields bound that: \code{pairwise_disagreement_worst_case} is the
+mean over all \code{n_items} items of a per-item disagreement in which every
+pair involving a missing judgment disagrees (an item with fewer than two
+judgments counts as 1; \code{per_item$pairwise_disagreement_worst_case} holds
+the per-item values), and \code{pairwise_disagreement_worst_case_high} is its
+upper bound, computed like the observed one on the same bootstrap draws
+and never below \code{pairwise_disagreement_conf_high}. With no missing
+judgment it equals \code{pairwise_disagreement_conf_high}, and it is \code{NA}
+when that is (no item has two judgments). This is the upper bound
+\code{\link[=acceptance_policy]{acceptance_policy()}} assesses. A numeric \code{NaN} judgment is missing, not
+a label.
+
+\code{any_flip_rate_at_n_runs} is over the \code{n_items_complete} items with
+every run observed (\code{NA} when there are none), since an incomplete item
+had fewer chances to flip; under selective abstention it describes
+complete items only. \code{any_flip_rate_worst_case} counts every item with
+an observed flip or a missing judgment as flipped, over all \code{n_items}.
 
 \code{runs} holds labels in source-row order. Because every run is graded
 under a fresh shuffled key, \code{judge_item_ids} is an integer matrix parallel

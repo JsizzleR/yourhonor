@@ -343,3 +343,73 @@ test_that("an unused blank factor level is dropped from inferred levels", {
   )
   expect_identical(st$label_levels, c("C", "P"))
 })
+
+test_that("the worst-case disagreement counts every pair with a missing judgment", {
+  runs <- rbind(
+    c("A", "A", "A"),    # complete, agreeing: 0
+    c("A", "B", "A"),    # complete: 2 of 3 pairs disagree
+    c("A", "A", NA),     # 1 observed pair agrees, 2 pairs involve NA
+    c("A", NA, NA),      # one judgment: every pair involves NA
+    c(NA, NA, NA)        # nothing observed
+  )
+  st <- withr::with_seed(1, yourhonor:::summarize_stability_runs(runs, n_boot = 50))
+  expect_equal(
+    st$per_item$pairwise_disagreement_worst_case,
+    c(0, 2 / 3, 2 / 3, 1, 1)
+  )
+  expect_equal(st$pairwise_disagreement_worst_case, (0 + 2 / 3 + 2 / 3 + 1 + 1) / 5)
+  expect_equal(st$n_items_scored, 3)
+  expect_gte(
+    st$pairwise_disagreement_worst_case_high,
+    st$pairwise_disagreement_conf_high
+  )
+  expect_lte(st$pairwise_disagreement_worst_case_high, 1)
+})
+
+test_that("the worst-case bound stays finite at an extreme confidence level", {
+  runs <- cbind(c(rep("A", 30), "B"), c(rep("A", 29), NA, "A"))
+  st <- withr::with_seed(1, yourhonor:::summarize_stability_runs(
+    runs, n_boot = 50, conf_level = 1 - .Machine$double.eps / 2
+  ))
+  expect_true(is.finite(st$pairwise_disagreement_conf_high))
+  expect_true(is.finite(st$pairwise_disagreement_worst_case_high))
+})
+
+test_that("the any-flip rate is over complete items, with a worst-case companion", {
+  runs <- rbind(
+    c("A", "A", "A"),
+    c("A", "B", "A"),
+    c("A", "A", NA),     # no observed flip, but incomplete
+    c("A", "B", NA),     # an observed flip, incomplete
+    c("B", "B", "B")
+  )
+  st <- withr::with_seed(1, yourhonor:::summarize_stability_runs(runs, n_boot = 50))
+  expect_equal(st$n_items_complete, 3)
+  expect_equal(st$any_flip_rate_at_n_runs, 1 / 3)
+  expect_equal(st$any_flip_rate_worst_case, 3 / 5)
+  none <- withr::with_seed(1, yourhonor:::summarize_stability_runs(
+    rbind(c("A", NA), c(NA, "B"), c("A", NA)), n_boot = 20
+  ))
+  expect_equal(none$n_items_complete, 0)
+  expect_true(is.na(none$any_flip_rate_at_n_runs))
+  expect_equal(none$any_flip_rate_worst_case, 1)
+})
+
+test_that("an AC1 that is not estimable reports no interval", {
+  runs <- matrix(c("C", "P", "C", NA, NA, NA, "P", NA), nrow = 4, ncol = 2)
+  st <- withr::with_seed(1, yourhonor:::summarize_stability_runs(runs, n_boot = 200))
+  expect_identical(st$stability_status, "insufficient_items")
+  expect_true(is.na(st$stability))
+  expect_true(is.na(st$stability_conf_low))
+  expect_true(is.na(st$stability_conf_high))
+  expect_false(st$stability_ci_reliable)
+  expect_false(st$ci_reliable)
+})
+
+test_that("the pre-release flip_rate alias is gone", {
+  st <- withr::with_seed(1, yourhonor:::summarize_stability_runs(
+    rbind(c("A", "A"), c("A", "B")), n_boot = 20
+  ))
+  expect_false("flip_rate" %in% names(st))
+  expect_true("any_flip_rate_at_n_runs" %in% names(st))
+})

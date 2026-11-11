@@ -47,8 +47,12 @@ disagreement across runs. Its interval is a hybrid: the percentile item
 bootstrap widened to include a Wilson score interval for the mean per-item
 disagreement, so a sample with no observed disagreement never yields a
 zero-width interval. The Wilson bound usually sets both ends once there are
-more than two runs; the interval can only widen, never narrow. The any-flip
-rate is also shown but is explicitly tied to the chosen number of runs.
+more than two runs; the interval can only widen, never narrow. A missing
+judgment is left out of that interval, so a policy does not gate it alone:
+it assesses a worst-case upper bound in which every missing judgment
+disagrees with its item's other runs, so a judge cannot pass by abstaining
+where it is unstable. The any-flip rate is also shown but is explicitly tied
+to the chosen number of runs.
 
 The labels are ordered, so the chance-corrected stability coefficient is
 weighted like the calibration: with `weights = "ordinal"` it is Gwet's AC2

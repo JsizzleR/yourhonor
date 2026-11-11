@@ -48,19 +48,34 @@ scalar applies to all classes; a named vector applies only to named classes.}
 \item{max_missing_rate}{Maximum fraction of calibration rows without a usable
 judge-consensus pair.}
 
-\item{max_pairwise_disagreement}{Maximum stability disagreement. Set \code{NULL}
-explicitly when stability is outside this policy.}
+\item{max_pairwise_disagreement}{Maximum upper confidence bound for mean
+pairwise stability disagreement. The upper bound assessed is the
+stability's \code{pairwise_disagreement_worst_case_high}, which counts every
+pair involving a missing judgment as a disagreement over all \code{n_items}
+items (see \code{\link[=test_retest]{test_retest()}}); the lower bound is the observed
+\code{pairwise_disagreement_conf_low}. Counting missing judgments this way
+can therefore turn this check's \code{PASS} into \code{INDETERMINATE} but never
+into \code{FAIL}: a \code{FAIL} rests on the observed judgments' interval alone,
+as without the worst case. (Abstaining on runs that agree can still
+raise that observed interval, since it is the judge's own evidence.) Set \code{NULL} explicitly when
+stability is outside this policy.}
 
 \item{min_stability_n}{Minimum independent items with at least two stability
-judgments. Required when \code{max_pairwise_disagreement} is not \code{NULL} and
+judgments (\code{n_items_scored}; items counted only by the worst case do not
+count). Required when \code{max_pairwise_disagreement} is not \code{NULL} and
 rejected otherwise.}
 
 \item{min_stability_runs}{Minimum repeated judge runs. Required when
 \code{max_pairwise_disagreement} is not \code{NULL} and rejected otherwise.}
 
 \item{max_stability_missing_rate}{Maximum fraction of individual repeated
-judgments that may be missing. Required when stability is in the policy
-and rejected otherwise.}
+judgments that may be missing. Below this rate missing judgments still
+count against the disagreement check: its upper bound treats each one
+as disagreeing with its item's other runs (see
+\code{max_pairwise_disagreement}), so a judge cannot pass by abstaining on the
+items where it is unstable. Only cells of the run matrix are counted: an
+item or run absent from the evidence entirely is not missing. Required
+when stability is in the policy and rejected otherwise.}
 
 \item{required_probes}{Bias probes that must be present and free of detected
 signal.}

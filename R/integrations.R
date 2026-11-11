@@ -121,8 +121,9 @@ audit_vitals <- function(task,
 #'   reliability. Identifier, epoch, and score columns are not content columns.
 #' @param label_levels Optional complete label universe. For unweighted runs
 #'   left `NULL` with a factor `score_col`, the factor's non-blank levels are
-#'   used so declared-but-unobserved labels still count toward chance
-#'   agreement. Weighted runs always require it: a factor's level order is
+#'   used as the label universe; a level no epoch used changes no unweighted
+#'   coefficient (see [agreement()]). A numeric `NaN` score is a missing
+#'   judgment, not a label. Weighted runs always require it: a factor's level order is
 #'   not taken as evidence of the ordinal order.
 #' @param weights Agreement weights passed to Gwet's coefficient.
 #' @param conf_level Bootstrap confidence level.
@@ -180,6 +181,20 @@ stability_vitals <- function(task,
   if (length(missing_cols) > 0L) {
     cli::cli_abort("Vitals samples are missing: {.field {missing_cols}}.")
   }
+  # as.character() would turn a list cell into a deparsed label ("NA",
+  # "NULL") rather than a missing judgment, so a list of one score (or none)
+  # per sample is unpacked first; a matrix column is several scores per row.
+  # The same shape contract grade_keyed() applies to a judge's labels.
+  scores <- samples[[score_col]]
+  if (is.list(scores) && is.null(dim(scores))) {
+    scores <- unpack_list_scores(scores, score_col)
+  }
+  if (!is.atomic(scores) || !is.null(dim(scores))) {
+    cli::cli_abort(paste0(
+      "{.arg score_col} {.field {score_col}} must be an atomic vector (one ",
+      "score per sample, with no {.code dim}), not {.cls {class(scores)}}."
+    ))
+  }
   # The rating matrix below is character, so factor levels would be lost
   # before `resolve_label_levels()` could infer the label universe from them.
   if (is.null(label_levels) && is.factor(samples[[score_col]])) {
@@ -215,7 +230,7 @@ stability_vitals <- function(task,
     match(samples[[id_col]], item_ids),
     match(samples[[epoch_col]], epochs)
   )
-  runs[locations] <- as.character(samples[[score_col]])
+  runs[locations] <- as.character(nan_to_na(scores))
   if (!is.null(seed)) withr::local_seed(seed)
   out <- summarize_stability_runs(
     runs, label_levels = label_levels, weights = weights,
@@ -227,6 +242,23 @@ stability_vitals <- function(task,
     score_col = score_col, content_cols = content_cols, seed = seed
   )
   out
+}
+
+# One character score per list cell; an empty cell, NA or NaN is missing.
+unpack_list_scores <- function(scores, score_col) {
+  scalar <- vapply(scores, function(value) {
+    is.null(value) ||
+      (is.atomic(value) && is.null(dim(value)) && length(value) <= 1L)
+  }, logical(1))
+  if (!all(scalar)) {
+    cli::cli_abort(paste0(
+      "Each cell of list column {.field {score_col}} must hold one score or ",
+      "nothing."
+    ))
+  }
+  vapply(scores, function(value) {
+    if (length(value) == 0L) NA_character_ else as.character(nan_to_na(value))
+  }, character(1), USE.NAMES = FALSE)
 }
 
 extract_vitals_samples <- function(task) {
@@ -303,7 +335,9 @@ extract_vitals_samples <- function(task) {
 #'   assessed, which for a bias probe's flip-rate and directional checks
 #'   counts every unscored item against the probe over `n_input`: as a flip
 #'   for the flip rate, towards the worse direction for the directional
-#'   rate), `op` (the
+#'   rate, and for the stability disagreement check counts every pair
+#'   involving a missing judgment as a disagreement over all `n_items`, so
+#'   it can exceed `stability.pairwise_disagreement_conf_high`), `op` (the
 #'   comparison the check encodes: `">="`, `"<="`, `"lower >="`,
 #'   `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without a
 #'   policy the single placeholder check has `null` `op` and `threshold`.
@@ -322,7 +356,9 @@ extract_vitals_samples <- function(task) {
 #'   with the columns of the bias tibble.
 #' * `stability`: `null`, or the scalar summary fields of a
 #'   `yourhonor_stability` object (`n_items`, `n_items_scored`, `n_runs`,
-#'   `pairwise_disagreement*`, `gwet_*`, `missing_rate`, `*_ci_reliable`),
+#'   `pairwise_disagreement` with its observed `pairwise_disagreement_conf_low`
+#'   and `pairwise_disagreement_conf_high`, `gwet_*`, `missing_rate`,
+#'   `*_ci_reliable`),
 #'   `label_levels` (array), and `provenance`.
 #' * `provenance`: the calibration provenance. The keys `input_cols`,
 #'   `human_cols`, `label_levels`, and `content_cols` are always arrays, even

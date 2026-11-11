@@ -14,11 +14,13 @@
 #' @param n_runs Number of repeated gradings; must be at least two.
 #' @param seed Optional R random seed. This does not force deterministic behavior
 #'   from a remote model provider.
-#' @param label_levels Optional complete label universe. Declared levels no run
-#'   used do not count toward Gwet's chance term; see [agreement()].
+#' @param label_levels Optional complete label universe. Unweighted, a
+#'   declared level no run used changes no coefficient. Weighted, the weights
+#'   come from the full declared scale, so an unused level can still change
+#'   AC2; see [agreement()].
 #' @param weights Agreement weights passed to Gwet's coefficient; see
 #'   [agreement()] for the weight schemes.
-#' @param conf_level Confidence level for both intervals.
+#' @param conf_level Confidence level for every interval.
 #' @param n_boot Number of item-bootstrap resamples.
 #' @param audit_id Optional evidence-bundle identifier. Use the same value as
 #'   the related calibration and bias probes.
@@ -27,7 +29,8 @@
 #'   missingness, pairwise disagreement, Gwet agreement, and intervals.
 #'   `stability_status` explains why chance-corrected agreement is unavailable;
 #'   in particular, one observed category is `insufficient_variation`, not
-#'   perfect AC1/AC2. The pairwise-disagreement interval remains available.
+#'   perfect AC1/AC2, and `stability_conf_low` and `stability_conf_high`
+#'   are then `NA`. The pairwise-disagreement interval remains available.
 #'
 #'   The pairwise-disagreement interval is a hybrid: the percentile item
 #'   bootstrap widened to include a Wilson score interval for the mean
@@ -36,6 +39,26 @@
 #'   typically sets both bounds once `n_runs > 2`, so this interval is
 #'   conservative relative to the bootstrap alone and widens only, never
 #'   narrows. The chance-corrected interval is the plain item bootstrap.
+#'
+#'   Missing judgments are left out of the observed statistics, so a judge
+#'   that abstains where it would have been unstable looks stable there. The
+#'   worst-case fields bound that: `pairwise_disagreement_worst_case` is the
+#'   mean over all `n_items` items of a per-item disagreement in which every
+#'   pair involving a missing judgment disagrees (an item with fewer than two
+#'   judgments counts as 1; `per_item$pairwise_disagreement_worst_case` holds
+#'   the per-item values), and `pairwise_disagreement_worst_case_high` is its
+#'   upper bound, computed like the observed one on the same bootstrap draws
+#'   and never below `pairwise_disagreement_conf_high`. With no missing
+#'   judgment it equals `pairwise_disagreement_conf_high`, and it is `NA`
+#'   when that is (no item has two judgments). This is the upper bound
+#'   [acceptance_policy()] assesses. A numeric `NaN` judgment is missing, not
+#'   a label.
+#'
+#'   `any_flip_rate_at_n_runs` is over the `n_items_complete` items with
+#'   every run observed (`NA` when there are none), since an incomplete item
+#'   had fewer chances to flip; under selective abstention it describes
+#'   complete items only. `any_flip_rate_worst_case` counts every item with
+#'   an observed flip or a missing judgment as flipped, over all `n_items`.
 #'
 #'   `runs` holds labels in source-row order. Because every run is graded
 #'   under a fresh shuffled key, `judge_item_ids` is an integer matrix parallel
@@ -156,7 +179,9 @@ summarize_stability_runs <- function(runs,
   )
 
   item_disagreement <- item_pairwise_disagreement(runs)
+  worst_case <- item_worst_case_disagreement(runs, item_disagreement)
   per_item$pairwise_disagreement <- item_disagreement
+  per_item$pairwise_disagreement_worst_case <- worst_case
   pairwise_disagreement <- mean_or_na(item_disagreement)
   pairwise <- if (is.na(pairwise_disagreement)) NA_real_ else 1 - pairwise_disagreement
   chance_levels <- chance_categories(runs, label_levels)
@@ -165,9 +190,28 @@ summarize_stability_runs <- function(runs,
   )
   boot <- bootstrap_stability(
     runs, item_disagreement, n_boot, conf_level, weights, label_levels,
-    chance_levels
+    chance_levels, worst_case = worst_case
   )
-  any_flip <- mean_or_na(per_item$flipped)
+  # Draws that happened to resample enough usable items do not give an
+  # interval for an estimate the full sample could not produce.
+  if (!identical(chance$status, "ok")) {
+    boot$stability$conf_low <- NA_real_
+    boot$stability$conf_high <- NA_real_
+    boot$stability$ci_reliable <- FALSE
+  }
+  worst_case_high <- if (is.finite(boot$pairwise$conf_high)) {
+    max(boot$pairwise$conf_high, boot$worst_case$conf_high, na.rm = TRUE)
+  } else {
+    NA_real_
+  }
+  # An item's any-flip status at `n_runs` is known only when every run was
+  # observed (a flip already seen is permanent, but an unflipped incomplete
+  # item could still flip), so the rate is over complete items and the
+  # worst case counts every incomplete, unflipped item as a flip.
+  complete <- observed_count == n_runs
+  known_flip <- per_item$n_distinct >= 2L
+  any_flip <- if (any(complete)) mean(known_flip[complete]) else NA_real_
+  any_flip_worst_case <- mean(known_flip | !complete)
   stability_boundary_degenerate <- is_boundary_degenerate(
     chance$status, chance$estimate, boot$stability
   )
@@ -181,10 +225,12 @@ summarize_stability_runs <- function(runs,
       per_item = per_item,
       runs = runs,
       any_flip_rate_at_n_runs = any_flip,
-      flip_rate = any_flip,
+      any_flip_rate_worst_case = any_flip_worst_case,
       pairwise_disagreement = pairwise_disagreement,
       pairwise_disagreement_conf_low = boot$pairwise$conf_low,
       pairwise_disagreement_conf_high = boot$pairwise$conf_high,
+      pairwise_disagreement_worst_case = mean(worst_case),
+      pairwise_disagreement_worst_case_high = worst_case_high,
       stability = chance$estimate,
       stability_conf_low = boot$stability$conf_low,
       stability_conf_high = boot$stability$conf_high,
@@ -195,6 +241,7 @@ summarize_stability_runs <- function(runs,
       n_runs = n_runs,
       n_items = nrow(runs),
       n_items_scored = sum(is.finite(item_disagreement)),
+      n_items_complete = sum(complete),
       label_levels = label_levels,
       weights = weights,
       stability_coefficient = if (weights == "unweighted") "gwet_ac1" else "gwet_ac2",
@@ -234,6 +281,19 @@ print.yourhonor_stability <- function(x, ...) {
     "Any-flip rate at exactly {x$n_runs} runs: ",
     "{fmt_num(x$any_flip_rate_at_n_runs)}; missing judgments: {fmt_num(x$missing_rate)}."
   )
+  # Exact lookups, each a finite scalar: `$` would partially match an absent
+  # field to another, and an object without these fields predates them.
+  worst_point <- x[["pairwise_disagreement_worst_case"]]
+  worst_high <- x[["pairwise_disagreement_worst_case_high"]]
+  worst_flip <- x[["any_flip_rate_worst_case"]]
+  if (isTRUE(x$missing_rate > 0) && is_finite_number(worst_point) &&
+      is_finite_number(worst_high) && is_finite_number(worst_flip)) {
+    cli::cli_text(
+      "Worst case, counting missing judgments as disagreements: pairwise ",
+      "disagreement {fmt_num(worst_point)} (upper {fmt_num(worst_high)}); ",
+      "any-flip rate {fmt_num(worst_flip)}."
+    )
+  }
   invisible(x)
 }
 
@@ -287,6 +347,27 @@ chance_corrected_stability <- function(runs,
   list(estimate = estimate, status = "ok")
 }
 
+# The largest per-item disagreement any labels for the missing judgments
+# could produce: every pair that involves a missing judgment counts as a
+# disagreement, over all `choose(n_runs, 2)` pairs. It does not use the label
+# universe (with two labels three runs cannot all disagree), because an
+# inferred universe holds only observed labels and a judge may abstain
+# exactly where it would have used another. An item with fewer than two
+# judgments is 1; a complete item keeps its observed value.
+item_worst_case_disagreement <- function(runs, item_disagreement) {
+  n_pairs <- choose(ncol(runs), 2L)
+  observed_pairs <- choose(rowSums(!is.na(runs)), 2L)
+  incomplete <- observed_pairs < n_pairs
+  disagreeing <- ifelse(
+    observed_pairs > 0, item_disagreement * observed_pairs, 0
+  )
+  worst_case <- item_disagreement
+  worst_case[incomplete] <- (
+    disagreeing[incomplete] + n_pairs - observed_pairs[incomplete]
+  ) / n_pairs
+  worst_case
+}
+
 item_pairwise_disagreement <- function(runs) {
   apply(runs, 1, function(values) {
     values <- values[!is.na(values)]
@@ -309,21 +390,25 @@ wilson_interval <- function(probability, n, conf_level) {
 
 # The pairwise statistic is the mean of a per-item vector, so the bootstrap
 # resamples that vector directly; only the chance-corrected coefficient needs
-# the resampled label matrix. Both use the same item draw so the two intervals
-# describe the same resamples.
+# the resampled label matrix. All three use the same item draw so the
+# intervals describe the same resamples; each worst-case draw is at least the
+# draw of every completion of the missing judgments.
 bootstrap_stability <- function(runs,
                                 item_disagreement,
                                 n_boot,
                                 conf_level,
                                 weights,
                                 label_levels,
-                                chance_levels = label_levels) {
+                                chance_levels = label_levels,
+                                worst_case = item_disagreement) {
   n <- nrow(runs)
   pairwise <- numeric(n_boot)
+  worst <- numeric(n_boot)
   stability <- numeric(n_boot)
   for (i in seq_len(n_boot)) {
     idx <- sample.int(n, n, replace = TRUE)
     pairwise[[i]] <- mean_or_na(item_disagreement[idx])
+    worst[[i]] <- mean_or_na(worst_case[idx])
     stability[[i]] <- chance_corrected_stability(
       runs[idx, , drop = FALSE], weights, label_levels, chance_levels
     )$estimate
@@ -331,6 +416,9 @@ bootstrap_stability <- function(runs,
   list(
     pairwise = widen_to_wilson(
       bootstrap_quantiles(pairwise, conf_level), item_disagreement, conf_level
+    ),
+    worst_case = widen_to_wilson(
+      bootstrap_quantiles(worst, conf_level), worst_case, conf_level
     ),
     stability = bootstrap_quantiles(stability, conf_level)
   )
