@@ -80,9 +80,13 @@ when stability is in the policy and rejected otherwise.}
 \item{required_probes}{Bias probes that must be present and free of detected
 signal.}
 
-\item{min_probe_n}{Minimum paired comparisons required for every required
-bias probe. Required when \code{required_probes} is non-empty and rejected
-otherwise.}
+\item{min_probe_n}{Minimum scored items required for every required bias
+probe: the probe's \code{n_scored}, the items with a decided judgment in both
+conditions (see \code{\link[=probe_bias]{probe_bias()}}). It counts items, not judgments
+(\code{n_judgments}) or condition pairs (\code{n_comparisons}): a position probe
+over 30 pairs at \code{repeats = 3} has \code{n_comparisons = 90} but at most 30
+scored items.
+Required when \code{required_probes} is non-empty and rejected otherwise.}
 
 \item{max_probe_flip_rate}{Maximum upper confidence bound for a required
 probe's flip rate. The upper bound assessed counts every unscored item
@@ -141,4 +145,31 @@ Stability and bias thresholds are grouped behind a parent gate:
 \code{required_probes} switches the bias checks on. The dependent thresholds must
 be supplied together with their gate and are rejected without it, so a policy
 can never carry a threshold that the assessment does not read.
+}
+\examples{
+# A calibration-only policy: stability and bias are outside it.
+policy <- acceptance_policy(
+  min_agreement_lower = 0.6, min_n = 5, min_class_n = 2,
+  min_recall = 0.6, max_missing_rate = 0.05,
+  max_pairwise_disagreement = NULL
+)
+policy
+
+# Eight items meet the count floors but are too few for the interval
+# checks to pass.
+cal <- calibrate_judge(support_gold, label_levels = c("I", "P", "C"),
+                       n_boot = 200, seed = 1)
+report(cal, policy = policy)$checks
+
+# Switching a gate on requires its dependent thresholds; class-specific
+# recall floors are a named vector.
+acceptance_policy(
+  min_agreement_lower = 0.6, min_n = 50, min_class_n = 10,
+  min_recall = c(I = 0.5, C = 0.7), max_missing_rate = 0.05,
+  max_pairwise_disagreement = 0.1, min_stability_n = 50,
+  min_stability_runs = 3, max_stability_missing_rate = 0.01,
+  required_probes = "verbosity", min_probe_n = 50,
+  max_probe_flip_rate = 0.1, max_probe_directional_rate = 0.05,
+  max_probe_missing_rate = 0.01
+)
 }

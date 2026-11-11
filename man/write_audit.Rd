@@ -59,8 +59,16 @@ agreement and is capped at the rounded \code{estimate} (and at the bound of the
 perfect samples it can be corrected into; see \code{\link[=agreement]{agreement()}}). Every absent
 value is \code{null}: an \code{NA} and an R \code{NULL} are indistinguishable to a reader,
 but neither ever appears as \code{{}} or is dropped. Fields that are vectors by
-contract are always JSON arrays, even when they hold one value. Top-level
-members:
+contract are always JSON arrays, even when they hold one value. Each
+numeric field outside caller-supplied \code{provenance} (whose values are
+written as the caller typed them) keeps one JSON number type from run to
+run: \code{seed} and the
+counts (\code{n}, every \verb{n_*} and \verb{*_n_boot_effective} field, \code{support},
+\code{predicted}, \code{statistic}, and the policy's \code{min_n}, \code{min_class_n},
+\code{min_stability_n}, \code{min_stability_runs} and \code{min_probe_n}) are integers,
+and every other number, including each check's \code{value} and \code{threshold},
+is written with a decimal point or an exponent (\code{0.0}, \code{1.0}), even when
+it is whole. Top-level members:
 \itemize{
 \item \code{schema_version}: \code{"yourhonor.audit.v1"}.
 \item \code{created_at}: UTC timestamp in RFC 3339 form, e.g.
@@ -87,7 +95,8 @@ comparison the check encodes: \code{">="}, \code{"<="}, \code{"lower >="},
 \code{"upper <="}, or \code{"="}), a numeric \code{threshold}, and \code{reason}. Without a
 policy the single placeholder check has \code{null} \code{op} and \code{threshold}.
 \item \code{calibration}: \code{n_input}, \code{n_items}, \code{n_excluded}, \code{n_consensus_ties},
-\code{n_judge_abstentions}, \code{judge_abstention_rate},
+\code{n_insufficient_human_ratings}, \code{n_judge_abstentions},
+\code{judge_abstention_rate},
 \code{judge_abstention_conf_low}, \code{judge_abstention_conf_high}, \code{scale},
 \code{weights}, \code{conf_level}, \code{n_boot}, \code{seed} (scalars); \code{label_levels} and
 \code{coefficients} (arrays); \code{agreement}, \code{confusion}, \code{confusion_metrics},
@@ -99,12 +108,22 @@ reference label, the judge label, the count \code{n}, and its share \code{prop},
 so a reader can rebuild the matrix in \code{label_levels} order.
 \item \code{bias}: \code{null}, or \code{audit_id} plus \code{results}, an array of row objects
 with the columns of the bias tibble.
-\item \code{stability}: \code{null}, or the scalar summary fields of a
-\code{yourhonor_stability} object (\code{n_items}, \code{n_items_scored}, \code{n_runs},
-\code{pairwise_disagreement} with its observed \code{pairwise_disagreement_conf_low}
-and \code{pairwise_disagreement_conf_high}, \verb{gwet_*}, \code{missing_rate},
-\verb{*_ci_reliable}),
-\code{label_levels} (array), and \code{provenance}.
+\item \code{stability}: \code{null}, or the summary fields of a \code{yourhonor_stability}
+object (see \code{\link[=test_retest]{test_retest()}}): \code{audit_id} (string or \code{null}), \code{n_items},
+\code{n_items_scored}, \code{n_runs}, \code{label_levels} (array), \code{weights},
+\code{conf_level}, \code{n_boot}, \code{pairwise_n_boot_effective},
+\code{stability_n_boot_effective}, \code{n_boot_effective} (the smaller of the
+two), \code{pairwise_disagreement} with its observed
+\code{pairwise_disagreement_conf_low} and \code{pairwise_disagreement_conf_high},
+\code{percent_agreement} (\code{1 - pairwise_disagreement}, a proportion despite
+its name), \code{any_flip_rate_at_n_runs}, the chance-corrected agreement as
+\code{gwet_agreement}, \code{gwet_coefficient}, \code{gwet_conf_low}, \code{gwet_conf_high},
+\code{gwet_status} and \code{gwet_boundary_degenerate} (the object's
+\code{stability}, \code{stability_coefficient}, \code{stability_conf_low},
+\code{stability_conf_high}, \code{stability_status} and
+\code{stability_boundary_degenerate}), \code{missing_rate},
+\code{pairwise_ci_reliable}, \code{stability_ci_reliable}, \code{ci_reliable} (both
+intervals reliable), and \code{provenance}.
 \item \code{provenance}: the calibration provenance. The keys \code{input_cols},
 \code{human_cols}, \code{label_levels}, and \code{content_cols} are always arrays, even
 when they were supplied by the caller and hold one value; \code{created_at}
@@ -113,3 +132,16 @@ is RFC 3339 UTC like the top-level field, and adapter fields left \code{NULL}
 }
 }
 
+\examples{
+cal <- calibrate_judge(support_gold, label_levels = c("I", "P", "C"),
+                       n_boot = 200, seed = 1)
+path <- tempfile(fileext = ".json")
+write_audit(cal, path)
+audit <- jsonlite::read_json(path)
+audit$schema_version
+audit$decision
+
+md <- tempfile(fileext = ".md")
+write_audit(cal, md, format = "md")
+unlink(c(path, md))
+}

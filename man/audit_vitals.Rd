@@ -47,3 +47,20 @@ one epoch before calling \code{audit_vitals()}. Use \code{\link[=stability_vital
 only when every judge-visible content field is invariant within item.
 }
 
+\examples{
+# A samples data frame stands in for a vitals task here; with vitals
+# installed, pass the task itself and its `get_samples()` is read.
+samples <- tibble::tibble(
+  id = paste0("q", 1:8),
+  input = paste("question", 1:8),
+  score = c("C", "C", "P", "I", "C", "P", "I", "C")
+)
+# Human labels keyed by sample ID, in any order.
+human <- tibble::tibble(
+  id = paste0("q", 8:1),
+  human_label = c("C", "I", "C", "C", "I", "P", "C", "C")
+)
+cal <- audit_vitals(samples, human, label_levels = c("I", "P", "C"),
+                    n_boot = 200, seed = 1)
+cal
+}

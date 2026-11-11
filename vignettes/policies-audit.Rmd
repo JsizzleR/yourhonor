@@ -181,7 +181,7 @@ path <- tempfile("judge-audit-", fileext = ".json")
 write_audit(cal, path, bias = bias, stability = stability, policy = policy)
 ```
 
-```{r, eval = requireNamespace("jsonlite", quietly = TRUE)}
+```{r}
 audit <- jsonlite::read_json(path)
 audit$decision
 names(audit)

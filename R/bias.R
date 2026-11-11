@@ -150,6 +150,7 @@ probe_bias <- function(data,
   # Identifiers are validated on the full data: a subsample could hide a
   # duplicate that the caller's audit trail would later trip over.
   validate_source_ids(data, id_col, "data")
+  seed <- check_seed(seed)
   if (!is.null(seed)) withr::local_seed(seed)
   if (!is.null(n)) {
     n <- check_count(n, "n")
@@ -313,6 +314,7 @@ probe_position <- function(data,
   }
   if (nrow(data) < 1L) cli::cli_abort("{.arg data} must contain at least one pair.")
   check_candidates_present(data, c(candidate_a_col, candidate_b_col))
+  seed <- check_seed(seed)
   if (!is.null(seed)) withr::local_seed(seed)
 
   evidence <- build_position_evidence(

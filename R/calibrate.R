@@ -202,6 +202,7 @@ calibrate_judge <- function(gold,
     cli::cli_abort("Weighted agreement requires {.code scale = 'ordinal'}.")
   }
   coefficients <- resolve_coefficients(coefficients, weights)
+  seed <- check_seed(seed)
   if (!is.null(seed)) withr::local_seed(seed)
 
   item_id <- calibration_ids(gold, id_col)

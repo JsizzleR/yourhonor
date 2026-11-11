@@ -55,6 +55,29 @@ check_probability <- function(x,
   as.numeric(x)
 }
 
+# A seed is recorded in the calibration and its audit artifact, so a value
+# `set.seed()` would quietly truncate (`1.5`), coerce (`TRUE`, `"7"`) or
+# ignore in part (`c(7, 99)` uses only the first) is refused rather than
+# stored as if it had been used. Returned as an integer so the recorded seed
+# has one type whatever the caller typed.
+check_seed <- function(x,
+                       arg = rlang::caller_arg(x),
+                       call = rlang::caller_env()) {
+  if (is.null(x)) return(NULL)
+  ok <- is.numeric(x) && length(x) == 1L && !is.na(x) && is.finite(x) &&
+    abs(x) <= .Machine$integer.max && x == trunc(x)
+  if (!ok) {
+    cli::cli_abort(
+      paste0(
+        "{.arg {arg}} must be {.code NULL} or one whole number between ",
+        "{(-.Machine$integer.max)} and {(.Machine$integer.max)}."
+      ),
+      call = call
+    )
+  }
+  as.integer(x)
+}
+
 check_audit_id <- function(x,
                            arg = rlang::caller_arg(x),
                            allow_null = TRUE,

@@ -239,3 +239,13 @@ test_that("acceptance_policy() keeps conf_level and coefficient positional", {
     c("conf_level", "coefficient", "max_abstention_rate")
   )
 })
+
+test_that("class thresholds are stored as doubles, keeping their class names", {
+  policy <- acceptance_policy(
+    min_agreement_lower = 0.5, min_n = 5, min_class_n = 2,
+    min_recall = c(I = 1L, P = 0L), max_missing_rate = 0,
+    max_pairwise_disagreement = NULL, min_precision = 1L
+  )
+  expect_identical(policy$min_recall, c(I = 1, P = 0))
+  expect_identical(policy$min_precision, 1)
+})

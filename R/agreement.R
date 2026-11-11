@@ -248,6 +248,7 @@ compute_agreement <- function(ratings,
     ratings, label_levels, allow_single = TRUE, call = call
   )
   ratings[] <- lapply(ratings, as.character)
+  seed <- check_seed(seed, call = call)
   if (!is.null(seed)) withr::local_seed(seed)
 
   usable <- ratings[rowSums(!is.na(ratings)) >= 2L, , drop = FALSE]

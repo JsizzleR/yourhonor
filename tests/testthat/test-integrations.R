@@ -141,8 +141,8 @@ test_that("audit artifacts omit raw item text", {
     label_levels = c("I", "P", "C"), coefficients = "gwet_ac1",
     n_boot = 50, seed = 1
   )
-  json <- tempfile(fileext = ".json")
-  md <- tempfile(fileext = ".md")
+  json <- withr::local_tempfile(fileext = ".json")
+  md <- withr::local_tempfile(fileext = ".md")
   expect_identical(write_audit(cal, json, format = "json"), json)
   expect_identical(write_audit(cal, md, format = "md"), md)
   json_text <- paste(readLines(json, warn = FALSE), collapse = "\n")
@@ -164,8 +164,9 @@ test_that("JSON artifacts reject unbound secondary evidence", {
     tibble::tibble(input = paste("answer", 1:20)),
     function(d) rep("C", nrow(d)), probes = "verbosity", seed = 1
   )
+  path <- withr::local_tempfile(fileext = ".json")
   expect_error(
-    write_audit(cal, tempfile(fileext = ".json"), bias = bias, format = "json"),
+    write_audit(cal, path, bias = bias, format = "json"),
     "UNBOUND"
   )
 })
@@ -184,7 +185,7 @@ test_that("JSON artifacts preserve an unidentified stability coefficient", {
     samples, content_cols = "input", label_levels = c("I", "P", "C"),
     n_boot = 50, seed = 1, audit_id = "bundle-a"
   )
-  path <- tempfile(fileext = ".json")
+  path <- withr::local_tempfile(fileext = ".json")
   write_audit(cal, path, stability = stability, format = "json")
   json_text <- paste(readLines(path, warn = FALSE), collapse = "\n")
   expect_match(json_text, '"gwet_agreement": null', fixed = TRUE)
@@ -381,7 +382,7 @@ test_that("JSON audit artifacts round-trip through jsonlite::fromJSON()", {
     max_probe_missing_rate = 0, min_precision = c(P = 0.1),
     coefficient = "gwet_ac1"
   )
-  path <- tempfile(fileext = ".json")
+  path <- withr::local_tempfile(fileext = ".json")
   write_audit(
     cal, path, bias = bias, stability = stability, policy = policy,
     format = "json"
@@ -422,7 +423,7 @@ test_that("JSON audit artifacts keep array shapes, nulls, and full precision", {
     function(d) ifelse(nchar(d$input) > 40, "C", "P"),
     probes = "verbosity", seed = 1, audit_id = "bundle-a"
   )
-  path <- tempfile(fileext = ".json")
+  path <- withr::local_tempfile(fileext = ".json")
   write_audit(cal, path, bias = bias, format = "json")
   json_text <- paste(readLines(path, warn = FALSE), collapse = "\n")
   # Length-one vector fields must still be arrays, not scalars.
@@ -446,7 +447,7 @@ test_that("JSON audit artifacts keep array shapes, nulls, and full precision", {
     min_recall = 0.8, max_missing_rate = 0,
     max_pairwise_disagreement = NULL, coefficient = "gwet_ac1"
   )
-  path <- tempfile(fileext = ".json")
+  path <- withr::local_tempfile(fileext = ".json")
   write_audit(unbundled, path, policy = policy, format = "json")
   json_text <- paste(readLines(path, warn = FALSE), collapse = "\n")
   expect_match(json_text, '"audit_id": null', fixed = TRUE)
@@ -562,4 +563,137 @@ test_that("vitals stability drops a blank unused factor level", {
     ),
     "required for weighted stability"
   )
+})
+
+# A multi-rater calibration with one item rated once, so every calibration
+# table (human reliability, per-rater agreement) and count is written.
+multi_rater_bundle <- function() {
+  gold <- tibble::tibble(
+    human_1 = rep(c("I", "P", "C"), times = 8),
+    human_2 = c(NA, rep(c("I", "P", "C"), times = 8)[-1]),
+    judge_label = rep(c("I", "P", "C"), times = 8)
+  )
+  expect_warning(
+    cal <- calibrate_judge(
+      gold, human_cols = c("human_1", "human_2"),
+      label_levels = c("I", "P", "C"), coefficients = "gwet_ac1",
+      n_boot = 50, seed = 1, audit_id = "bundle-a"
+    ),
+    "lacked a usable consensus"
+  )
+  bias <- probe_bias(
+    tibble::tibble(input = paste("answer", 1:30)),
+    function(d) rep("C", nrow(d)), probes = "verbosity", seed = 1,
+    audit_id = "bundle-a"
+  )
+  # Integer thresholds, as a caller may type them, must still be written as
+  # JSON doubles.
+  policy <- acceptance_policy(
+    min_agreement_lower = 0.5, min_n = 5, min_class_n = 2,
+    min_recall = c(I = 0L, n = 1L), min_precision = 0L,
+    max_missing_rate = 0.5,
+    max_pairwise_disagreement = 0.5, min_stability_n = 2,
+    min_stability_runs = 2, max_stability_missing_rate = 0,
+    required_probes = "verbosity", min_probe_n = 5,
+    max_probe_flip_rate = 0.5, max_probe_directional_rate = 0.5,
+    max_probe_missing_rate = 0, coefficient = "gwet_ac1"
+  )
+  list(cal = cal, bias = bias, stability = bundled_stability(), policy = policy)
+}
+
+write_bundle <- function(bundle) {
+  path <- withr::local_tempfile(fileext = ".json", .local_envir = parent.frame())
+  write_audit(
+    bundle$cal, path, bias = bundle$bias, stability = bundle$stability,
+    policy = bundle$policy, format = "json"
+  )
+  path
+}
+
+# The schema's counts are integers; every other number is a double. A
+# class-specific threshold is keyed by class name, which says nothing about
+# its type (a class may be called "n").
+json_count_field <- function(path) {
+  if (grepl("^\\.policy\\.min_(recall|precision)\\.", path)) return(FALSE)
+  name <- sub("^.*\\.", "", path)
+  name == "n" || startsWith(name, "n_") ||
+    endsWith(name, "_n_boot_effective") ||
+    name %in% c(
+      "seed", "support", "predicted", "statistic", "min_n", "min_class_n",
+      "min_stability_n", "min_stability_runs", "min_probe_n"
+    )
+}
+
+json_numbers <- function(x, path = "") {
+  if (is.list(x)) {
+    keys <- names(x)
+    out <- list()
+    for (i in seq_along(x)) {
+      key <- if (is.null(keys)) "" else keys[[i]]
+      # Caller-supplied provenance is serialized verbatim, so its types are
+      # the caller's.
+      if (identical(key, "provenance")) next
+      child <- if (nzchar(key)) paste0(path, ".", key) else path
+      out <- c(out, json_numbers(x[[i]], child))
+    }
+    return(out)
+  }
+  if (is.numeric(x)) {
+    return(list(list(path = path, integer = is.integer(x), value = x)))
+  }
+  list()
+}
+
+test_that("JSON numbers keep one type per field: counts integer, the rest double", {
+  path <- write_bundle(multi_rater_bundle())
+  parsed <- jsonlite::fromJSON(path, simplifyVector = FALSE)
+  numbers <- json_numbers(parsed)
+  paths <- vapply(numbers, function(n) n$path, character(1))
+  is_int <- vapply(numbers, function(n) n$integer, logical(1))
+  expected <- vapply(paths, json_count_field, logical(1))
+  expect_identical(unique(paths[is_int != expected]), character(0))
+  # The fixture writes whole-valued doubles, which used to come out as JSON
+  # integers (`0`, `1`) and change a field's type from run to run.
+  whole_doubles <- vapply(numbers, function(n) {
+    !n$integer && n$value == round(n$value)
+  }, logical(1))
+  expect_gt(sum(whole_doubles), 5)
+  json_text <- paste(readLines(path, warn = FALSE), collapse = "\n")
+  expect_match(json_text, '"missing_rate": 0.0', fixed = TRUE)
+  expect_match(json_text, '"n_runs": 3,', fixed = TRUE)
+  expect_match(json_text, '"seed": 1,', fixed = TRUE)
+})
+
+test_that("JSON writes the documented calibration and stability scalars", {
+  bundle <- multi_rater_bundle()
+  path <- write_bundle(bundle)
+  parsed <- jsonlite::fromJSON(path)
+  cal <- bundle$cal
+  stability <- bundle$stability
+  expect_identical(cal$n_insufficient_human_ratings, 1L)
+  expect_identical(parsed$calibration$n_insufficient_human_ratings, 1L)
+  expect_identical(
+    names(parsed$stability),
+    c(
+      "audit_id", "n_items", "n_items_scored", "n_runs", "label_levels",
+      "weights", "conf_level", "n_boot", "pairwise_n_boot_effective",
+      "stability_n_boot_effective", "n_boot_effective",
+      "pairwise_disagreement", "pairwise_disagreement_conf_low",
+      "pairwise_disagreement_conf_high", "percent_agreement",
+      "any_flip_rate_at_n_runs", "gwet_agreement", "gwet_coefficient",
+      "gwet_conf_low", "gwet_conf_high", "gwet_status",
+      "gwet_boundary_degenerate", "missing_rate", "pairwise_ci_reliable",
+      "stability_ci_reliable", "ci_reliable", "provenance"
+    )
+  )
+  expect_identical(
+    parsed$stability$any_flip_rate_at_n_runs, stability$any_flip_rate_at_n_runs
+  )
+  expect_identical(
+    parsed$stability$percent_agreement, stability$percent_agreement
+  )
+  expect_identical(
+    parsed$stability$n_boot_effective, stability$n_boot_effective
+  )
+  expect_identical(parsed$stability$ci_reliable, stability$ci_reliable)
 })

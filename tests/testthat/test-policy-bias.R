@@ -262,3 +262,25 @@ test_that("a probe at another confidence level keeps rate and count checks", {
   expect_false("bias_verbosity" %in% rep$checks$check)
   expect_false("bias_verbosity_direction" %in% rep$checks$check)
 })
+
+test_that("min_probe_n counts scored items, not condition pairs", {
+  # 30 pairs at three repeats make 90 condition pairs but 30 items; the
+  # floor is assessed on the items, as the documentation says.
+  better <- function(d) ifelse(grepl("good", d$.candidate_1), "A", "B")
+  bias <- probe_position(
+    tie_pairs(30), better, "candidate_a", "candidate_b",
+    context_cols = "context", repeats = 3, seed = 1,
+    audit_id = "test-bundle"
+  )
+  expect_identical(bias$n_comparisons, 90L)
+  expect_identical(bias$n_scored, 30L)
+  rep <- report(
+    make_cal(), bias = bias,
+    policy = make_policy(required_probes = "position", min_probe_n = 50),
+    output = "md"
+  )
+  n_row <- rep$checks[rep$checks$check == "bias_position_n", ]
+  expect_identical(n_row$status, "INDETERMINATE")
+  expect_equal(n_row$value, 30)
+  expect_equal(n_row$threshold, 50)
+})

@@ -59,3 +59,16 @@ computes the same stability evidence as \code{\link[=test_retest]{test_retest()}
 model. Repeated epochs are treated as repeated measurements of the same item,
 never as independent calibration rows.
 }
+\examples{
+# Three epochs of six items, in long form as vitals stores them; the
+# judge-visible `input` is the same in every epoch.
+samples <- tibble::tibble(
+  id = rep(paste0("q", 1:6), each = 3),
+  epoch = rep(1:3, times = 6),
+  input = rep(paste("question", 1:6), each = 3),
+  score = c("C", "C", "C", "P", "P", "C", "I", "I", "I",
+            "C", "C", "C", "P", "P", "P", "I", "P", "I")
+)
+stability_vitals(samples, content_cols = "input",
+                 label_levels = c("I", "P", "C"), n_boot = 200, seed = 1)
+}

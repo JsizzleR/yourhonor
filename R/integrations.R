@@ -21,6 +21,22 @@
 #' one epoch before calling `audit_vitals()`. Use [stability_vitals()] for epochs
 #' only when every judge-visible content field is invariant within item.
 #' @export
+#' @examples
+#' # A samples data frame stands in for a vitals task here; with vitals
+#' # installed, pass the task itself and its `get_samples()` is read.
+#' samples <- tibble::tibble(
+#'   id = paste0("q", 1:8),
+#'   input = paste("question", 1:8),
+#'   score = c("C", "C", "P", "I", "C", "P", "I", "C")
+#' )
+#' # Human labels keyed by sample ID, in any order.
+#' human <- tibble::tibble(
+#'   id = paste0("q", 8:1),
+#'   human_label = c("C", "I", "C", "C", "I", "P", "C", "C")
+#' )
+#' cal <- audit_vitals(samples, human, label_levels = c("I", "P", "C"),
+#'                     n_boot = 200, seed = 1)
+#' cal
 audit_vitals <- function(task,
                          human_labels,
                          id_col = "id",
@@ -133,6 +149,18 @@ audit_vitals <- function(task,
 #'
 #' @return A `yourhonor_stability` object with `source = "vitals"` provenance.
 #' @export
+#' @examples
+#' # Three epochs of six items, in long form as vitals stores them; the
+#' # judge-visible `input` is the same in every epoch.
+#' samples <- tibble::tibble(
+#'   id = rep(paste0("q", 1:6), each = 3),
+#'   epoch = rep(1:3, times = 6),
+#'   input = rep(paste("question", 1:6), each = 3),
+#'   score = c("C", "C", "C", "P", "P", "C", "I", "I", "I",
+#'             "C", "C", "C", "P", "P", "P", "I", "P", "I")
+#' )
+#' stability_vitals(samples, content_cols = "input",
+#'                  label_levels = c("I", "P", "C"), n_boot = 200, seed = 1)
 stability_vitals <- function(task,
                              id_col = "id",
                              epoch_col = "epoch",
@@ -173,6 +201,7 @@ stability_vitals <- function(task,
   }
   conf_level <- check_probability(conf_level, "conf_level", open = TRUE)
   n_boot <- check_count(n_boot, "n_boot")
+  seed <- check_seed(seed)
   audit_id <- check_audit_id(audit_id)
   samples <- extract_vitals_samples(task)
   missing_cols <- setdiff(
@@ -315,8 +344,16 @@ extract_vitals_samples <- function(task) {
 #' perfect samples it can be corrected into; see [agreement()]). Every absent
 #' value is `null`: an `NA` and an R `NULL` are indistinguishable to a reader,
 #' but neither ever appears as `{}` or is dropped. Fields that are vectors by
-#' contract are always JSON arrays, even when they hold one value. Top-level
-#' members:
+#' contract are always JSON arrays, even when they hold one value. Each
+#' numeric field outside caller-supplied `provenance` (whose values are
+#' written as the caller typed them) keeps one JSON number type from run to
+#' run: `seed` and the
+#' counts (`n`, every `n_*` and `*_n_boot_effective` field, `support`,
+#' `predicted`, `statistic`, and the policy's `min_n`, `min_class_n`,
+#' `min_stability_n`, `min_stability_runs` and `min_probe_n`) are integers,
+#' and every other number, including each check's `value` and `threshold`,
+#' is written with a decimal point or an exponent (`0.0`, `1.0`), even when
+#' it is whole. Top-level members:
 #' * `schema_version`: `"yourhonor.audit.v1"`.
 #' * `created_at`: UTC timestamp in RFC 3339 form, e.g.
 #'   `"2026-01-31T12:00:00Z"`.
@@ -342,7 +379,8 @@ extract_vitals_samples <- function(task) {
 #'   `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without a
 #'   policy the single placeholder check has `null` `op` and `threshold`.
 #' * `calibration`: `n_input`, `n_items`, `n_excluded`, `n_consensus_ties`,
-#'   `n_judge_abstentions`, `judge_abstention_rate`,
+#'   `n_insufficient_human_ratings`, `n_judge_abstentions`,
+#'   `judge_abstention_rate`,
 #'   `judge_abstention_conf_low`, `judge_abstention_conf_high`, `scale`,
 #'   `weights`, `conf_level`, `n_boot`, `seed` (scalars); `label_levels` and
 #'   `coefficients` (arrays); `agreement`, `confusion`, `confusion_metrics`,
@@ -354,18 +392,40 @@ extract_vitals_samples <- function(task) {
 #'   so a reader can rebuild the matrix in `label_levels` order.
 #' * `bias`: `null`, or `audit_id` plus `results`, an array of row objects
 #'   with the columns of the bias tibble.
-#' * `stability`: `null`, or the scalar summary fields of a
-#'   `yourhonor_stability` object (`n_items`, `n_items_scored`, `n_runs`,
-#'   `pairwise_disagreement` with its observed `pairwise_disagreement_conf_low`
-#'   and `pairwise_disagreement_conf_high`, `gwet_*`, `missing_rate`,
-#'   `*_ci_reliable`),
-#'   `label_levels` (array), and `provenance`.
+#' * `stability`: `null`, or the summary fields of a `yourhonor_stability`
+#'   object (see [test_retest()]): `audit_id` (string or `null`), `n_items`,
+#'   `n_items_scored`, `n_runs`, `label_levels` (array), `weights`,
+#'   `conf_level`, `n_boot`, `pairwise_n_boot_effective`,
+#'   `stability_n_boot_effective`, `n_boot_effective` (the smaller of the
+#'   two), `pairwise_disagreement` with its observed
+#'   `pairwise_disagreement_conf_low` and `pairwise_disagreement_conf_high`,
+#'   `percent_agreement` (`1 - pairwise_disagreement`, a proportion despite
+#'   its name), `any_flip_rate_at_n_runs`, the chance-corrected agreement as
+#'   `gwet_agreement`, `gwet_coefficient`, `gwet_conf_low`, `gwet_conf_high`,
+#'   `gwet_status` and `gwet_boundary_degenerate` (the object's
+#'   `stability`, `stability_coefficient`, `stability_conf_low`,
+#'   `stability_conf_high`, `stability_status` and
+#'   `stability_boundary_degenerate`), `missing_rate`,
+#'   `pairwise_ci_reliable`, `stability_ci_reliable`, `ci_reliable` (both
+#'   intervals reliable), and `provenance`.
 #' * `provenance`: the calibration provenance. The keys `input_cols`,
 #'   `human_cols`, `label_levels`, and `content_cols` are always arrays, even
 #'   when they were supplied by the caller and hold one value; `created_at`
 #'   is RFC 3339 UTC like the top-level field, and adapter fields left `NULL`
 #'   (`id_col`, `audit_id`) are present as `null`.
 #' @export
+#' @examples
+#' cal <- calibrate_judge(support_gold, label_levels = c("I", "P", "C"),
+#'                        n_boot = 200, seed = 1)
+#' path <- tempfile(fileext = ".json")
+#' write_audit(cal, path)
+#' audit <- jsonlite::read_json(path)
+#' audit$schema_version
+#' audit$decision
+#'
+#' md <- tempfile(fileext = ".md")
+#' write_audit(cal, md, format = "md")
+#' unlink(c(path, md))
 write_audit <- function(x,
                         path,
                         bias = NULL,
@@ -391,7 +451,6 @@ write_audit <- function(x,
     ))
   }
 
-  rlang::check_installed("jsonlite", reason = "to write a JSON audit artifact")
   assessment <- assess_calibration(x, bias, stability, policy)
   payload <- list(
     schema_version = "yourhonor.audit.v1",
@@ -409,11 +468,14 @@ write_audit <- function(x,
   # two decimals). `digits = I(17)` writes 17 significant digits, the count
   # that makes every double round-trip exactly (`digits = NA` would round to
   # 15), and an R NULL is spelled `null` like an NA rather than jsonlite's
-  # default `{}`.
+  # default `{}`. `always_decimal = TRUE` writes a whole-valued double as
+  # `1.0`, so a rate or bound that happens to be 0 or 1 stays a JSON double
+  # instead of turning into an integer on that run; integer counts are
+  # unaffected.
   jsonlite::write_json(
     payload, path,
     auto_unbox = TRUE, pretty = TRUE, digits = I(17), na = "null",
-    null = "null"
+    null = "null", always_decimal = TRUE
   )
   invisible(path)
 }
@@ -483,6 +545,7 @@ json_calibration <- function(x) {
     n_items = x$n_items,
     n_excluded = x$n_excluded,
     n_consensus_ties = x$n_consensus_ties,
+    n_insufficient_human_ratings = x$n_insufficient_human_ratings,
     n_judge_abstentions = x$n_judge_abstentions,
     judge_abstention_rate = x$judge_abstention_rate,
     judge_abstention_conf_low = x$judge_abstention_conf_low,
@@ -535,9 +598,12 @@ json_stability <- function(stability) {
     n_boot = stability$n_boot,
     pairwise_n_boot_effective = stability$pairwise_n_boot_effective,
     stability_n_boot_effective = stability$stability_n_boot_effective,
+    n_boot_effective = stability$n_boot_effective,
     pairwise_disagreement = stability$pairwise_disagreement,
     pairwise_disagreement_conf_low = stability$pairwise_disagreement_conf_low,
     pairwise_disagreement_conf_high = stability$pairwise_disagreement_conf_high,
+    percent_agreement = stability$percent_agreement,
+    any_flip_rate_at_n_runs = stability$any_flip_rate_at_n_runs,
     gwet_agreement = stability$stability,
     gwet_coefficient = stability$stability_coefficient,
     gwet_conf_low = stability$stability_conf_low,
@@ -547,6 +613,7 @@ json_stability <- function(stability) {
     missing_rate = stability$missing_rate,
     pairwise_ci_reliable = stability$pairwise_ci_reliable,
     stability_ci_reliable = stability$stability_ci_reliable,
+    ci_reliable = stability$ci_reliable,
     provenance = json_provenance(stability$provenance)
   )
 }

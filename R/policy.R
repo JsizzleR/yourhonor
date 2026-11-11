@@ -53,9 +53,13 @@
 #'   when stability is in the policy and rejected otherwise.
 #' @param required_probes Bias probes that must be present and free of detected
 #'   signal.
-#' @param min_probe_n Minimum paired comparisons required for every required
-#'   bias probe. Required when `required_probes` is non-empty and rejected
-#'   otherwise.
+#' @param min_probe_n Minimum scored items required for every required bias
+#'   probe: the probe's `n_scored`, the items with a decided judgment in both
+#'   conditions (see [probe_bias()]). It counts items, not judgments
+#'   (`n_judgments`) or condition pairs (`n_comparisons`): a position probe
+#'   over 30 pairs at `repeats = 3` has `n_comparisons = 90` but at most 30
+#'   scored items.
+#'   Required when `required_probes` is non-empty and rejected otherwise.
 #' @param max_probe_flip_rate Maximum upper confidence bound for a required
 #'   probe's flip rate. The upper bound assessed counts every unscored item
 #'   (one without a usable judgment in both conditions; for the position
@@ -94,6 +98,32 @@
 #'
 #' @return A `yourhonor_policy` object.
 #' @export
+#' @examples
+#' # A calibration-only policy: stability and bias are outside it.
+#' policy <- acceptance_policy(
+#'   min_agreement_lower = 0.6, min_n = 5, min_class_n = 2,
+#'   min_recall = 0.6, max_missing_rate = 0.05,
+#'   max_pairwise_disagreement = NULL
+#' )
+#' policy
+#'
+#' # Eight items meet the count floors but are too few for the interval
+#' # checks to pass.
+#' cal <- calibrate_judge(support_gold, label_levels = c("I", "P", "C"),
+#'                        n_boot = 200, seed = 1)
+#' report(cal, policy = policy)$checks
+#'
+#' # Switching a gate on requires its dependent thresholds; class-specific
+#' # recall floors are a named vector.
+#' acceptance_policy(
+#'   min_agreement_lower = 0.6, min_n = 50, min_class_n = 10,
+#'   min_recall = c(I = 0.5, C = 0.7), max_missing_rate = 0.05,
+#'   max_pairwise_disagreement = 0.1, min_stability_n = 50,
+#'   min_stability_runs = 3, max_stability_missing_rate = 0.01,
+#'   required_probes = "verbosity", min_probe_n = 50,
+#'   max_probe_flip_rate = 0.1, max_probe_directional_rate = 0.05,
+#'   max_probe_missing_rate = 0.01
+#' )
 acceptance_policy <- function(min_agreement_lower,
                               min_n,
                               min_class_n,
@@ -350,7 +380,9 @@ check_metric_threshold <- function(x,
       class = policy_error, call = call
     )
   }
-  x
+  # An integer threshold (`1L`) is stored as a double like every other
+  # rate threshold, so the audit JSON writes it as `1.0`.
+  rlang::set_names(as.numeric(x), names(x))
 }
 
 # Assessment ------------------------------------------------------------------
