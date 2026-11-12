@@ -403,6 +403,6 @@ test_that("holes in otherwise passing evidence never produce a FAIL", {
       runs, n_boot = 200, audit_id = "gate"
     ))
     statuses <- vapply(gate_rows(st, pol), `[[`, "", "status")
-    expect_false(any(statuses == "FAIL"))
+    expect_none(statuses == "FAIL")
   }
 })

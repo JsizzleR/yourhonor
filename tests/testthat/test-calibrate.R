@@ -68,7 +68,7 @@ test_that("items with one observed human rating are excluded and counted", {
   tail_items <- cal$items[9:10, ]
   expect_all(is.na(tail_items$human_consensus))
   expect_equal(tail_items$n_human_observed, c(1, 1))
-  expect_false(any(tail_items$consensus_tie))
+  expect_none(tail_items$consensus_tie)
   expect_all(is.na(tail_items$agree))
   # Per-rater agreement still scores every item against h1.
   h1 <- cal$per_rater_agreement[cal$per_rater_agreement$rater == "h1", ]
@@ -176,7 +176,7 @@ test_that("judge functions receive only IDs and declared inputs", {
   expect_identical(seen_ids, seq_len(nrow(gold)))
   expect_false(identical(seen_input, gold$input))
   expect_false("human_label" %in% seen)
-  expect_false(any(gold$id %in% seen_ids))
+  expect_none(gold$id %in% seen_ids)
   expect_all(cal$items$judge_label == "C")
 })
 

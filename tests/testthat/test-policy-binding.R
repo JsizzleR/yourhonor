@@ -115,7 +115,7 @@ test_that("malformed evidence tables are indeterminate or not assessed", {
   rep <- report(empty, policy = make_policy(), output = "md")
   expect_identical(check_status(rep, "class_support"), "NOT_ASSESSED")
   expect_identical(rep$decision, "NOT_ASSESSED")
-  expect_false(any(startsWith(rep$checks$check, "recall_")))
+  expect_none(startsWith(rep$checks$check, "recall_"))
 
   reversed <- interval_min_check("x", 0.9, 0.5, 0.8)
   expect_identical(reversed$status, "INDETERMINATE")

@@ -20,7 +20,8 @@ probe_position(
 )
 }
 \arguments{
-\item{data}{A data frame with separate candidate columns. Missing
+\item{data}{A data frame with separate character candidate columns (a
+list, factor, numeric or matrix column is an error). Missing
 candidates are an error, as for \code{\link[=probe_bias]{probe_bias()}}: a pair with an \code{NA}
 candidate would otherwise be graded as a real comparison and hide
 abstention from the missingness gate.}

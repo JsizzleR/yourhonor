@@ -5,7 +5,20 @@
 # An empty logical vector passes, as `all(logical(0))` does; anything other
 # than a logical vector fails, since all() would coerce it.
 expect_all <- function(object, info = NULL, label = NULL) {
-  quo <- rlang::enquo(object)
+  expect_each(rlang::enquo(object), TRUE, info, label)
+}
+
+# Every element of `object` is FALSE: the stand-in for
+# `expect_false(any(x))`, reporting the positions that are TRUE or NA as
+# expect_all() reports the ones that are not TRUE. NA fails, as
+# `expect_false(any(c(FALSE, NA)))` does.
+expect_none <- function(object, info = NULL, label = NULL) {
+  expect_each(rlang::enquo(object), FALSE, info, label)
+}
+
+# Shared by expect_all() and expect_none(): every element of the quoted
+# logical vector equals `want`.
+expect_each <- function(quo, want, info, label) {
   expr <- rlang::quo_get_expr(quo)
   env <- rlang::quo_get_env(quo)
   lab <- if (is.null(label)) {
@@ -31,7 +44,7 @@ expect_all <- function(object, info = NULL, label = NULL) {
     )
     return(invisible(x))
   }
-  bad <- which(is.na(x) | !x)
+  bad <- which(is.na(x) | (if (want) !x else x))
   if (length(bad) == 0L) {
     testthat::expect(TRUE, "", info = info)
     return(invisible(x))
@@ -43,13 +56,20 @@ expect_all <- function(object, info = NULL, label = NULL) {
     sprintf("%d (%s)", shown, encodeString(names(x)[shown], quote = "\""))
   }
   msg <- sprintf(
-    "Expected every element of %s to be TRUE; %d of %d %s not, at %s%s.",
-    lab, length(bad), length(x), if (length(bad) == 1L) "is" else "are",
+    "Expected every element of %s to be %s; %d of %d %s not, at %s%s.",
+    lab, if (want) "TRUE" else "FALSE", length(bad), length(x),
+    if (length(bad) == 1L) "is" else "are",
     paste(where, collapse = ", "), if (length(bad) > 10L) ", ..." else ""
   )
   if (!is.null(operands)) {
+    # The table of `%in%` is not elementwise, even when it is as long as
+    # the result, so it is shown whole.
+    table <- rlang::is_call(expr, "%in%")
     sides <- vapply(1:2, function(i) {
-      operand_values(operands[[i]], expr[[i + 1L]], shown, length(x))
+      operand_values(
+        operands[[i]], expr[[i + 1L]], shown, length(x),
+        whole = table && i == 2L
+      )
     }, character(1))
     msg <- paste0(msg, paste(sides, collapse = ""))
   }
@@ -58,11 +78,11 @@ expect_all <- function(object, info = NULL, label = NULL) {
 }
 
 # One operand of a failed comparison: its values at the failing positions
-# when it is as long as the result, otherwise its first ten (a recycled
-# scalar, or the table of `%in%`). "" for anything that is not atomic.
-operand_values <- function(value, expr, positions, n) {
+# when it is as long as the result, otherwise (or when `whole`, for the table
+# of `%in%`) its first ten. "" for anything that is not atomic.
+operand_values <- function(value, expr, positions, n, whole = FALSE) {
   if (!is.atomic(value) || is.null(value)) return("")
-  picked <- if (length(value) == n) {
+  picked <- if (length(value) == n && !whole) {
     value[positions]
   } else {
     utils::head(value, 10L)

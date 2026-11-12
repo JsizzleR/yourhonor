@@ -238,8 +238,8 @@ validate_labels <- function(labels,
   if (length(unknown) > 0L) {
     yh_abort(
       paste0(
-        "{.arg {arg}} returned label{?s} outside {.arg {levels_arg}}: ",
-        "{.val {unknown}}."
+        "{.arg {arg}} returned {cli::qty(length(unknown))}label{?s} outside ",
+        "{.arg {levels_arg}}: {.val {unknown}}."
       ),
       call = call, class = class
     )

@@ -773,8 +773,8 @@ grade_keyed <- function(judge,
     if (!all(required %in% names(out))) {
       yh_abort(
         paste0(
-          "{context} must contain {.field label} and key column{?s}: ",
-          "{.field {key_cols}}."
+          "{context} must contain {.field label} and ",
+          "{cli::qty(length(key_cols))}key column{?s}: {.field {key_cols}}."
         ),
         class = judge_error, call = call
       )

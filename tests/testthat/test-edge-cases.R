@@ -18,7 +18,7 @@ test_that("a single-class reference is insufficient_reference_variation", {
   expect_all(cal$agreement$status == "insufficient_reference_variation")
   expect_all(is.na(cal$agreement$estimate))
   expect_all(is.na(cal$agreement$interpretation))
-  expect_false(any(cal$agreement$ci_reliable))
+  expect_none(cal$agreement$ci_reliable)
   # The same table re-derived through agreement() keeps the reference rule.
   expect_all(
     agreement(cal, n_boot = 50)$status == "insufficient_reference_variation"

@@ -200,7 +200,7 @@ test_that("the markdown report is one level-2 heading over separated blocks", {
     expect_identical(sum(grepl("^#{1,2} ", md)), 1L, info = name)
     # Blocks are separated by exactly one blank line, with none at the ends.
     expect_false(identical(md[[n]], ""), info = name)
-    expect_false(any(md[-1] == "" & md[-n] == ""), info = name)
+    expect_none(md[-1] == "" & md[-n] == "", info = name)
     blocks <- split(md, cumsum(md == ""))
     blocks <- lapply(unname(blocks), function(b) b[b != ""])
     is_heading <- vapply(blocks, function(b) grepl("^### ", b[[1]]), NA)
@@ -289,7 +289,7 @@ test_that("the stability headline labels its interval and the assessed bound", {
   # No item with two judgments: no bound to show, and none is invented.
   stability$pairwise_disagreement_worst_case_high <- NA_real_
   md <- format(report(render_cal(), stability = stability), output = "md")
-  expect_false(any(grepl("worst-case", md, fixed = TRUE)))
+  expect_none(grepl("worst-case", md, fixed = TRUE))
 })
 
 test_that("evidence the report validates carries every field it requires", {

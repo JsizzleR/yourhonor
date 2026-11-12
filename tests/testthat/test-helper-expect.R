@@ -33,3 +33,34 @@ test_that("expect_all() evaluates a comparison's operands once", {
   expect_success(expect_all(draw() > 0))
   expect_identical(calls, 1)
 })
+
+test_that("expect_none() passes and fails where expect_false(any(x)) does", {
+  expect_success(expect_none(c(FALSE, FALSE)))
+  expect_success(expect_none(logical(0)))
+  expect_failure(expect_none(c(FALSE, TRUE)))
+  expect_failure(expect_none(c(FALSE, NA)))
+  expect_failure(expect_none(c(0, 1)), "not a logical vector")
+})
+
+test_that("expect_none() names the offending positions and compared values", {
+  seen <- c("text", "human_label", "id", NA)
+  expect_failure(
+    expect_none(seen %in% c("human_label", "id")),
+    paste0(
+      "every element of `seen %in% c\\(\"human_label\", \"id\"\\)` to be ",
+      "FALSE; 2 of 4 are not, at 2, 3\\.\nseen: human_label, id\n",
+      "c\\(\"human_label\", \"id\"\\): human_label, id"
+    )
+  )
+  flags <- c(a = FALSE, b = TRUE, c = NA)
+  expect_failure(expect_none(flags), "at 2 \\(\"b\"\\), 3 \\(\"c\"\\)\\.")
+})
+
+test_that("the table of %in% is shown whole, not at the failing positions", {
+  # Equal in length to the result, the table was once indexed like an
+  # elementwise operand, hiding the value that matched.
+  expect_failure(
+    expect_none(c("b", "z") %in% c("a", "b")),
+    "at 1\\.\nc\\(\"b\", \"z\"\\): b\nc\\(\"a\", \"b\"\\): a, b$"
+  )
+})

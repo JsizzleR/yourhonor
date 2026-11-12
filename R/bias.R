@@ -194,7 +194,8 @@ probe_bias <- function(data,
 #' so a content-consistent judge remains consistent and an always-first judge is
 #' exposed.
 #'
-#' @param data A data frame with separate candidate columns. Missing
+#' @param data A data frame with separate character candidate columns (a
+#'   list, factor, numeric or matrix column is an error). Missing
 #'   candidates are an error, as for [probe_bias()]: a pair with an `NA`
 #'   candidate would otherwise be graded as a real comparison and hide
 #'   abstention from the missingness gate.
@@ -695,7 +696,18 @@ check_probe_input <- function(data) {
 # meant to record would be hidden from the missingness gate.
 check_candidates_present <- function(data, candidate_cols) {
   for (col in candidate_cols) {
-    n_na <- sum(is.na(data[[col]]))
+    # The judge contract is candidate text in each display slot, as
+    # probe_bias()'s is a character `input`. A list column passes the NA
+    # check below (is.na(list(NULL)) is FALSE) and would reach the judge as a
+    # list; a matrix column is several candidates per row.
+    value <- data[[col]]
+    if (!is.character(value) || !is.null(dim(value))) {
+      yh_abort(paste0(
+        "Candidate column {.field {col}} must be a character vector (one ",
+        "candidate per row, with no {.code dim}), not {.cls {class(value)}}."
+      ))
+    }
+    n_na <- sum(is.na(value))
     if (n_na > 0L) {
       yh_abort(paste0(
         "Candidate column {.field {col}} contains {n_na} missing value{?s}; ",

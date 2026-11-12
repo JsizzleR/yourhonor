@@ -166,3 +166,31 @@ test_that("ordinal label_levels must follow an ordered factor's order", {
     "I < P < C", class = "yourhonor_input_error"
   )
 })
+
+test_that("label and key-column messages pluralise on their counts", {
+  # `{?s}` takes its quantity from the nearest substitution; these two once
+  # pluralised on the argument name, so two labels read "label".
+  expect_error(
+    validate_labels(c("x", "y", "a"), c("a", "b")),
+    "`judge` returned labels outside `label_levels`: \"x\" and \"y\"",
+    class = "yourhonor_input_error"
+  )
+  expect_error(
+    validate_labels(c("x", "a"), c("a", "b")),
+    "`judge` returned label outside `label_levels`: \"x\"\\.",
+    class = "yourhonor_input_error"
+  )
+
+  data <- tibble::tibble(a = 1:3, b = 4:6, text = letters[1:3])
+  no_keys <- function(d) tibble::tibble(label = rep("A", nrow(d)))
+  expect_error(
+    grade_keyed(no_keys, data, key_cols = c("a", "b")),
+    "must contain label and key columns: a and b\\.",
+    class = "yourhonor_judge_error"
+  )
+  expect_error(
+    grade_keyed(no_keys, data, key_cols = "a"),
+    "must contain label and key column: a\\.",
+    class = "yourhonor_judge_error"
+  )
+})

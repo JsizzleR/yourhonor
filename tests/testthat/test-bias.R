@@ -301,7 +301,7 @@ test_that("structured position probe preserves text and canonical identity", {
   expect_identical(
     seen, c(".item_id", "context", ".candidate_1", ".candidate_2")
   )
-  expect_false(any(c(".condition", ".repeat", ".display_id") %in% seen))
+  expect_none(c(".condition", ".repeat", ".display_id") %in% seen)
   evidence <- attr(res, "evidence")$position
   original <- evidence[evidence$.condition == "original", ]
   expect_true(any(grepl("good\nmultiline answer", original$candidate_a, fixed = TRUE)))
@@ -326,7 +326,7 @@ test_that("position probing redacts everything but the display slots", {
   expect_identical(
     seen, c(".item_id", "context", ".candidate_1", ".candidate_2")
   )
-  expect_false(any(c("winner", "human_choice", "source_id") %in% seen))
+  expect_none(c("winner", "human_choice", "source_id") %in% seen)
 })
 
 test_that("an always-first judge is detected after canonical remapping", {
@@ -393,6 +393,50 @@ test_that("structured position outputs can reorder rows safely", {
   expect_equal(res$flip_rate, 0)
 })
 
+test_that("candidates must be plain character columns", {
+  calls <- 0L
+  judge <- function(d) {
+    calls <<- calls + 1L
+    rep("A", nrow(d))
+  }
+  # A list column passes the NA check (is.na(list(NULL)) is FALSE) and
+  # would reach the judge as a list; the judge contract is candidate text,
+  # as probe_bias()'s is a character `input`.
+  cases <- list(
+    list_text = list("good answer", "bad answer"),
+    list_null = list(NULL, NULL),
+    factor = factor(c("good answer", "bad answer")),
+    numeric = c(1, 2),
+    matrix = matrix(c("good", "bad", "worse", "worst"), nrow = 2)
+  )
+  for (name in names(cases)) {
+    bad <- pair_data()
+    bad$candidate_b <- cases[[name]]
+    expect_error(
+      probe_position(bad, judge, "candidate_a", "candidate_b", seed = 1),
+      "Candidate column candidate_b must be a character vector",
+      class = "yourhonor_input_error", info = name
+    )
+    swapped <- pair_data()
+    swapped$candidate_a <- cases[[name]]
+    expect_error(
+      probe_position(swapped, judge, "candidate_a", "candidate_b", seed = 1),
+      "Candidate column candidate_a must be a character vector",
+      class = "yourhonor_input_error", info = name
+    )
+  }
+  # Both columns lists: the swapped rows bind, so this one reached the judge.
+  both <- pair_data()
+  both$candidate_a <- list(NULL, NULL)
+  both$candidate_b <- list("good answer", "bad answer")
+  expect_error(
+    probe_position(both, judge, "candidate_a", "candidate_b", seed = 1),
+    "Candidate column candidate_a must be a character vector",
+    class = "yourhonor_input_error"
+  )
+  expect_equal(calls, 0L)
+})
+
 test_that("missing candidate text is rejected before the judge sees it", {
   calls <- 0L
   judge <- function(d) {
@@ -437,7 +481,7 @@ test_that("pointwise grading is redacted, opaque, and keyed", {
   expect_equal(res$flip_rate, 0)
   expect_identical(seen_names, c(".item_id", "input"))
   expect_setequal(seen_ids, seq_len(40))
-  expect_false(any(c("source_id", "human_label", "judge_label") %in% seen_names))
+  expect_none(c("source_id", "human_label", "judge_label") %in% seen_names)
 })
 
 test_that("both probes share one schema and named evidence lists", {
@@ -724,7 +768,7 @@ test_that("combine_bias keeps only evidence for each constituent's rows", {
   expect_setequal(
     unique(attr(again, "evidence")$position$display_choice), c("A", "B")
   )
-  expect_false(any(attr(again, "item_evidence")$position$flipped))
+  expect_none(attr(again, "item_evidence")$position$flipped)
   expect_identical(again$verdict[again$probe == "position"], "no_signal")
 
   # Two row-subsets of one combined object recombine.

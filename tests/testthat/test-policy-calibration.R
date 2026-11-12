@@ -307,7 +307,7 @@ test_that("a calibration at another confidence level withholds intervals", {
   expect_identical(check_status(rep, "usable_items"), "PASS")
   expect_identical(check_status(rep, "calibration_missing_rate"), "PASS")
   expect_identical(check_status(rep, "class_support"), "PASS")
-  expect_false(any(rep$checks$status == "FAIL"))
+  expect_none(rep$checks$status == "FAIL")
 })
 
 # Policy coefficient follow-ups --------------------------------------------------

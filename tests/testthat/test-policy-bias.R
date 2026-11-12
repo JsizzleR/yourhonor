@@ -241,7 +241,7 @@ test_that("an undersized required probe is a prerequisite failure", {
   expect_true(is.na(row$value))
   expect_match(row$reason, "below the declared minimum.*not assessed")
   expect_false("bias_verbosity_direction" %in% rep$checks$check)
-  expect_false(any(rep$checks$status == "FAIL"))
+  expect_none(rep$checks$status == "FAIL")
 })
 
 test_that("a probe at another confidence level keeps rate and count checks", {

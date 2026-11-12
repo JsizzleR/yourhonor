@@ -289,7 +289,7 @@ test_that("stability grading is redacted, opaque, and keyed", {
   expect_identical(seen_names, c(".item_id", "input"))
   expect_identical(seen_ids, 1:4)
   expect_identical(st$runs[, 1], c("C", "P", "C", "P"))
-  expect_false(any(c("human_label", "judge_label", "source_id") %in% seen_names))
+  expect_none(c("human_label", "judge_label", "source_id") %in% seen_names)
 })
 
 test_that("per-run judge keys map source rows to what the judge saw", {

@@ -221,7 +221,7 @@ test_that("the vitals adapter uses the score column as the judge column", {
   cal <- bundled_cal()
   expect_identical(cal$judge_col, "score")
   expect_identical(cal$provenance$judge_col, "score")
-  expect_false(any(startsWith(names(cal$items), ".yourhonor")))
+  expect_none(startsWith(names(cal$items), ".yourhonor"))
   expect_identical(cal$items$score, vitals_samples()$score)
   expect_identical(cal$ratings$judge, vitals_samples()$score)
 })
