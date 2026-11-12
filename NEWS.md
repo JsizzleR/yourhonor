@@ -65,13 +65,19 @@
   supplied without the gate that reads it is an error.
 * `report()` turns the evidence into `PASS`, `FAIL`, `NOT_ASSESSED` or
   `INDETERMINATE`, check by check, with numeric `value`, `op` and
-  `threshold` columns. Unscored probe items and missing re-run judgments
-  count against the judge in the upper bounds a policy assesses and in its
+  `threshold` columns. Unscored probe items, missing position repeats that
+  could change a scored item's outcome, and missing re-run judgments count
+  against the judge in the upper bounds a policy assesses and in its
   favour in the lower bounds (position ties no answer could break stay out
   of them), so missing evidence can keep a check from passing or failing
   but not cause either; the missing-rate checks gate missingness itself.
-  The position probe's bounds cover its unscored items, not missing repeats
-  of an item it still scores. A count or missing rate that is not a finite
+  With `repeats >= 2`, a scored position item whose missing repeats could
+  change its outcome moves only in directions those repeats can reach (in
+  the upper bound, either way when they could leave it unscored). The
+  policy reads such items from the probe's per-judgment `evidence`
+  attribute, which records the `tie_label`, and makes both interval checks
+  `INDETERMINATE` when that evidence is needed but absent or does not match
+  the probe's counts. A count or missing rate that is not a finite
   number makes its check `INDETERMINATE`, not `FAIL`. Without a policy the
   report is descriptive. It prints to the console or renders as Markdown,
   and its agreement and stability headlines show the bounds the policy
