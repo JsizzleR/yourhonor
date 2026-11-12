@@ -314,7 +314,14 @@ confidence bounds rather than point estimates. A recall floor for
 <span><span class="co">#&gt; 7 recall_C                     PASS      0.988   lower &gt;=      0.9</span></span></code></pre></div>
 <p>A check is <code>PASS</code>, <code>FAIL</code>,
 <code>NOT_ASSESSED</code> (the evidence it needs was not supplied) or
-<code>INDETERMINATE</code> (its interval overlaps the threshold). This
+<code>INDETERMINATE</code> (its interval overlaps the threshold, or a
+number it reads is not finite). In the stability and bias interval
+checks, missing judgments widen both bounds, so they can keep a check
+from passing or failing but never cause either; the missing-rate checks
+gate missingness itself. A position probe that may have scored items
+with missing repeats makes both its interval checks
+<code>INDETERMINATE</code> when the per-judgment evidence that would
+place those items is absent or does not match the probe’s counts. This
 policy has no stability or bias gates;
 <code><a href="../articles/policies-audit.html">vignette("policies-audit")</a></code> adds them, and shows how
 required evidence that was never supplied is reported.</p>

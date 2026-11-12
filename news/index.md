@@ -96,12 +96,17 @@
   when they could leave it unscored). The policy reads such items from
   the probe’s per-judgment `evidence` attribute, which records the
   `tie_label`, and makes both interval checks `INDETERMINATE` when that
-  evidence is needed but absent or does not match the probe’s counts. A
-  count or missing rate that is not a finite number makes its check
-  `INDETERMINATE`, not `FAIL`. Without a policy the report is
-  descriptive. It prints to the console or renders as Markdown, and its
-  agreement and stability headlines show the bounds the policy assesses
-  beside the observed interval.
+  evidence is needed but absent or does not match the probe’s counts.
+  The `min_probe_n` count leaves out each scored position item that a
+  completion of its missing repeats could leave unscored (without the
+  evidence, every scored item that may have a missing repeat), so a
+  `PASS` or `FAIL` never rests on fewer scored items than the policy
+  requires; the `bias_<probe>_n` value is that count. A count or missing
+  rate that is not a finite number makes its check `INDETERMINATE`, not
+  `FAIL`. Without a policy the report is descriptive. It prints to the
+  console or renders as Markdown, and its agreement and stability
+  headlines show the bounds the policy assesses beside the observed
+  interval.
 - Every piece of evidence can carry an `audit_id`, and
   [`report()`](https://jsizzler.github.io/yourhonor/reference/report.md)
   refuses to bind evidence tagged for a different judge.
@@ -113,9 +118,12 @@
   (`yourhonor.audit.v1`) that omits item rows. It carries the stability
   worst- and best-case bounds and each bias probe’s `n_unscored_tied`.
   [`?write_audit`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
-  documents every field. A field’s JSON number type never changes
-  between runs: counts are integers and every other number is written as
-  a decimal.
+  documents every field, and says when a bias check’s value can be
+  recomputed from the JSON alone: not an interval value that counts
+  scored position items whose missing repeats could change their
+  outcome, which rests on per-judgment evidence the JSON leaves out. A
+  field’s JSON number type never changes between runs: counts are
+  integers and every other number is written as a decimal.
 - [`audit_vitals()`](https://jsizzler.github.io/yourhonor/reference/audit_vitals.md)
   and
   [`stability_vitals()`](https://jsizzler.github.io/yourhonor/reference/stability_vitals.md)

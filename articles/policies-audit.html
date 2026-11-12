@@ -290,8 +290,15 @@ for every absent value. Full precision is the stored doubles’, not the
 estimates’: irrCAC rounds each agreement coefficient to five decimals,
 and its bootstrap bounds inherit that. Calibration item rows are
 omitted, but caller-supplied provenance is written verbatim; keep
-secrets and raw item content out of provenance fields.
-<code><a href="../reference/write_audit.html">?write_audit</a></code> documents the schema.</p>
+secrets and raw item content out of provenance fields. A position
+probe’s per-judgment evidence is omitted too, so the JSON alone cannot
+recompute every bias check. Where a check’s <code>reason</code> counts
+scored items whose missing repeats could change their outcome, or could
+leave them unscored, that count comes from the evidence. A
+<code>bias_&lt;probe&gt;_n</code> value is <code>n_scored</code> less
+it, but an interval check’s value also depends on how many of those
+items flipped and which directions each could reach, which the reason
+does not say. <code><a href="../reference/write_audit.html">?write_audit</a></code> documents the schema.</p>
 </div>
 <div class="section level2">
 <h2 id="statistical-scope">Statistical scope<a class="anchor" aria-label="anchor" href="#statistical-scope"></a>

@@ -120,8 +120,24 @@ acceptance_policy(
   [`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md)).
   It counts items, not judgments (`n_judgments`) or condition pairs
   (`n_comparisons`): a position probe over 30 pairs at `repeats = 3` has
-  `n_comparisons = 90` but at most 30 scored items. Required when
-  `required_probes` is non-empty and rejected otherwise.
+  `n_comparisons = 90` but at most 30 scored items. With `repeats >= 2`
+  a position item can be scored with some repeats missing; when answers
+  for them could leave it unscored (its display order's choices would
+  tie), the count leaves it out, so the interval checks are assessed
+  only when every completion of the missing judgments keeps enough
+  scored items. Unscored items that a completion would score are not
+  counted. Those items are found from the probe's per-judgment evidence
+  (see `max_probe_flip_rate`); without matching evidence the count
+  leaves out every scored item that may have a missing repeat. The
+  `bias_<probe>_n` check's `value` is the count compared, the probe's
+  `n_scored` whenever no item is left out (unavailable when the counts
+  that place those items are). One missing judgment can leave an item
+  out, so a floor near the probe's item count lets a judge that would
+  fail skip the interval checks with a few such omissions: the flip-rate
+  check is `INDETERMINATE` (never `PASS`) and the directional check is
+  not reported. `max_probe_missing_rate` bounds how many omissions there
+  can be. Required when `required_probes` is non-empty and rejected
+  otherwise.
 
 - max_probe_flip_rate:
 

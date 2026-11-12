@@ -291,8 +291,15 @@ rare_report$checks[, c("check", "status", "value", "op", "threshold")]
 ```
 
 A check is `PASS`, `FAIL`, `NOT_ASSESSED` (the evidence it needs was not
-supplied) or `INDETERMINATE` (its interval overlaps the threshold). This
-policy has no stability or bias gates;
+supplied) or `INDETERMINATE` (its interval overlaps the threshold, or a
+number it reads is not finite). In the stability and bias interval
+checks, missing judgments widen both bounds, so they can keep a check
+from passing or failing but never cause either; the missing-rate checks
+gate missingness itself. A position probe that may have scored items
+with missing repeats makes both its interval checks `INDETERMINATE` when
+the per-judgment evidence that would place those items is absent or does
+not match the probe’s counts. This policy has no stability or bias
+gates;
 [`vignette("policies-audit")`](https://jsizzler.github.io/yourhonor/articles/policies-audit.md)
 adds them, and shows how required evidence that was never supplied is
 reported.

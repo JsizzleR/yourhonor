@@ -160,8 +160,13 @@ can neither fail the probe nor pass a judge that would have failed. The
 policy reads those items from the probe’s per-judgment evidence, so keep
 the <code><a href="../reference/probe_position.html">probe_position()</a></code> result whole: when a scored item may
 have a missing repeat and that evidence is missing or does not match the
-probe’s counts, the two interval checks are
-<code>INDETERMINATE</code>.</p>
+probe’s counts, the interval checks are not assessed
+(<code>INDETERMINATE</code>). The policy’s <code>min_probe_n</code>
+count also leaves out each scored item whose missing repeats could be
+answered so that a display order’s choices tie, so a completion cannot
+leave a <code>PASS</code> or <code>FAIL</code> resting on fewer scored
+items than the policy requires (without the evidence, every scored item
+that may have a missing repeat is left out).</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">bias</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"probe"</span>, <span class="st">"n_scored"</span>, <span class="st">"n_unscored"</span>, <span class="st">"unscored_rate"</span>, <span class="st">"missing_rate"</span><span class="op">)</span><span class="op">]</span></span>
 <span><span class="co">#&gt; ── yourhonor bias probes ──</span></span>
