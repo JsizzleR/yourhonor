@@ -49,20 +49,24 @@ scalar applies to all classes; a named vector applies only to named classes.}
 judge-consensus pair.}
 
 \item{max_pairwise_disagreement}{Maximum upper confidence bound for mean
-pairwise stability disagreement. The upper bound assessed is the
-stability's \code{pairwise_disagreement_worst_case_high}, which counts every
-pair involving a missing judgment as a disagreement over all \code{n_items}
-items (see \code{\link[=test_retest]{test_retest()}}); the lower bound is the observed
-\code{pairwise_disagreement_conf_low}. Counting missing judgments this way
-can therefore turn this check's \code{PASS} into \code{INDETERMINATE} but never
-into \code{FAIL}: a \code{FAIL} rests on the observed judgments' interval alone,
-as without the worst case. (Abstaining on runs that agree can still
-raise that observed interval, since it is the judge's own evidence.) Set \code{NULL} explicitly when
-stability is outside this policy.}
+pairwise stability disagreement. The interval assessed reads missing
+judgments both ways, over all \code{n_items} items (see \code{\link[=test_retest]{test_retest()}}):
+its upper bound is the stability's
+\code{pairwise_disagreement_worst_case_high}, which counts every pair
+involving a missing judgment as a disagreement, and its lower bound is
+\code{pairwise_disagreement_best_case_low}, which gives each missing
+judgment the label that least disagrees with its item's other runs.
+Missing judgments can therefore turn this check's \code{PASS} or \code{FAIL} into
+\code{INDETERMINATE} but never cause either: a \code{FAIL} holds under the most
+favourable labels for them, so abstaining on runs that agree cannot
+fail a judge whose complete evidence would not. With nothing missing
+both bounds are the observed interval's. (The separate
+\code{max_stability_missing_rate} check can still \code{FAIL} on missingness
+itself.) Set \code{NULL} explicitly when stability is outside this policy.}
 
 \item{min_stability_n}{Minimum independent items with at least two stability
-judgments (\code{n_items_scored}; items counted only by the worst case do not
-count). Required when \code{max_pairwise_disagreement} is not \code{NULL} and
+judgments (\code{n_items_scored}; items counted only by the worst or best
+case do not count). Required when \code{max_pairwise_disagreement} is not \code{NULL} and
 rejected otherwise.}
 
 \item{min_stability_runs}{Minimum repeated judge runs. Required when
@@ -73,7 +77,9 @@ judgments that may be missing. Below this rate missing judgments still
 count against the disagreement check: its upper bound treats each one
 as disagreeing with its item's other runs (see
 \code{max_pairwise_disagreement}), so a judge cannot pass by abstaining on the
-items where it is unstable. Only cells of the run matrix are counted: an
+items where it is unstable, and its lower bound gives each the label
+that least disagrees with its item's other runs, so abstaining cannot
+fail a judge either. Only cells of the run matrix are counted: an
 item or run absent from the evidence entirely is not missing. Required
 when stability is in the policy and rejected otherwise.}
 
@@ -92,15 +98,31 @@ Required when \code{required_probes} is non-empty and rejected otherwise.}
 probe's flip rate. The upper bound assessed counts every unscored item
 (one without a usable judgment in both conditions; for the position
 probe this includes items lost to a within-condition tie) as a flip over
-all \code{n_input} items, so it can exceed the probe's own \code{conf_high}; the
-lower bound is the scored items' \code{conf_low}. Counting them can turn this
-check's \code{PASS} into \code{INDETERMINATE} but never into \code{FAIL}. Required when
-\code{required_probes} is non-empty and rejected otherwise.}
+all \code{n_input} items, so it can exceed the probe's own \code{conf_high}. The
+lower bound leaves out the \code{n_unscored_tied} items lost to a
+within-condition tie no answer could break, which are decided evidence
+rather than missing and stay out of it as they do of the scored items'
+\code{conf_low}, and counts every other unscored item (each has a missing
+judgment) as unflipped, over the remaining items (it is never above
+that \code{conf_low}). Missing judgments can therefore turn this
+check's \code{PASS} or \code{FAIL} into \code{INDETERMINATE}: a \code{FAIL} holds however the
+unscored items they leave would have been resolved. For the position
+probe this covers unscored items only: with \code{repeats >= 2} a scored item
+can also have missing repeats, and both bounds take its modal choice as
+observed, so missing repeats there can still cause a \code{FAIL} or, within
+the missing-rate tolerance, turn a deserved \code{FAIL} into a \code{PASS}. (The
+separate \code{max_probe_missing_rate} check can still \code{FAIL} on missingness
+itself.) Required when \code{required_probes} is non-empty and rejected
+otherwise.}
 
 \item{max_probe_directional_rate}{Maximum practically tolerable net
 directional effect, assessed against a conservative confidence interval
 whose upper bound counts every unscored item towards the worse direction,
-as for \code{max_probe_flip_rate}. Required when \code{required_probes} is
+and whose lower bound resolves the unscored items that
+\code{max_probe_flip_rate}'s lower bound completes (every one not in
+\code{n_unscored_tied}) in the way that most cancels the observed direction
+(as flips the other way, or unflipped), over the same
+\code{n_input - n_unscored_tied} items. Required when \code{required_probes} is
 non-empty and rejected otherwise.}
 
 \item{max_probe_missing_rate}{Maximum fraction of individual probe judgments
@@ -145,6 +167,10 @@ Stability and bias thresholds are grouped behind a parent gate:
 \code{required_probes} switches the bias checks on. The dependent thresholds must
 be supplied together with their gate and are rejected without it, so a policy
 can never carry a threshold that the assessment does not read.
+
+A count or rate a check needs that is not a finite number (an \code{NA}
+missing rate, say) makes that check \code{INDETERMINATE}: unavailable evidence
+neither passes nor fails.
 }
 \examples{
 # A calibration-only policy: stability and bias are outside it.

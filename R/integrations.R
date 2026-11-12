@@ -372,9 +372,14 @@ extract_vitals_samples <- function(task) {
 #'   assessed, which for a bias probe's flip-rate and directional checks
 #'   counts every unscored item against the probe over `n_input`: as a flip
 #'   for the flip rate, towards the worse direction for the directional
-#'   rate, and for the stability disagreement check counts every pair
-#'   involving a missing judgment as a disagreement over all `n_items`, so
-#'   it can exceed `stability.pairwise_disagreement_conf_high`), `op` (the
+#'   rate, and for the stability disagreement check is
+#'   `stability.pairwise_disagreement_worst_case_high`, which counts every
+#'   pair involving a missing judgment as a disagreement over all `n_items`,
+#'   so it can exceed `stability.pairwise_disagreement_conf_high`; only when
+#'   that worst-case bound is unavailable (not a number from 0 to 1, or
+#'   below the observed upper unless the evidence shows nothing missing)
+#'   does a
+#'   stability `FAIL` report the observed upper), `op` (the
 #'   comparison the check encodes: `">="`, `"<="`, `"lower >="`,
 #'   `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without a
 #'   policy the single placeholder check has `null` `op` and `threshold`.
@@ -391,7 +396,8 @@ extract_vitals_samples <- function(task) {
 #'   reference label, the judge label, the count `n`, and its share `prop`,
 #'   so a reader can rebuild the matrix in `label_levels` order.
 #' * `bias`: `null`, or `audit_id` plus `results`, an array of row objects
-#'   with the columns of the bias tibble.
+#'   with the columns of the bias tibble (see [probe_bias()]), among them
+#'   `n_unscored_tied`, an additive column of `yourhonor.audit.v1`.
 #' * `stability`: `null`, or the summary fields of a `yourhonor_stability`
 #'   object (see [test_retest()]): `audit_id` (string or `null`), `n_items`,
 #'   `n_items_scored`, `n_runs`, `label_levels` (array), `weights`,
@@ -400,7 +406,14 @@ extract_vitals_samples <- function(task) {
 #'   two), `pairwise_disagreement` with its observed
 #'   `pairwise_disagreement_conf_low` and `pairwise_disagreement_conf_high`,
 #'   `percent_agreement` (`1 - pairwise_disagreement`, a proportion despite
-#'   its name), `any_flip_rate_at_n_runs`, the chance-corrected agreement as
+#'   its name), `any_flip_rate_at_n_runs`, the bounds for missing judgments
+#'   (the policy assesses `pairwise_disagreement_worst_case_high` and
+#'   `pairwise_disagreement_best_case_low`; `n_items_complete`, the items
+#'   with every run observed; `pairwise_disagreement_worst_case` and its
+#'   upper bound `pairwise_disagreement_worst_case_high`; `any_flip_rate_worst_case`;
+#'   `pairwise_disagreement_best_case` and its lower bound
+#'   `pairwise_disagreement_best_case_low`; see [test_retest()]; additive
+#'   members of `yourhonor.audit.v1`), the chance-corrected agreement as
 #'   `gwet_agreement`, `gwet_coefficient`, `gwet_conf_low`, `gwet_conf_high`,
 #'   `gwet_status` and `gwet_boundary_degenerate` (the object's
 #'   `stability`, `stability_coefficient`, `stability_conf_low`,
@@ -604,6 +617,16 @@ json_stability <- function(stability) {
     pairwise_disagreement_conf_high = stability$pairwise_disagreement_conf_high,
     percent_agreement = stability$percent_agreement,
     any_flip_rate_at_n_runs = stability$any_flip_rate_at_n_runs,
+    n_items_complete = stability[["n_items_complete"]],
+    pairwise_disagreement_worst_case =
+      stability[["pairwise_disagreement_worst_case"]],
+    pairwise_disagreement_worst_case_high =
+      stability[["pairwise_disagreement_worst_case_high"]],
+    any_flip_rate_worst_case = stability[["any_flip_rate_worst_case"]],
+    pairwise_disagreement_best_case =
+      stability[["pairwise_disagreement_best_case"]],
+    pairwise_disagreement_best_case_low =
+      stability[["pairwise_disagreement_best_case_low"]],
     gwet_agreement = stability$stability,
     gwet_coefficient = stability$stability_coefficient,
     gwet_conf_low = stability$stability_conf_low,

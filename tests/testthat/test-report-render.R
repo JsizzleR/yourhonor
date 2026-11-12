@@ -272,24 +272,32 @@ test_that("the stability headline labels its interval and the assessed bound", {
   check <- rep$checks[rep$checks$check == "stability_pairwise_disagreement", ]
   expect_equal(check$value, worst)
 
+  best <- stability$pairwise_disagreement_best_case_low
+  expect_lte(best, stability$pairwise_disagreement_conf_low)
   line <- sprintf(
     paste(
       "Pairwise disagreement: %s; 95%% interval [%s, %s],",
-      "worst-case upper bound %s."
+      "worst-case upper bound %s, best-case lower bound %s."
     ),
     fmt_num(stability$pairwise_disagreement),
     fmt_num(stability$pairwise_disagreement_conf_low),
     fmt_num(stability$pairwise_disagreement_conf_high),
-    fmt_num(worst)
+    fmt_num(worst), fmt_num(best)
   )
   md <- paste(format(rep, output = "md"), collapse = "\n")
   expect_match(md, line, fixed = TRUE)
   expect_match(plain_console(rep), line, fixed = TRUE)
 
-  # No item with two judgments: no bound to show, and none is invented.
-  stability$pairwise_disagreement_worst_case_high <- NA_real_
-  md <- format(report(render_cal(), stability = stability), output = "md")
-  expect_none(grepl("worst-case", md, fixed = TRUE))
+  # No item with two judgments: no bound to show, and none is invented; nor
+  # is a bound that is not a number.
+  for (value in list(NA_real_, TRUE, c(0.1, 0.2), -0.1, 1.5)) {
+    bad <- stability
+    bad["pairwise_disagreement_worst_case_high"] <- list(value)
+    bad["pairwise_disagreement_best_case_low"] <- list(value)
+    md <- format(report(render_cal(), stability = bad), output = "md")
+    expect_none(grepl("worst-case", md, fixed = TRUE))
+    expect_none(grepl("best-case", md, fixed = TRUE))
+  }
 })
 
 test_that("evidence the report validates carries every field it requires", {

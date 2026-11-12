@@ -10,6 +10,10 @@
 #' be supplied together with their gate and are rejected without it, so a policy
 #' can never carry a threshold that the assessment does not read.
 #'
+#' A count or rate a check needs that is not a finite number (an `NA`
+#' missing rate, say) makes that check `INDETERMINATE`: unavailable evidence
+#' neither passes nor fails.
+#'
 #' @param min_agreement_lower Minimum acceptable lower confidence bound for the
 #'   selected agreement coefficient. The bound assessed is the smaller of the
 #'   bootstrap `conf_low` and the exact `conf_low_exact` reported by
@@ -27,19 +31,23 @@
 #' @param max_missing_rate Maximum fraction of calibration rows without a usable
 #'   judge-consensus pair.
 #' @param max_pairwise_disagreement Maximum upper confidence bound for mean
-#'   pairwise stability disagreement. The upper bound assessed is the
-#'   stability's `pairwise_disagreement_worst_case_high`, which counts every
-#'   pair involving a missing judgment as a disagreement over all `n_items`
-#'   items (see [test_retest()]); the lower bound is the observed
-#'   `pairwise_disagreement_conf_low`. Counting missing judgments this way
-#'   can therefore turn this check's `PASS` into `INDETERMINATE` but never
-#'   into `FAIL`: a `FAIL` rests on the observed judgments' interval alone,
-#'   as without the worst case. (Abstaining on runs that agree can still
-#'   raise that observed interval, since it is the judge's own evidence.) Set `NULL` explicitly when
-#'   stability is outside this policy.
+#'   pairwise stability disagreement. The interval assessed reads missing
+#'   judgments both ways, over all `n_items` items (see [test_retest()]):
+#'   its upper bound is the stability's
+#'   `pairwise_disagreement_worst_case_high`, which counts every pair
+#'   involving a missing judgment as a disagreement, and its lower bound is
+#'   `pairwise_disagreement_best_case_low`, which gives each missing
+#'   judgment the label that least disagrees with its item's other runs.
+#'   Missing judgments can therefore turn this check's `PASS` or `FAIL` into
+#'   `INDETERMINATE` but never cause either: a `FAIL` holds under the most
+#'   favourable labels for them, so abstaining on runs that agree cannot
+#'   fail a judge whose complete evidence would not. With nothing missing
+#'   both bounds are the observed interval's. (The separate
+#'   `max_stability_missing_rate` check can still `FAIL` on missingness
+#'   itself.) Set `NULL` explicitly when stability is outside this policy.
 #' @param min_stability_n Minimum independent items with at least two stability
-#'   judgments (`n_items_scored`; items counted only by the worst case do not
-#'   count). Required when `max_pairwise_disagreement` is not `NULL` and
+#'   judgments (`n_items_scored`; items counted only by the worst or best
+#'   case do not count). Required when `max_pairwise_disagreement` is not `NULL` and
 #'   rejected otherwise.
 #' @param min_stability_runs Minimum repeated judge runs. Required when
 #'   `max_pairwise_disagreement` is not `NULL` and rejected otherwise.
@@ -48,7 +56,9 @@
 #'   count against the disagreement check: its upper bound treats each one
 #'   as disagreeing with its item's other runs (see
 #'   `max_pairwise_disagreement`), so a judge cannot pass by abstaining on the
-#'   items where it is unstable. Only cells of the run matrix are counted: an
+#'   items where it is unstable, and its lower bound gives each the label
+#'   that least disagrees with its item's other runs, so abstaining cannot
+#'   fail a judge either. Only cells of the run matrix are counted: an
 #'   item or run absent from the evidence entirely is not missing. Required
 #'   when stability is in the policy and rejected otherwise.
 #' @param required_probes Bias probes that must be present and free of detected
@@ -64,14 +74,30 @@
 #'   probe's flip rate. The upper bound assessed counts every unscored item
 #'   (one without a usable judgment in both conditions; for the position
 #'   probe this includes items lost to a within-condition tie) as a flip over
-#'   all `n_input` items, so it can exceed the probe's own `conf_high`; the
-#'   lower bound is the scored items' `conf_low`. Counting them can turn this
-#'   check's `PASS` into `INDETERMINATE` but never into `FAIL`. Required when
-#'   `required_probes` is non-empty and rejected otherwise.
+#'   all `n_input` items, so it can exceed the probe's own `conf_high`. The
+#'   lower bound leaves out the `n_unscored_tied` items lost to a
+#'   within-condition tie no answer could break, which are decided evidence
+#'   rather than missing and stay out of it as they do of the scored items'
+#'   `conf_low`, and counts every other unscored item (each has a missing
+#'   judgment) as unflipped, over the remaining items (it is never above
+#'   that `conf_low`). Missing judgments can therefore turn this
+#'   check's `PASS` or `FAIL` into `INDETERMINATE`: a `FAIL` holds however the
+#'   unscored items they leave would have been resolved. For the position
+#'   probe this covers unscored items only: with `repeats >= 2` a scored item
+#'   can also have missing repeats, and both bounds take its modal choice as
+#'   observed, so missing repeats there can still cause a `FAIL` or, within
+#'   the missing-rate tolerance, turn a deserved `FAIL` into a `PASS`. (The
+#'   separate `max_probe_missing_rate` check can still `FAIL` on missingness
+#'   itself.) Required when `required_probes` is non-empty and rejected
+#'   otherwise.
 #' @param max_probe_directional_rate Maximum practically tolerable net
 #'   directional effect, assessed against a conservative confidence interval
 #'   whose upper bound counts every unscored item towards the worse direction,
-#'   as for `max_probe_flip_rate`. Required when `required_probes` is
+#'   and whose lower bound resolves the unscored items that
+#'   `max_probe_flip_rate`'s lower bound completes (every one not in
+#'   `n_unscored_tied`) in the way that most cancels the observed direction
+#'   (as flips the other way, or unflipped), over the same
+#'   `n_input - n_unscored_tied` items. Required when `required_probes` is
 #'   non-empty and rejected otherwise.
 #' @param max_probe_missing_rate Maximum fraction of individual probe judgments
 #'   that may be missing. Required when `required_probes` is non-empty so
@@ -667,9 +693,12 @@ class_metric_checks <- function(x, policy, level_ok) {
 # reported under `bias_<probe>` with the flip-rate threshold so that check
 # name keeps one meaning. The missingness gate is an independent check: it
 # can `FAIL` the policy on its own, and the interval checks are still
-# assessed. Their lower bounds are the scored items' own; their upper bounds
-# count every unscored item as a flip (worst_case_upper_bounds()), so items
-# lost to abstention or position ties can widen a bound but never clear it.
+# assessed. Their upper bounds count every unscored item as a flip
+# (worst_case_upper_bounds()), so items lost to abstention or position ties
+# can widen an interval but never clear it; their lower bounds resolve the
+# unscored items with a missing judgment as favourably to the judge as they
+# could be (best_case_lower_bounds()), so abstention cannot fail it, while
+# ties stay out of the lower bound as they always have.
 # A probe at another confidence level reports
 # `bias_<probe>_confidence_level` in place of the interval checks while its
 # rate and count checks are still assessed.
@@ -733,34 +762,68 @@ single_probe_checks <- function(probe, x, bias, policy) {
     return(c(rows, prerequisite(
       "INDETERMINATE",
       paste(
-        "Sample size is below the declared minimum;",
+        if (is_finite_number(row$n_scored[[1]])) {
+          "Sample size is below the declared minimum;"
+        } else {
+          "Sample size is unavailable;"
+        },
         "the flip-rate interval was not assessed."
       )
     )))
   }
   upper <- worst_case_upper_bounds(row)
+  best <- best_case_lower_bounds(row)
+  # An observed lower bound that is not a probability stays unusable, so the
+  # best case cannot repair it.
+  lower <- function(observed, best_case) {
+    if (is_probability_bound(observed)) min(observed, best_case) else NA_real_
+  }
+  observed_low <- c(row$directional_conf_low[[1]], row$conf_low[[1]])
+  lows <- c(
+    lower(observed_low[[1]], best$directional),
+    lower(observed_low[[2]], best$flip)
+  )
   interval_rows <- list(
     interval_max_check(
-      paste0(check, "_direction"),
-      row$directional_conf_low[[1]], upper$directional,
+      paste0(check, "_direction"), lows[[1]], upper$directional,
       policy$max_probe_directional_rate
     ),
-    interval_max_check(check, row$conf_low[[1]], upper$flip, threshold)
+    interval_max_check(check, lows[[2]], upper$flip, threshold)
   )
   n_unscored <- row$n_unscored[[1]]
   if (is.finite(upper$flip) && n_unscored > 0L) {
     items <- paste0(
       n_unscored, " unscored item", if (n_unscored == 1L) "" else "s"
     )
+    over <- paste("over all", row$n_input[[1]], "items.")
     counted_as <- c(
-      paste("towards the worse direction over all", row$n_input[[1]], "items."),
-      paste("as flips over all", row$n_input[[1]], "items.")
+      paste("towards the worse direction", over),
+      paste("as flips", over)
+    )
+    # Only a bound the best case lowered is explained, and lowering it
+    # needed a usable tie count (best_case_lower_bounds()).
+    lowered_reason <- function(as) {
+      tied <- row$n_unscored_tied[[1]]
+      completed <- n_unscored - tied
+      paste0(
+        "The lower bound counts the ", completed, " unscored item",
+        if (completed == 1L) "" else "s", " with a missing judgment",
+        if (tied > 0L) " and no unbreakable tie", " ", as,
+        " over ", row$n_input[[1]] - tied, " items",
+        if (tied > 0L) paste0(", leaving out the ", tied, " lost to ties"),
+        "."
+      )
+    }
+    lowered_as <- c(
+      "as cancelling the observed direction where they can,", "as unflipped"
     )
     for (i in seq_along(interval_rows)) {
-      interval_rows[[i]]$reason <- paste(
-        interval_rows[[i]]$reason, "The upper bound counts the", items,
-        counted_as[[i]]
-      )
+      lowered <- is.finite(lows[[i]]) && lows[[i]] < observed_low[[i]]
+      interval_rows[[i]]$reason <- paste(c(
+        interval_rows[[i]]$reason,
+        if (lowered) lowered_reason(lowered_as[[i]]),
+        paste("The upper bound counts the", items, counted_as[[i]])
+      ), collapse = " ")
     }
   }
   c(rows, interval_rows)
@@ -817,45 +880,106 @@ stability_checks <- function(x, stability, policy) {
   )
 }
 
-# The assessed interval is the observed lower bound with the worst-case upper
-# bound, in which every pair involving a missing judgment is a disagreement
-# over all `n_items` items (summarize_stability_runs()). The observed interval
-# is validated first so the substituted bound cannot repair a malformed one,
-# and the larger of the two uppers is used so the bound can only widen. A
-# lower bound left unchanged means missing judgments can turn PASS into
-# INDETERMINATE but never cause a FAIL. Without a usable worst-case bound (an
-# object from before it existed) the observed interval can still FAIL, since
-# that rests on the observed lower bound alone, but it cannot PASS.
+# The assessed interval runs from the best-case lower bound, in which each
+# missing judgment takes its item's most common observed label, to the
+# worst-case upper bound, in which every pair involving one is a
+# disagreement, both over all `n_items` items (summarize_stability_runs()).
+# The observed interval is validated first so a substituted bound cannot
+# repair a malformed one, and each bound is combined with the observed one
+# (`min` below, `max` above) so the interval can only widen: missing
+# judgments can turn PASS or FAIL into INDETERMINATE, never cause either.
+# A bound that is not a probability is unavailable, and so, unless the
+# evidence shows nothing missing, is one on the wrong side of the observed
+# bound (a genuine best case is never above it, nor a genuine worst case
+# below). A stored bound is otherwise trusted, not recomputed from `runs`.
+# Without the worst case (an object from before it existed) nothing can
+# PASS, and an assessed FAIL reports the observed upper. Without the best
+# case a FAIL needs evidence with nothing missing, where the observed lower
+# bound is the best case.
 stability_interval_check <- function(check, stability, threshold) {
   low <- stability$pairwise_disagreement_conf_low
   high <- stability$pairwise_disagreement_conf_high
   unusable <- interval_unusable_reason(low, high)
+  if (is.null(unusable) &&
+      !(is_probability_bound(low) && is_probability_bound(high))) {
+    unusable <- "Interval is unavailable."
+  }
   if (!is.null(unusable)) {
     return(assessment_row(
       check, "INDETERMINATE", NA_real_, "upper <=", threshold, unusable
     ))
   }
-  worst <- stability$pairwise_disagreement_worst_case_high
-  if (!is_finite_number(worst)) {
-    if (low > threshold) return(interval_max_check(check, low, high, threshold))
+  # Exact lookups: `$` would partially match an absent field to another.
+  worst <- stability[["pairwise_disagreement_worst_case_high"]]
+  best <- stability[["pairwise_disagreement_best_case_low"]]
+  runs <- stability[["runs"]]
+  n_missing <- if (is.matrix(runs)) sum(is.na(runs)) else NA_integer_
+  # Nothing is missing only when the run matrix is the whole declared
+  # evidence and both it and the missing rate say so.
+  nothing_missing <- identical(n_missing, 0L) && length(runs) > 0L &&
+    is_finite_number(stability$n_items) && is_finite_number(stability$n_runs) &&
+    identical(as.numeric(dim(runs)),
+              as.numeric(c(stability$n_items, stability$n_runs))) &&
+    is_finite_number(stability$missing_rate) && stability$missing_rate == 0
+  # With nothing missing the observed lower bound is the best case, so a
+  # stored best case cannot move it.
+  lower <- if (nothing_missing) {
+    low
+  } else if (is_probability_bound(best) && best <= low) {
+    best
+  } else {
+    NA_real_
+  }
+  upper <- if (is_probability_bound(worst) &&
+                 (nothing_missing || worst >= high)) {
+    max(high, worst)
+  } else {
+    NA_real_
+  }
+  if (is.na(upper)) {
+    if (!is.na(lower) && lower > threshold) {
+      return(interval_max_check(check, lower, high, threshold))
+    }
     return(assessment_row(
       check, "INDETERMINATE", NA_real_, "upper <=", threshold,
       "The worst-case stability bound for missing judgments is unavailable."
     ))
   }
-  # An observed FAIL reports the observed upper, which the evidence's own
-  # interval shows; the worst case only matters where it can block a PASS.
-  assessed <- if (low > threshold) high else max(high, worst)
-  row <- interval_max_check(check, low, assessed, threshold)
-  n_missing <- sum(is.na(stability$runs))
-  if (!identical(row$status, "FAIL") && worst > high && n_missing > 0L) {
-    row$reason <- paste0(
-      row$reason, " The upper bound counts every pair involving one of the ",
-      n_missing, " missing judgment", if (n_missing == 1L) "" else "s",
-      " as a disagreement, over all ", stability$n_items, " items."
+  if (is.na(lower)) {
+    if (upper <= threshold) {
+      return(interval_max_check(check, low, upper, threshold))
+    }
+    return(assessment_row(
+      check, "INDETERMINATE", upper, "upper <=", threshold,
+      "The best-case stability bound for missing judgments is unavailable."
+    ))
+  }
+  row <- interval_max_check(check, lower, upper, threshold)
+  if (!is.na(n_missing) && n_missing > 0L) {
+    missing <- paste0(
+      n_missing, " missing judgment", if (n_missing == 1L) "" else "s"
     )
+    if (lower < low) {
+      row$reason <- paste0(
+        row$reason, " The lower bound gives each of the ", missing,
+        " the label that least disagrees with its item's other runs, over ",
+        "all ", stability$n_items, " items."
+      )
+    }
+    if (upper > high) {
+      row$reason <- paste0(
+        row$reason, " The upper bound counts every pair involving one of ",
+        "the ", missing, " as a disagreement, over all ", stability$n_items,
+        " items."
+      )
+    }
   }
   row
+}
+
+# A confidence bound on a rate: a finite number in [0, 1].
+is_probability_bound <- function(x) {
+  is_finite_number(x) && x >= 0 && x <= 1
 }
 
 is_finite_number <- function(x) {
@@ -940,7 +1064,15 @@ scalar_number <- function(x) {
   as.numeric(x)
 }
 
+# A count or rate that is not a finite number is unavailable evidence, so its
+# check is INDETERMINATE: it can neither pass nor be read as a failure.
 compare_min_count <- function(check, value, threshold) {
+  if (!is_finite_number(value)) {
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_,
+      ">=", threshold, "Sample size is unavailable."
+    ))
+  }
   if (value >= threshold) {
     assessment_row(
       check, "PASS", value, ">=", threshold, "Sample size is sufficient."
@@ -954,7 +1086,13 @@ compare_min_count <- function(check, value, threshold) {
 }
 
 compare_max_value <- function(check, value, threshold, fail_reason) {
-  if (is.finite(value) && value <= threshold) {
+  if (!is_finite_number(value)) {
+    return(assessment_row(
+      check, "INDETERMINATE", NA_real_,
+      "<=", threshold, "Missing rate is unavailable."
+    ))
+  }
+  if (value <= threshold) {
     assessment_row(check, "PASS", value, "<=", threshold, "Criterion met.")
   } else {
     assessment_row(check, "FAIL", value, "<=", threshold, fail_reason)

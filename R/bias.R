@@ -73,13 +73,22 @@
 #' * `n_unscored`, `unscored_rate`: `n_input - n_scored` and its share of
 #'   `n_input`. Includes position items lost to within-condition ties, so it
 #'   can exceed `n_items_missing`.
+#' * `n_unscored_tied`: position items lost to a within-condition tie that
+#'   no answer could break: a display order judged in every repeat whose
+#'   modal choice is tied, whatever the other order's missing judgments.
+#'   Always 0 for pointwise probes, where an item is unscored only through a
+#'   missing judgment.
 #' * `n_items_missing`: items with at least one `NA` judgment.
 #' * `n_judgments`, `n_judgments_missing`, `missing_rate`: individual judge
 #'   outputs, how many were `NA`, and their share. `missing_rate` is gated
 #'   directly by [acceptance_policy()]'s `max_probe_missing_rate`; unscored
-#'   items also enter the policy's flip-rate and directional upper bounds as
-#'   worst-case flips, so the bounds a policy assesses can exceed this row's
-#'   `conf_high` and `directional_conf_high`, which describe the scored items.
+#'   items also enter the policy's flip-rate and directional bounds over
+#'   `n_input`, against the judge in the upper bounds and in its favour in
+#'   the lower bounds (which leave out the `n_unscored_tied` items, so their
+#'   denominator is `n_input - n_unscored_tied`), so the intervals a policy
+#'   assesses can be wider than this row's `conf_low`-`conf_high` and
+#'   `directional_conf_low`-`directional_conf_high`, which describe the
+#'   scored items.
 #' * `n_comparisons`: condition pairs judged (`n_input` pointwise;
 #'   `n_input * repeats` position).
 #' * `p_value`: exact sign-test p-value over `n_directional_items`; `1` when
@@ -213,8 +222,9 @@ probe_bias <- function(data,
 #'   condition's judgment is the mode across repeats, so with an even number
 #'   a split vote ties and leaves the item unscored. An odd number avoids
 #'   two-way ties when the judge returns no tie label and no `NA`; an
-#'   acceptance policy counts unscored items against the probe (see
-#'   [acceptance_policy()]'s `max_probe_flip_rate`). Taking the mode also
+#'   acceptance policy counts unscored items against the probe in its upper
+#'   bounds, so they can keep it from passing (see [acceptance_policy()]'s
+#'   `max_probe_flip_rate`). Taking the mode also
 #'   attenuates a bias that appears on a minority of calls: a judge that,
 #'   independently on each call, takes the first slot with probability
 #'   `q < 0.5` and otherwise picks the better candidate shows a modal flip
@@ -508,6 +518,7 @@ bias_row_prototype <- list(
   n_input = NA_integer_,
   n_unscored = NA_integer_,
   unscored_rate = NA_real_,
+  n_unscored_tied = NA_integer_,
   n_items_missing = NA_integer_,
   n_judgments = NA_integer_,
   n_judgments_missing = NA_integer_,
@@ -556,6 +567,7 @@ pointwise_stats <- function(test) {
       n_directional_items = test$n_discordant,
       # Every unscored pointwise item is one with a missing judgment.
       n_items_missing = test$n_unscored,
+      n_unscored_tied = 0L,
       n_judgments = 2L * test$n_input,
       n_comparisons = test$n_input
     )
@@ -614,11 +626,27 @@ position_stats <- function(item_evidence, ev, conf_level) {
     n_input = n_input,
     n_unscored = n_input - n_scored,
     n_items_missing = length(unique(ev$.item_id[missing_judgment])),
+    # Unscored through a tie no answer can break: a display order judged in
+    # every repeat whose modal choice is tied, whatever the other order's
+    # missing judgments would have been.
+    n_unscored_tied = sum(
+      !scored & item_evidence$.item_id %in% position_tied_items(ev)
+    ),
     n_judgments = nrow(ev),
     n_judgments_missing = sum(missing_judgment),
     n_comparisons = nrow(ev) %/% 2L,
     p_value = sign_test_p_value(first_count, n_directional, n_scored)
   )
+}
+
+position_tied_items <- function(ev) {
+  orders <- split(
+    seq_len(nrow(ev)), list(ev$.item_id, ev$.condition), drop = TRUE
+  )
+  tied <- vapply(orders, function(i) {
+    !anyNA(ev$display_choice[i]) && is_tie(ev$canonical_choice[i])
+  }, logical(1))
+  unique(ev$.item_id[vapply(orders[tied], `[[`, integer(1), 1L)])
 }
 
 position_direction_label <- function(first_rate) {
@@ -828,23 +856,56 @@ directional_magnitude_interval <- function(positive,
                                            conf_level,
                                            upper_cap = 1) {
   if (n < 1L) return(c(NA_real_, NA_real_))
-  # Bonferroni-combine exact marginal intervals for the two multinomial cells.
-  # The resulting interval for their signed difference is conservative.
+  signed <- signed_difference_interval(positive, negative, n, conf_level)
+  # |p+ - p-| <= p+ + p-, so a bound on the any-direction rate over the same
+  # denominator is also a valid, usually tighter, bound on the net rate.
+  c(magnitude_lower(signed), min(1, max(abs(signed)), upper_cap))
+}
+
+# Bonferroni-combine exact marginal intervals for the two multinomial cells.
+# The resulting interval for their signed difference is conservative. Both
+# endpoints rise with `positive` and fall with `negative` at a fixed `n`.
+signed_difference_interval <- function(positive, negative, n, conf_level) {
   marginal_level <- 1 - (1 - conf_level) / 2
   positive_ci <- exact_binom_interval(positive, n, marginal_level)
   negative_ci <- exact_binom_interval(negative, n, marginal_level)
-  signed <- c(
+  c(
     positive_ci[[1]] - negative_ci[[2]],
     positive_ci[[2]] - negative_ci[[1]]
   )
-  low <- if (signed[[1]] <= 0 && signed[[2]] >= 0) {
-    0
-  } else {
-    min(abs(signed))
+}
+
+# The lower bound on |p+ - p-| a signed interval gives: 0 when it contains 0.
+magnitude_lower <- function(signed) {
+  if (signed[[1]] <= 0 && signed[[2]] >= 0) 0 else min(abs(signed))
+}
+
+# A bias row's counts, each a whole non-negative number that adds up with
+# the others, or NULL. Every count is checked to be one finite number before
+# any arithmetic, so a missing, character or multi-valued field gives NULL
+# (an unusable bound) rather than an error or a dropped value.
+bias_row_counts <- function(row) {
+  fields <- c(
+    n_input = "n_input", n_scored = "n_scored", n_unscored = "n_unscored",
+    n_discordant = "n_discordant", positive = "statistic",
+    n_directional = "n_directional_items"
+  )
+  values <- lapply(fields, function(field) {
+    value <- row[[field]]
+    if (is.numeric(value) && length(value) == 1L) value[[1]] else NA_real_
+  })
+  if (!all(vapply(values, is_finite_number, logical(1)))) return(NULL)
+  counts <- c(values, list(negative = values$n_directional - values$positive))
+  counts$n_directional <- NULL
+  numbers <- unlist(counts)
+  if (any(numbers != floor(numbers)) || any(numbers < 0) ||
+      counts$n_scored < 1L ||
+      counts$n_unscored != counts$n_input - counts$n_scored ||
+      counts$n_discordant > counts$n_scored ||
+      counts$positive + counts$negative > counts$n_discordant) {
+    return(NULL)
   }
-  # |p+ - p-| <= p+ + p-, so a bound on the any-direction rate over the same
-  # denominator is also a valid, usually tighter, bound on the net rate.
-  c(low, min(1, max(abs(signed)), upper_cap))
+  counts
 }
 
 # Upper bounds on a bias row's flip and net directional rates over every
@@ -856,23 +917,17 @@ directional_magnitude_interval <- function(positive,
 # `conf_high` and `directional_conf_high`. Counts that are missing or do not
 # add up give `NA` bounds, which the policy reads as an unusable interval.
 worst_case_upper_bounds <- function(row) {
-  unusable <- list(flip = NA_real_, directional = NA_real_)
-  n_input <- row$n_input[[1]]
-  n_scored <- row$n_scored[[1]]
-  n_unscored <- row$n_unscored[[1]]
-  n_discordant <- row$n_discordant[[1]]
+  counts <- bias_row_counts(row)
   conf_level <- row$conf_level[[1]]
-  positive <- row$statistic[[1]]
-  negative <- row$n_directional_items[[1]] - positive
-  counts <- c(n_input, n_scored, n_unscored, n_discordant, positive, negative)
-  if (!all(is.finite(counts)) || any(counts != floor(counts)) ||
-      any(counts < 0) || n_scored < 1L ||
-      n_unscored != n_input - n_scored || n_discordant > n_scored ||
-      positive + negative > n_discordant) {
-    return(unusable)
+  if (is.null(counts) || !is_finite_number(conf_level)) {
+    return(list(flip = NA_real_, directional = NA_real_))
   }
+  n_input <- counts$n_input
+  n_unscored <- counts$n_unscored
+  positive <- counts$positive
+  negative <- counts$negative
   flip_high <- exact_binom_interval(
-    n_discordant + n_unscored, n_input, conf_level
+    counts$n_discordant + n_unscored, n_input, conf_level
   )[[2]]
   # Moving an item from the negative cell to the positive one raises both
   # signed endpoints, so the most positive upper endpoint is at the
@@ -890,6 +945,82 @@ worst_case_upper_bounds <- function(row) {
     )[[2]]
   )
   list(flip = flip_high, directional = directional_high)
+}
+
+# Lower bounds on a bias row's flip and net directional rates under the
+# completion of its missing judgments most favourable to the judge, so a FAIL
+# on either rests on evidence no answers for them could clear. Only unscored
+# items with a missing judgment are completed; an item lost to a
+# within-condition tie no answer could break (`n_unscored_tied`, even with a
+# missing judgment in its other display order) is decided evidence
+# and stays out of the denominator as it does for the scored items' own
+# `conf_low`, so the bounds are over `n_input - n_unscored_tied` items. The
+# flip rate is least when every completed item is unflipped. The net rate is
+# least when completed items cancel the observed direction: the minimum over
+# every split of them into flips each way and non-flips. Adding to the
+# dominant cell moves the signed interval away from 0, so that minimum lies
+# on one of the two one-sided families, (positive, negative + k) and
+# (positive + k, negative) for k in 0..n_completed; along each the two signed
+# endpoints fall (rise) with k, and an exact lower endpoint at count x + 1
+# lies below the upper endpoint at x, so the interval cannot step over 0: the
+# family reaches 0 when its end interval reaches 0, and otherwise is least at
+# k = 0 or k = n_completed. With nothing to complete these are the row's own
+# `conf_low` and `directional_conf_low`. Counts that are missing or do not
+# add up give `NA` bounds, as in worst_case_upper_bounds().
+best_case_lower_bounds <- function(row) {
+  unusable <- list(flip = NA_real_, directional = NA_real_)
+  counts <- bias_row_counts(row)
+  conf_level <- row$conf_level[[1]]
+  if (is.null(counts) || !is_finite_number(conf_level)) return(unusable)
+  if (counts$n_unscored == 0L) {
+    return(list(
+      flip = row$conf_low[[1]], directional = row$directional_conf_low[[1]]
+    ))
+  }
+  tied <- row[["n_unscored_tied"]]
+  if (!is.numeric(tied) || length(tied) != 1L || !is_finite_number(tied[[1]]) ||
+      tied != floor(tied) || tied < 0 || tied > counts$n_unscored) {
+    return(unusable)
+  }
+  # Only the position probe has ties; a pointwise item is unscored only
+  # through a missing judgment.
+  if (tied > 0 && !identical(row[["probe"]][[1]], "position")) {
+    return(unusable)
+  }
+  n_completed <- counts$n_unscored - tied
+  if (n_completed == 0L) {
+    return(list(
+      flip = row$conf_low[[1]], directional = row$directional_conf_low[[1]]
+    ))
+  }
+  n <- counts$n_input - tied
+  positive <- counts$positive
+  negative <- counts$negative
+  flip_low <- exact_binom_interval(counts$n_discordant, n, conf_level)[[1]]
+  start <- signed_difference_interval(positive, negative, n, conf_level)
+  # Completed items as flips against the positive cell, then against the
+  # negative one.
+  towards_negative <- signed_difference_interval(
+    positive, negative + n_completed, n, conf_level
+  )
+  towards_positive <- signed_difference_interval(
+    positive + n_completed, negative, n, conf_level
+  )
+  cancel_positive <- if (start[[2]] < 0) {
+    magnitude_lower(start)
+  } else if (towards_negative[[1]] <= 0) {
+    0
+  } else {
+    towards_negative[[1]]
+  }
+  cancel_negative <- if (start[[1]] > 0) {
+    magnitude_lower(start)
+  } else if (towards_positive[[2]] >= 0) {
+    0
+  } else {
+    -towards_positive[[2]]
+  }
+  list(flip = flip_low, directional = min(cancel_positive, cancel_negative))
 }
 
 # Position helpers -------------------------------------------------------------

@@ -45,8 +45,9 @@ candidates A and B.}
 condition's judgment is the mode across repeats, so with an even number
 a split vote ties and leaves the item unscored. An odd number avoids
 two-way ties when the judge returns no tie label and no \code{NA}; an
-acceptance policy counts unscored items against the probe (see
-\code{\link[=acceptance_policy]{acceptance_policy()}}'s \code{max_probe_flip_rate}). Taking the mode also
+acceptance policy counts unscored items against the probe in its upper
+bounds, so they can keep it from passing (see \code{\link[=acceptance_policy]{acceptance_policy()}}'s
+\code{max_probe_flip_rate}). Taking the mode also
 attenuates a bias that appears on a minority of calls: a judge that,
 independently on each call, takes the first slot with probability
 \code{q < 0.5} and otherwise picks the better candidate shows a modal flip
@@ -117,13 +118,22 @@ with the order (a tie commits to neither slot).
 \item \code{n_unscored}, \code{unscored_rate}: \code{n_input - n_scored} and its share of
 \code{n_input}. Includes position items lost to within-condition ties, so it
 can exceed \code{n_items_missing}.
+\item \code{n_unscored_tied}: position items lost to a within-condition tie that
+no answer could break: a display order judged in every repeat whose
+modal choice is tied, whatever the other order's missing judgments.
+Always 0 for pointwise probes, where an item is unscored only through a
+missing judgment.
 \item \code{n_items_missing}: items with at least one \code{NA} judgment.
 \item \code{n_judgments}, \code{n_judgments_missing}, \code{missing_rate}: individual judge
 outputs, how many were \code{NA}, and their share. \code{missing_rate} is gated
 directly by \code{\link[=acceptance_policy]{acceptance_policy()}}'s \code{max_probe_missing_rate}; unscored
-items also enter the policy's flip-rate and directional upper bounds as
-worst-case flips, so the bounds a policy assesses can exceed this row's
-\code{conf_high} and \code{directional_conf_high}, which describe the scored items.
+items also enter the policy's flip-rate and directional bounds over
+\code{n_input}, against the judge in the upper bounds and in its favour in
+the lower bounds (which leave out the \code{n_unscored_tied} items, so their
+denominator is \code{n_input - n_unscored_tied}), so the intervals a policy
+assesses can be wider than this row's \code{conf_low}-\code{conf_high} and
+\code{directional_conf_low}-\code{directional_conf_high}, which describe the
+scored items.
 \item \code{n_comparisons}: condition pairs judged (\code{n_input} pointwise;
 \code{n_input * repeats} position).
 \item \code{p_value}: exact sign-test p-value over \code{n_directional_items}; \code{1} when

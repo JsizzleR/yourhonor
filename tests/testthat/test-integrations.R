@@ -705,7 +705,12 @@ test_that("JSON writes the documented calibration and stability scalars", {
       "stability_n_boot_effective", "n_boot_effective",
       "pairwise_disagreement", "pairwise_disagreement_conf_low",
       "pairwise_disagreement_conf_high", "percent_agreement",
-      "any_flip_rate_at_n_runs", "gwet_agreement", "gwet_coefficient",
+      "any_flip_rate_at_n_runs", "n_items_complete",
+      "pairwise_disagreement_worst_case",
+      "pairwise_disagreement_worst_case_high", "any_flip_rate_worst_case",
+      "pairwise_disagreement_best_case",
+      "pairwise_disagreement_best_case_low", "gwet_agreement",
+      "gwet_coefficient",
       "gwet_conf_low", "gwet_conf_high", "gwet_status",
       "gwet_boundary_degenerate", "missing_rate", "pairwise_ci_reliable",
       "stability_ci_reliable", "ci_reliable", "provenance"
@@ -721,4 +726,18 @@ test_that("JSON writes the documented calibration and stability scalars", {
     parsed$stability$n_boot_effective, stability$n_boot_effective
   )
   expect_identical(parsed$stability$ci_reliable, stability$ci_reliable)
+  # Every bias column, n_unscored_tied among them, is a results member.
+  expect_identical(
+    names(parsed$bias$results), names(yourhonor:::bias_row_prototype)
+  )
+  expect_true("n_unscored_tied" %in% names(parsed$bias$results))
+  expect_identical(parsed$bias$results$n_unscored_tied, 0L)
+  # The bounds for missing judgments the policy assesses, written exactly.
+  for (field in c("n_items_complete", "pairwise_disagreement_worst_case",
+                  "pairwise_disagreement_worst_case_high",
+                  "any_flip_rate_worst_case",
+                  "pairwise_disagreement_best_case",
+                  "pairwise_disagreement_best_case_low")) {
+    expect_identical(parsed$stability[[field]], stability[[field]], info = field)
+  }
 })

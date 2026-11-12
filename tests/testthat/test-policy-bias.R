@@ -284,3 +284,344 @@ test_that("min_probe_n counts scored items, not condition pairs", {
   expect_equal(n_row$value, 30)
   expect_equal(n_row$threshold, 50)
 })
+
+# Items 1-30 flip from P to C under the verbosity filler; items 31-40 stay
+# P; on the rest the judge abstains in the perturbed condition when
+# `abstain` is TRUE (they would have stayed P).
+selective_bias <- function(n_flip = 30, n_stay = 10, n_abstain = 60) {
+  judge <- function(d) {
+    item <- as.integer(sub("^answer ([0-9]+).*$", "\\1", d$input))
+    perturbed <- nchar(d$input) > 40
+    out <- ifelse(item <= n_flip & perturbed, "C", "P")
+    out[item > n_flip + n_stay & perturbed] <- NA_character_
+    out
+  }
+  n <- n_flip + n_stay + n_abstain
+  probe_bias(
+    tibble::tibble(input = paste("answer", seq_len(n))), judge,
+    probes = "verbosity", seed = 1, audit_id = "test-bundle"
+  )
+}
+
+bias_gate_policy <- function(flip, direction, missing = 0.5) {
+  acceptance_policy(
+    min_agreement_lower = 0.9, min_n = 50, min_class_n = 15,
+    min_recall = 0.8, max_missing_rate = 0,
+    max_pairwise_disagreement = NULL,
+    required_probes = "verbosity", min_probe_n = 20,
+    max_probe_flip_rate = flip, max_probe_directional_rate = direction,
+    max_probe_missing_rate = missing, coefficient = "gwet_ac1"
+  )
+}
+
+bias_rows <- function(bias, policy) {
+  rows <- single_probe_checks("verbosity", make_cal(), bias, policy)
+  stats::setNames(rows, vapply(rows, `[[`, "", "check"))
+}
+
+test_that("unscored items alone cannot FAIL a probe's interval checks", {
+  bias <- selective_bias()
+  expect_identical(bias$n_scored, 40L)
+  expect_identical(bias$n_discordant, 30L)
+  expect_identical(bias$n_unscored, 60L)
+  pol <- bias_gate_policy(flip = 0.5, direction = 0.4)
+  # Over the scored items alone both lower bounds exceed their thresholds.
+  expect_gt(bias$conf_low, 0.5)
+  expect_gt(bias$directional_conf_low, 0.4)
+  rows <- bias_rows(bias, pol)
+  # Unflipped, the unscored items put 30 flips over 100 items: [0.21, 0.40].
+  expect_identical(rows$bias_verbosity$status, "INDETERMINATE")
+  expect_match(
+    rows$bias_verbosity$reason,
+    paste("The lower bound counts the 60 unscored items with a missing",
+          "judgment as unflipped over 100 items."),
+    fixed = TRUE
+  )
+  # 30 of them flipping the other way would cancel the direction entirely.
+  expect_identical(rows$bias_verbosity_direction$status, "INDETERMINATE")
+  expect_match(
+    rows$bias_verbosity_direction$reason, "cancelling the observed direction",
+    fixed = TRUE
+  )
+  expect_identical(rows$bias_verbosity_missing_rate$status, "PASS")
+  expect_none(vapply(rows, `[[`, "", "status") == "FAIL")
+})
+
+test_that("a biased probe still FAILs however its unscored items resolve", {
+  # 60 of 90 scored items flip, in one direction; 10 are unscored.
+  bias <- selective_bias(n_flip = 60, n_stay = 30, n_abstain = 10)
+  rows <- bias_rows(bias, bias_gate_policy(flip = 0.4, direction = 0.2))
+  expect_identical(rows$bias_verbosity$status, "FAIL")
+  expect_identical(rows$bias_verbosity_direction$status, "FAIL")
+  # The same judge with nothing unscored fails too, on its own bounds.
+  complete <- selective_bias(n_flip = 60, n_stay = 40, n_abstain = 0)
+  rows <- bias_rows(complete, bias_gate_policy(flip = 0.4, direction = 0.2))
+  expect_identical(rows$bias_verbosity$status, "FAIL")
+  expect_identical(rows$bias_verbosity_direction$status, "FAIL")
+  expect_no_match(rows$bias_verbosity$reason, "unscored")
+})
+
+test_that("the best-case bounds are the least over every resolution of the unscored items", {
+  lows <- function(positive, negative, n, conf_level) {
+    c(
+      flip = exact_binom_interval(positive + negative, n, conf_level)[[1]],
+      directional = directional_magnitude_interval(
+        positive, negative, n, conf_level
+      )[[1]]
+    )
+  }
+  for (conf_level in c(0.8, 0.95)) {
+    for (n_scored in c(5, 12)) {
+      for (n_unscored in c(2, 7)) {
+        n_input <- n_scored + n_unscored
+        for (positive in 0:n_scored) {
+          for (negative in 0:(n_scored - positive)) {
+            observed <- lows(positive, negative, n_scored, conf_level)
+            # Only a position row can have ties.
+            row <- tibble::tibble(
+              probe = "position",
+              conf_low = observed[["flip"]],
+              directional_conf_low = observed[["directional"]],
+              statistic = positive, n_directional_items = positive + negative,
+              n_discordant = positive + negative, n_scored = n_scored,
+              n_input = n_input, n_unscored = n_unscored,
+              n_unscored_tied = 0L, conf_level = conf_level
+            )
+            # Tied items stay out; only the rest are completed.
+            for (tied in unique(c(0L, 1L, n_unscored))) {
+              row$n_unscored_tied <- tied
+              best <- best_case_lower_bounds(row)
+              open <- n_unscored - tied
+              least <- if (open == 0L) {
+                observed
+              } else {
+                least <- c(flip = Inf, directional = Inf)
+                for (up in 0:open) {
+                  for (down in 0:(open - up)) {
+                    least <- pmin(least, lows(
+                      positive + up, negative + down, n_input - tied,
+                      conf_level
+                    ))
+                  }
+                }
+                least
+              }
+              expect_equal(best$flip, least[["flip"]], tolerance = 0)
+              expect_equal(
+                best$directional, least[["directional"]], tolerance = 0
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+})
+
+test_that("a position judge cannot dodge a FAIL through within-condition ties", {
+  # Each call takes the first slot with probability 0.5, otherwise the
+  # better candidate: at repeats = 2 its bias splits votes into ties, with
+  # no judgment missing.
+  pairs <- tibble::tibble(a = paste("good", 1:100), b = paste("bad", 1:100))
+  judge <- function(d) {
+    ifelse(stats::runif(nrow(d)) < 0.5, "A",
+           ifelse(grepl("good", d$.candidate_1), "A", "B"))
+  }
+  position <- probe_position(
+    pairs, judge, "a", "b", seed = 5, audit_id = "test-bundle", repeats = 2
+  )
+  expect_identical(position$missing_rate, 0)
+  expect_gt(position$n_unscored, 0L)
+  expect_identical(position$n_unscored_tied, position$n_unscored)
+  expect_gt(position$conf_low, 0.2)
+  pol <- acceptance_policy(
+    min_agreement_lower = 0.9, min_n = 50, min_class_n = 15,
+    min_recall = 0.8, max_missing_rate = 0,
+    max_pairwise_disagreement = NULL,
+    required_probes = "position", min_probe_n = 10,
+    max_probe_flip_rate = 0.2, max_probe_directional_rate = 0.2,
+    max_probe_missing_rate = 0.05, coefficient = "gwet_ac1"
+  )
+  rows <- single_probe_checks("position", make_cal(), position, pol)
+  rows <- stats::setNames(rows, vapply(rows, `[[`, "", "check"))
+  # Ties stay out of the lower bound, which is the scored items' own.
+  expect_identical(best_case_lower_bounds(position)$flip, position$conf_low)
+  expect_identical(rows$bias_position$status, "FAIL")
+  expect_no_match(rows$bias_position$reason, "lower bound")
+  # A tie count that does not add up gives no best case to assess.
+  bad <- position
+  bad$n_unscored_tied <- position$n_unscored + 1L
+  expect_identical(
+    best_case_lower_bounds(bad), list(flip = NA_real_, directional = NA_real_)
+  )
+})
+
+test_that("pointwise probes have no ties and position ties are counted", {
+  expect_identical(make_bias()$n_unscored_tied, 0L)
+  abstains <- function(d) {
+    ifelse(grepl("^answer [1-5]\n", d$input), NA_character_, "C")
+  }
+  pointwise <- probe_bias(
+    tibble::tibble(input = paste("answer", 1:20)), abstains,
+    probes = "verbosity", seed = 1, audit_id = "test-bundle"
+  )
+  expect_gt(pointwise$n_unscored, 0L)
+  expect_identical(pointwise$n_unscored_tied, 0L)
+  # Pair 1 ties in the original order; pair 2 is missing there entirely.
+  judge <- function(d) {
+    out <- rep("A", nrow(d))
+    first <- d$.candidate_1 == "x1" | d$.candidate_2 == "x1"
+    original <- d$.candidate_1 == "x1" | d$.candidate_1 == "x2"
+    out[first & original] <- c("A", "B")
+    out[(d$.candidate_1 == "x2") ] <- NA_character_
+    out
+  }
+  pairs <- tibble::tibble(a = paste0("x", 1:6), b = paste0("y", 1:6))
+  position <- probe_position(pairs, judge, "a", "b", seed = 1,
+                             audit_id = "test-bundle", repeats = 2)
+  ev <- attr(position, "item_evidence")$position
+  unscored <- is.na(ev$flipped)
+  expect_identical(position$n_unscored, sum(unscored))
+  expect_identical(position$n_unscored_tied, 1L)
+})
+
+test_that("best-case bounds of a fully scored row are the row's own", {
+  bias <- make_bias(judge = length_judge, n = 60)
+  best <- best_case_lower_bounds(bias)
+  expect_identical(best$flip, bias$conf_low)
+  expect_identical(best$directional, bias$directional_conf_low)
+})
+
+test_that("bias counts of the wrong type give unusable bounds, not an error", {
+  bias <- selective_bias()
+  for (field in c("statistic", "n_directional_items", "n_input", "n_unscored")) {
+    for (value in list("30", NA, c(30L, 31L))) {
+      bad <- tibble::as_tibble(bias)
+      bad[[field]] <- if (length(value) == 1L) value else list(value)
+      expect_identical(
+        best_case_lower_bounds(bad), list(flip = NA_real_, directional = NA_real_)
+      )
+      expect_identical(
+        worst_case_upper_bounds(bad), list(flip = NA_real_, directional = NA_real_)
+      )
+    }
+  }
+})
+
+test_that("a non-finite observed lower bound is not repaired by the best case", {
+  bias <- selective_bias()
+  bias$conf_low <- Inf
+  bias$directional_conf_low <- NA_real_
+  rows <- bias_rows(bias, bias_gate_policy(flip = 0.5, direction = 0.4))
+  expect_identical(rows$bias_verbosity$status, "INDETERMINATE")
+  expect_match(rows$bias_verbosity$reason, "^Interval is unavailable\\.")
+  expect_no_match(rows$bias_verbosity$reason, "lower bound")
+  expect_identical(rows$bias_verbosity_direction$status, "INDETERMINATE")
+})
+
+test_that("an unavailable probe missing rate is INDETERMINATE, not FAIL", {
+  bias <- make_bias()
+  bias$missing_rate <- NA_real_
+  rows <- bias_rows(bias, make_policy(required_probes = "verbosity"))
+  expect_identical(rows$bias_verbosity_missing_rate$status, "INDETERMINATE")
+  expect_identical(
+    rows$bias_verbosity_missing_rate$reason, "Missing rate is unavailable."
+  )
+  bias <- make_bias()
+  bias$n_scored <- NA_integer_
+  rows <- bias_rows(bias, make_policy(required_probes = "verbosity"))
+  expect_identical(rows$bias_verbosity_n$status, "INDETERMINATE")
+})
+
+test_that("a tie in a fully judged display order stays decided when the other order has a hole", {
+  # Items 1-60 always take slot 1: a flip. Items 61-100 split A/B across the
+  # two original-order repeats, a tie no answer can break; with `abstain`
+  # one of their swapped repeats is missing too.
+  judge_for <- function(abstain) {
+    function(d) {
+      key <- paste(d$.candidate_1, d$.candidate_2)
+      occurrence <- stats::ave(seq_along(key), key, FUN = seq_along)
+      original <- grepl("^good", d$.candidate_1)
+      item <- as.integer(sub("\\D+", "", d$.candidate_1))
+      late <- item > 60
+      out <- rep("A", nrow(d))
+      out[late & original & occurrence == 2] <- "B"
+      out[late & !original] <- "B"
+      if (abstain) out[late & !original & occurrence == 2] <- NA_character_
+      out
+    }
+  }
+  pairs <- tibble::tibble(a = paste("good", 1:100), b = paste("bad", 1:100))
+  pol <- acceptance_policy(
+    min_agreement_lower = 0.9, min_n = 50, min_class_n = 15,
+    min_recall = 0.8, max_missing_rate = 0,
+    max_pairwise_disagreement = NULL,
+    required_probes = "position", min_probe_n = 10,
+    max_probe_flip_rate = 0.5, max_probe_directional_rate = 0.5,
+    max_probe_missing_rate = 0.1, coefficient = "gwet_ac1"
+  )
+  for (abstain in c(FALSE, TRUE)) {
+    position <- probe_position(
+      pairs, judge_for(abstain), "a", "b", seed = 1,
+      audit_id = "test-bundle", repeats = 2
+    )
+    expect_identical(position$n_unscored, 40L)
+    expect_identical(position$n_unscored_tied, 40L)
+    expect_identical(best_case_lower_bounds(position)$flip, position$conf_low)
+    rows <- single_probe_checks("position", make_cal(), position, pol)
+    rows <- stats::setNames(rows, vapply(rows, `[[`, "", "check"))
+    expect_identical(rows$bias_position$status, "FAIL")
+    expect_identical(rows$bias_position_direction$status, "FAIL")
+  }
+  # A tie in an order with a missing repeat can still be broken: at
+  # repeats = 3 the late items read A, B, NA in the original order, which an
+  # answer for the NA decides, so they are completed, not tied.
+  breakable <- function(d) {
+    key <- paste(d$.candidate_1, d$.candidate_2)
+    occurrence <- stats::ave(seq_along(key), key, FUN = seq_along)
+    original <- grepl("^good", d$.candidate_1)
+    item <- as.integer(sub("\\D+", "", d$.candidate_1))
+    late <- item > 60
+    out <- rep("A", nrow(d))
+    out[late & original & occurrence == 2] <- "B"
+    out[late & original & occurrence == 3] <- NA_character_
+    out[late & !original] <- "B"
+    out
+  }
+  position <- probe_position(
+    pairs, breakable, "a", "b", seed = 1, audit_id = "test-bundle",
+    repeats = 3
+  )
+  expect_identical(position$n_unscored, 40L)
+  expect_identical(position$n_unscored_tied, 0L)
+  expect_lt(best_case_lower_bounds(position)$flip, 0.5)
+  expect_gt(position$conf_low, 0.5)
+  rows <- single_probe_checks("position", make_cal(), position, pol)
+  rows <- stats::setNames(rows, vapply(rows, `[[`, "", "check"))
+  expect_identical(rows$bias_position$status, "INDETERMINATE")
+})
+
+test_that("a pointwise row cannot claim ties to dodge its best case", {
+  bias <- selective_bias()
+  expect_gt(bias$n_unscored, 0L)
+  rows <- bias_rows(bias, bias_gate_policy(flip = 0.5, direction = 0.4))
+  expect_identical(rows$bias_verbosity$status, "INDETERMINATE")
+  bad <- bias
+  bad$n_unscored_tied <- bias$n_unscored
+  expect_identical(
+    best_case_lower_bounds(bad), list(flip = NA_real_, directional = NA_real_)
+  )
+  rows <- bias_rows(bad, bias_gate_policy(flip = 0.5, direction = 0.4))
+  expect_identical(rows$bias_verbosity$status, "INDETERMINATE")
+  expect_identical(rows$bias_verbosity_direction$status, "INDETERMINATE")
+})
+
+test_that("an unavailable probe sample size says so, not that it is undersized", {
+  bias <- make_bias()
+  bias$n_scored <- NA_integer_
+  rows <- bias_rows(bias, make_policy(required_probes = "verbosity"))
+  prerequisite <- rows[[length(rows)]]
+  expect_identical(prerequisite$status, "INDETERMINATE")
+  expect_match(prerequisite$reason, "Sample size is unavailable", fixed = TRUE)
+  expect_no_match(prerequisite$reason, "below the declared minimum")
+})

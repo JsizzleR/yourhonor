@@ -219,15 +219,18 @@ test_that("kappa's native path is refused for more than two raters", {
 # availability checks.
 irrcac_stability_bootstrap <- function(runs, item_disagreement, n_boot,
                                        conf_level, weights, label_levels,
-                                       chance_levels, worst_case) {
+                                       chance_levels, worst_case,
+                                       best_case) {
   n <- nrow(runs)
   pairwise <- numeric(n_boot)
   worst <- numeric(n_boot)
+  best <- numeric(n_boot)
   stability <- numeric(n_boot)
   for (i in seq_len(n_boot)) {
     idx <- sample.int(n, n, replace = TRUE)
     pairwise[[i]] <- mean_or_na(item_disagreement[idx])
     worst[[i]] <- mean_or_na(worst_case[idx])
+    best[[i]] <- mean_or_na(best_case[idx])
     stability[[i]] <- chance_corrected_stability(
       runs[idx, , drop = FALSE], weights, label_levels, chance_levels
     )$estimate
@@ -238,6 +241,9 @@ irrcac_stability_bootstrap <- function(runs, item_disagreement, n_boot,
     ),
     worst_case = widen_to_wilson(
       bootstrap_quantiles(worst, conf_level), worst_case, conf_level
+    ),
+    best_case = widen_to_wilson(
+      bootstrap_quantiles(best, conf_level), best_case, conf_level
     ),
     stability = bootstrap_quantiles(stability, conf_level)
   )
@@ -370,18 +376,19 @@ test_that("the native stability bootstrap draws what the irrCAC loop drew", {
     for (runs in list(complete, holes, lone)) {
       d <- item_pairwise_disagreement(runs)
       wc <- item_worst_case_disagreement(runs, d)
+      bc <- item_best_case_disagreement(runs)
       chance <- chance_categories(runs, levels)
       old <- withr::with_seed(3, irrcac_stability_bootstrap(
-        runs, d, 120, 0.9, weights, levels, chance, wc
+        runs, d, 120, 0.9, weights, levels, chance, wc, bc
       ))
       # A chunk of seven columns at most: chunking must not move a draw.
       new <- withr::with_seed(3, bootstrap_stability(
-        runs, d, 120, 0.9, weights, levels, chance, wc,
+        runs, d, 120, 0.9, weights, levels, chance, wc, bc,
         chunk_cells = 7L * nrow(runs)
       ))
       expect_identical(new, old, info = weights)
       whole <- withr::with_seed(3, bootstrap_stability(
-        runs, d, 120, 0.9, weights, levels, chance, wc
+        runs, d, 120, 0.9, weights, levels, chance, wc, bc
       ))
       expect_identical(whole, old, info = weights)
     }

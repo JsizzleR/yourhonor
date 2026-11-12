@@ -88,9 +88,14 @@ unavailable: the observed value, or for an interval check the bound
 assessed, which for a bias probe's flip-rate and directional checks
 counts every unscored item against the probe over \code{n_input}: as a flip
 for the flip rate, towards the worse direction for the directional
-rate, and for the stability disagreement check counts every pair
-involving a missing judgment as a disagreement over all \code{n_items}, so
-it can exceed \code{stability.pairwise_disagreement_conf_high}), \code{op} (the
+rate, and for the stability disagreement check is
+\code{stability.pairwise_disagreement_worst_case_high}, which counts every
+pair involving a missing judgment as a disagreement over all \code{n_items},
+so it can exceed \code{stability.pairwise_disagreement_conf_high}; only when
+that worst-case bound is unavailable (not a number from 0 to 1, or
+below the observed upper unless the evidence shows nothing missing)
+does a
+stability \code{FAIL} report the observed upper), \code{op} (the
 comparison the check encodes: \code{">="}, \code{"<="}, \code{"lower >="},
 \code{"upper <="}, or \code{"="}), a numeric \code{threshold}, and \code{reason}. Without a
 policy the single placeholder check has \code{null} \code{op} and \code{threshold}.
@@ -107,7 +112,8 @@ one row per reference-by-judge cell, empty cells included, with the
 reference label, the judge label, the count \code{n}, and its share \code{prop},
 so a reader can rebuild the matrix in \code{label_levels} order.
 \item \code{bias}: \code{null}, or \code{audit_id} plus \code{results}, an array of row objects
-with the columns of the bias tibble.
+with the columns of the bias tibble (see \code{\link[=probe_bias]{probe_bias()}}), among them
+\code{n_unscored_tied}, an additive column of \code{yourhonor.audit.v1}.
 \item \code{stability}: \code{null}, or the summary fields of a \code{yourhonor_stability}
 object (see \code{\link[=test_retest]{test_retest()}}): \code{audit_id} (string or \code{null}), \code{n_items},
 \code{n_items_scored}, \code{n_runs}, \code{label_levels} (array), \code{weights},
@@ -116,7 +122,14 @@ object (see \code{\link[=test_retest]{test_retest()}}): \code{audit_id} (string 
 two), \code{pairwise_disagreement} with its observed
 \code{pairwise_disagreement_conf_low} and \code{pairwise_disagreement_conf_high},
 \code{percent_agreement} (\code{1 - pairwise_disagreement}, a proportion despite
-its name), \code{any_flip_rate_at_n_runs}, the chance-corrected agreement as
+its name), \code{any_flip_rate_at_n_runs}, the bounds for missing judgments
+(the policy assesses \code{pairwise_disagreement_worst_case_high} and
+\code{pairwise_disagreement_best_case_low}; \code{n_items_complete}, the items
+with every run observed; \code{pairwise_disagreement_worst_case} and its
+upper bound \code{pairwise_disagreement_worst_case_high}; \code{any_flip_rate_worst_case};
+\code{pairwise_disagreement_best_case} and its lower bound
+\code{pairwise_disagreement_best_case_low}; see \code{\link[=test_retest]{test_retest()}}; additive
+members of \code{yourhonor.audit.v1}), the chance-corrected agreement as
 \code{gwet_agreement}, \code{gwet_coefficient}, \code{gwet_conf_low}, \code{gwet_conf_high},
 \code{gwet_status} and \code{gwet_boundary_degenerate} (the object's
 \code{stability}, \code{stability_coefficient}, \code{stability_conf_low},

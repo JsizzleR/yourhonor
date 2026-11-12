@@ -76,8 +76,23 @@ upper bound, computed like the observed one on the same bootstrap draws
 and never below \code{pairwise_disagreement_conf_high}. With no missing
 judgment it equals \code{pairwise_disagreement_conf_high}, and it is \code{NA}
 when that is (no item has two judgments). This is the upper bound
-\code{\link[=acceptance_policy]{acceptance_policy()}} assesses. A numeric \code{NaN} judgment is missing, not
-a label.
+\code{\link[=acceptance_policy]{acceptance_policy()}} assesses.
+
+Missing judgments can also raise the observed disagreement, when the
+runs a judge left out are ones that agreed. The best-case fields bound
+that side: \code{pairwise_disagreement_best_case} is the mean over all
+\code{n_items} items of the smallest per-item disagreement any labels for the
+missing judgments could give, which each missing judgment's taking its
+item's most common observed label achieves (an item with fewer than two
+judgments counts as 0; \code{per_item$pairwise_disagreement_best_case} holds
+the per-item values), and \code{pairwise_disagreement_best_case_low} is its
+lower bound, computed like the observed one on the same bootstrap draws
+(widened to the Wilson interval over \code{n_items}) and never above
+\code{pairwise_disagreement_conf_low}. With no missing judgment it equals
+\code{pairwise_disagreement_conf_low}, and it is \code{NA} when that is. This is
+the lower bound \code{\link[=acceptance_policy]{acceptance_policy()}} assesses, so a \code{FAIL} holds under
+the most favourable labels for the missing judgments. A numeric \code{NaN}
+judgment is missing, not a label.
 
 \code{any_flip_rate_at_n_runs} is over the \code{n_items_complete} items with
 every run observed (\code{NA} when there are none), since an incomplete item

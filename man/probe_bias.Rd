@@ -114,13 +114,22 @@ with the order (a tie commits to neither slot).
 \item \code{n_unscored}, \code{unscored_rate}: \code{n_input - n_scored} and its share of
 \code{n_input}. Includes position items lost to within-condition ties, so it
 can exceed \code{n_items_missing}.
+\item \code{n_unscored_tied}: position items lost to a within-condition tie that
+no answer could break: a display order judged in every repeat whose
+modal choice is tied, whatever the other order's missing judgments.
+Always 0 for pointwise probes, where an item is unscored only through a
+missing judgment.
 \item \code{n_items_missing}: items with at least one \code{NA} judgment.
 \item \code{n_judgments}, \code{n_judgments_missing}, \code{missing_rate}: individual judge
 outputs, how many were \code{NA}, and their share. \code{missing_rate} is gated
 directly by \code{\link[=acceptance_policy]{acceptance_policy()}}'s \code{max_probe_missing_rate}; unscored
-items also enter the policy's flip-rate and directional upper bounds as
-worst-case flips, so the bounds a policy assesses can exceed this row's
-\code{conf_high} and \code{directional_conf_high}, which describe the scored items.
+items also enter the policy's flip-rate and directional bounds over
+\code{n_input}, against the judge in the upper bounds and in its favour in
+the lower bounds (which leave out the \code{n_unscored_tied} items, so their
+denominator is \code{n_input - n_unscored_tied}), so the intervals a policy
+assesses can be wider than this row's \code{conf_low}-\code{conf_high} and
+\code{directional_conf_low}-\code{directional_conf_high}, which describe the
+scored items.
 \item \code{n_comparisons}: condition pairs judged (\code{n_input} pointwise;
 \code{n_input * repeats} position).
 \item \code{p_value}: exact sign-test p-value over \code{n_directional_items}; \code{1} when

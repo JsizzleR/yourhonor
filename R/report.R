@@ -242,7 +242,9 @@ bias_section <- function(report, style) {
 # bound, say) is written here once. As in the agreement headline, the
 # interval is labelled and the worst-case upper bound shown beside it,
 # because that bound, not the interval's, is what a policy's
-# `max_pairwise_disagreement` is compared with.
+# `max_pairwise_disagreement` is compared with. When judgments are missing
+# the best-case lower bound, which a FAIL must clear, is shown too; with
+# none missing it is the interval's own lower bound.
 stability_section <- function(report, style) {
   stability <- report$stability
   if (is.null(stability)) {
@@ -250,19 +252,27 @@ stability_section <- function(report, style) {
       "Test-retest stability: ", style$strong("NOT ASSESSED"), "."
     )))
   }
-  worst <- stability$pairwise_disagreement_worst_case_high
-  worst_text <- if (length(worst) == 1L && is.finite(worst)) {
+  # Exact lookups, as in the policy: `$` would partially match.
+  worst <- stability[["pairwise_disagreement_worst_case_high"]]
+  worst_text <- if (is_probability_bound(worst)) {
     paste0(", worst-case upper bound ", fmt_num(worst))
   } else {
     ""
   }
+  best <- stability[["pairwise_disagreement_best_case_low"]]
+  best_text <- if (is_probability_bound(best) &&
+                   isTRUE(stability$missing_rate > 0)) {
+    paste0(", best-case lower bound ", fmt_num(best))
+  } else {
+    ""
+  }
   block_para(sprintf(
-    "Pairwise disagreement: %s; %sinterval [%s, %s]%s.",
+    "Pairwise disagreement: %s; %sinterval [%s, %s]%s%s.",
     fmt_num(stability$pairwise_disagreement),
     conf_level_label(stability$conf_level),
     fmt_num(stability$pairwise_disagreement_conf_low),
     fmt_num(stability$pairwise_disagreement_conf_high),
-    worst_text
+    worst_text, best_text
   ))
 }
 
