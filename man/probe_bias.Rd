@@ -129,7 +129,9 @@ the lower bounds (which leave out the \code{n_unscored_tied} items, so their
 denominator is \code{n_input - n_unscored_tied}), so the intervals a policy
 assesses can be wider than this row's \code{conf_low}-\code{conf_high} and
 \code{directional_conf_low}-\code{directional_conf_high}, which describe the
-scored items.
+scored items. So do scored position items whose missing repeats could
+change their outcome (see \code{\link[=acceptance_policy]{acceptance_policy()}}'s
+\code{max_probe_flip_rate}).
 \item \code{n_comparisons}: condition pairs judged (\code{n_input} pointwise;
 \code{n_input * repeats} position).
 \item \code{p_value}: exact sign-test p-value over \code{n_directional_items}; \code{1} when

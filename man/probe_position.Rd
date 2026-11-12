@@ -46,7 +46,9 @@ condition's judgment is the mode across repeats, so with an even number
 a split vote ties and leaves the item unscored. An odd number avoids
 two-way ties when the judge returns no tie label and no \code{NA}; an
 acceptance policy counts unscored items against the probe in its upper
-bounds, so they can keep it from passing (see \code{\link[=acceptance_policy]{acceptance_policy()}}'s
+bounds, so they can keep it from passing, and so do scored items whose
+missing repeats could change their outcome, which it reads from the
+\code{evidence} attribute (see \code{\link[=acceptance_policy]{acceptance_policy()}}'s
 \code{max_probe_flip_rate}). Taking the mode also
 attenuates a bias that appears on a minority of calls: a judge that,
 independently on each call, takes the first slot with probability
@@ -66,7 +68,10 @@ the related calibration and stability run.}
 A one-row \code{yourhonor_bias} tibble (see \emph{Result columns}) with the
 attributes \code{audit_id}, \code{evidence}, and \code{item_evidence}. Both evidence
 attributes are lists with one \code{"position"} element: \code{evidence} holds one
-row per judgment (condition, repeat, display and canonical choice);
+row per judgment (condition, repeat, display and canonical choice), and
+records \code{tie_label} as its attribute of that name (\code{NA} when none), so
+an acceptance policy knows which answers a missing judgment could have
+been;
 \code{item_evidence} holds one row per item (modal choice per condition,
 \code{flipped}, \code{display_first_rate}, \code{position_direction}).
 }
@@ -133,7 +138,9 @@ the lower bounds (which leave out the \code{n_unscored_tied} items, so their
 denominator is \code{n_input - n_unscored_tied}), so the intervals a policy
 assesses can be wider than this row's \code{conf_low}-\code{conf_high} and
 \code{directional_conf_low}-\code{directional_conf_high}, which describe the
-scored items.
+scored items. So do scored position items whose missing repeats could
+change their outcome (see \code{\link[=acceptance_policy]{acceptance_policy()}}'s
+\code{max_probe_flip_rate}).
 \item \code{n_comparisons}: condition pairs judged (\code{n_input} pointwise;
 \code{n_input * repeats} position).
 \item \code{p_value}: exact sign-test p-value over \code{n_directional_items}; \code{1} when

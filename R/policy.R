@@ -82,21 +82,33 @@
 #'   judgment) as unflipped, over the remaining items (it is never above
 #'   that `conf_low`). Missing judgments can therefore turn this
 #'   check's `PASS` or `FAIL` into `INDETERMINATE`: a `FAIL` holds however the
-#'   unscored items they leave would have been resolved. For the position
-#'   probe this covers unscored items only: with `repeats >= 2` a scored item
-#'   can also have missing repeats, and both bounds take its modal choice as
-#'   observed, so missing repeats there can still cause a `FAIL` or, within
-#'   the missing-rate tolerance, turn a deserved `FAIL` into a `PASS`. (The
+#'   unscored items they leave would have been resolved. With `repeats >= 2`
+#'   a position item can stay scored with some repeats missing; when some
+#'   answers for them could change its outcome (whether it is scored,
+#'   whether it flips, or its direction), both bounds treat it like an
+#'   unscored item with a missing judgment, except that it moves only in a
+#'   direction those answers could reach. When some of them would leave it
+#'   unscored, the upper bound moves it either way, while the lower bound
+#'   counts it as unflipped unless they can flip it. The tie label counts
+#'   as a possible answer when the probe used one, or when the probe's
+#'   evidence does not record whether it did. Those items are found from the probe's per-judgment
+#'   evidence (the `evidence` attribute of [probe_position()]'s result);
+#'   when a scored item may have a missing repeat and that evidence is
+#'   absent or does not reproduce the probe's counts, neither interval is
+#'   assessed (`INDETERMINATE`). (The
 #'   separate `max_probe_missing_rate` check can still `FAIL` on missingness
 #'   itself.) Required when `required_probes` is non-empty and rejected
 #'   otherwise.
 #' @param max_probe_directional_rate Maximum practically tolerable net
 #'   directional effect, assessed against a conservative confidence interval
-#'   whose upper bound counts every unscored item towards the worse direction,
-#'   and whose lower bound resolves the unscored items that
+#'   whose upper bound counts every unscored item, and every scored position
+#'   item that `max_probe_flip_rate` resolves, towards the worse direction
+#'   it can reach, and whose lower bound resolves the unscored items that
 #'   `max_probe_flip_rate`'s lower bound completes (every one not in
-#'   `n_unscored_tied`) in the way that most cancels the observed direction
-#'   (as flips the other way, or unflipped), over the same
+#'   `n_unscored_tied`, and those scored position items) in the
+#'   way that most cancels the observed direction
+#'   (as flips the other way where their repeats can reach it, or
+#'   unflipped), over the same
 #'   `n_input - n_unscored_tied` items. Required when `required_probes` is
 #'   non-empty and rejected otherwise.
 #' @param max_probe_missing_rate Maximum fraction of individual probe judgments
@@ -698,7 +710,10 @@ class_metric_checks <- function(x, policy, level_ok) {
 # can widen an interval but never clear it; their lower bounds resolve the
 # unscored items with a missing judgment as favourably to the judge as they
 # could be (best_case_lower_bounds()), so abstention cannot fail it, while
-# ties stay out of the lower bound as they always have.
+# ties stay out of the lower bound as they always have. A scored position
+# item whose missing repeats could change its outcome is resolved the same
+# way, within the outcomes those repeats can reach
+# (position_row_unsettled()).
 # A probe at another confidence level reports
 # `bias_<probe>_confidence_level` in place of the interval checks while its
 # rate and count checks are still assessed.
@@ -771,8 +786,26 @@ single_probe_checks <- function(probe, x, bias, policy) {
       )
     )))
   }
-  upper <- worst_case_upper_bounds(row)
-  best <- best_case_lower_bounds(row)
+  # Scored position items whose missing repeats could change their outcome
+  # are bounded from the probe's own per-judgment evidence; without it they
+  # cannot be, so neither interval is assessed.
+  unsettled <- position_row_unsettled(row, bias)
+  if (is.null(unsettled)) {
+    reason <- paste(
+      "Scored items may have missing repeats, and the probe's per-judgment",
+      "evidence that would bound them is unavailable or does not reproduce",
+      "this probe's counts; the interval was not assessed."
+    )
+    return(c(rows, list(
+      assessment_row(
+        paste0(check, "_direction"), "INDETERMINATE", NA_real_, "upper <=",
+        policy$max_probe_directional_rate, reason
+      ),
+      assessment_row(check, "INDETERMINATE", NA_real_, "upper <=", threshold, reason)
+    )))
+  }
+  upper <- worst_case_upper_bounds(row, unsettled)
+  best <- best_case_lower_bounds(row, unsettled)
   # An observed lower bound that is not a probability stays unusable, so the
   # best case cannot repair it.
   lower <- function(observed, best_case) {
@@ -791,13 +824,35 @@ single_probe_checks <- function(probe, x, bias, policy) {
     interval_max_check(check, lows[[2]], upper$flip, threshold)
   )
   n_unscored <- row$n_unscored[[1]]
-  if (is.finite(upper$flip) && n_unscored > 0L) {
-    items <- paste0(
-      n_unscored, " unscored item", if (n_unscored == 1L) "" else "s"
+  n_unsettled <- unsettled_total(unsettled)
+  plural <- function(n) if (n == 1L) "" else "s"
+  unsettled_items <- if (n_unsettled > 0L) {
+    paste0(
+      n_unsettled, " scored item", plural(n_unsettled),
+      " whose missing repeats could change ",
+      if (n_unsettled == 1L) "its" else "their", " outcome"
     )
+  }
+  # With unsettled items the item list is long, so a comma sets off what
+  # follows it; without them every string is as it was.
+  gap <- if (n_unsettled > 0L) ", " else " "
+  if (is.finite(upper$flip) && (n_unscored > 0L || n_unsettled > 0L)) {
+    items <- paste(c(
+      if (n_unscored > 0L) paste0(n_unscored, " unscored item", plural(n_unscored)),
+      unsettled_items
+    ), collapse = ", and the ")
     over <- paste("over all", row$n_input[[1]], "items.")
     counted_as <- c(
-      paste("towards the worse direction", over),
+      paste(c(
+        "towards the worse direction", over,
+        if (n_unsettled > 0L) {
+          paste(
+            "Each such scored item counts towards that direction only when",
+            "its repeats can reach it or could leave it unscored, and as",
+            "unflipped otherwise."
+          )
+        }
+      ), collapse = " "),
       paste("as flips", over)
     )
     # Only a bound the best case lowered is explained, and lowering it
@@ -806,10 +861,18 @@ single_probe_checks <- function(probe, x, bias, policy) {
       tied <- row$n_unscored_tied[[1]]
       completed <- n_unscored - tied
       paste0(
-        "The lower bound counts the ", completed, " unscored item",
-        if (completed == 1L) "" else "s", " with a missing judgment",
-        if (tied > 0L) " and no unbreakable tie", " ", as,
-        " over ", row$n_input[[1]] - tied, " items",
+        "The lower bound counts the ",
+        paste(c(
+          if (completed > 0L) {
+            paste0(
+              completed, " unscored item", plural(completed),
+              " with a missing judgment",
+              if (tied > 0L) " and no unbreakable tie"
+            )
+          },
+          unsettled_items
+        ), collapse = ", and the "),
+        gap, as, " over ", row$n_input[[1]] - tied, " items",
         if (tied > 0L) paste0(", leaving out the ", tied, " lost to ties"),
         "."
       )
@@ -822,7 +885,7 @@ single_probe_checks <- function(probe, x, bias, policy) {
       interval_rows[[i]]$reason <- paste(c(
         interval_rows[[i]]$reason,
         if (lowered) lowered_reason(lowered_as[[i]]),
-        paste("The upper bound counts the", items, counted_as[[i]])
+        paste0("The upper bound counts the ", items, gap, counted_as[[i]])
       ), collapse = " ")
     }
   }

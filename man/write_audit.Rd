@@ -86,9 +86,12 @@ keyed by class name when class-specific; unset thresholds are \code{null}.
 \code{value} (the number compared with \code{threshold}, \code{null} when
 unavailable: the observed value, or for an interval check the bound
 assessed, which for a bias probe's flip-rate and directional checks
-counts every unscored item against the probe over \code{n_input}: as a flip
-for the flip rate, towards the worse direction for the directional
-rate, and for the stability disagreement check is
+counts every unscored item, and every scored position item whose
+missing repeats could change its outcome, against the probe over
+\code{n_input}: as a flip for the flip rate, towards the worse direction for
+the directional rate (a scored position item only in a direction its
+repeats can reach, or either way when they could leave it unscored),
+and for the stability disagreement check is
 \code{stability.pairwise_disagreement_worst_case_high}, which counts every
 pair involving a missing judgment as a disagreement over all \code{n_items},
 so it can exceed \code{stability.pairwise_disagreement_conf_high}; only when

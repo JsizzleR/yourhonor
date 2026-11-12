@@ -106,22 +106,34 @@ rather than missing and stay out of it as they do of the scored items'
 judgment) as unflipped, over the remaining items (it is never above
 that \code{conf_low}). Missing judgments can therefore turn this
 check's \code{PASS} or \code{FAIL} into \code{INDETERMINATE}: a \code{FAIL} holds however the
-unscored items they leave would have been resolved. For the position
-probe this covers unscored items only: with \code{repeats >= 2} a scored item
-can also have missing repeats, and both bounds take its modal choice as
-observed, so missing repeats there can still cause a \code{FAIL} or, within
-the missing-rate tolerance, turn a deserved \code{FAIL} into a \code{PASS}. (The
+unscored items they leave would have been resolved. With \code{repeats >= 2}
+a position item can stay scored with some repeats missing; when some
+answers for them could change its outcome (whether it is scored,
+whether it flips, or its direction), both bounds treat it like an
+unscored item with a missing judgment, except that it moves only in a
+direction those answers could reach. When some of them would leave it
+unscored, the upper bound moves it either way, while the lower bound
+counts it as unflipped unless they can flip it. The tie label counts
+as a possible answer when the probe used one, or when the probe's
+evidence does not record whether it did. Those items are found from the probe's per-judgment
+evidence (the \code{evidence} attribute of \code{\link[=probe_position]{probe_position()}}'s result);
+when a scored item may have a missing repeat and that evidence is
+absent or does not reproduce the probe's counts, neither interval is
+assessed (\code{INDETERMINATE}). (The
 separate \code{max_probe_missing_rate} check can still \code{FAIL} on missingness
 itself.) Required when \code{required_probes} is non-empty and rejected
 otherwise.}
 
 \item{max_probe_directional_rate}{Maximum practically tolerable net
 directional effect, assessed against a conservative confidence interval
-whose upper bound counts every unscored item towards the worse direction,
-and whose lower bound resolves the unscored items that
+whose upper bound counts every unscored item, and every scored position
+item that \code{max_probe_flip_rate} resolves, towards the worse direction
+it can reach, and whose lower bound resolves the unscored items that
 \code{max_probe_flip_rate}'s lower bound completes (every one not in
-\code{n_unscored_tied}) in the way that most cancels the observed direction
-(as flips the other way, or unflipped), over the same
+\code{n_unscored_tied}, and those scored position items) in the
+way that most cancels the observed direction
+(as flips the other way where their repeats can reach it, or
+unflipped), over the same
 \code{n_input - n_unscored_tied} items. Required when \code{required_probes} is
 non-empty and rejected otherwise.}
 

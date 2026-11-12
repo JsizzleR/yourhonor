@@ -88,7 +88,9 @@
 #'   denominator is `n_input - n_unscored_tied`), so the intervals a policy
 #'   assesses can be wider than this row's `conf_low`-`conf_high` and
 #'   `directional_conf_low`-`directional_conf_high`, which describe the
-#'   scored items.
+#'   scored items. So do scored position items whose missing repeats could
+#'   change their outcome (see [acceptance_policy()]'s
+#'   `max_probe_flip_rate`).
 #' * `n_comparisons`: condition pairs judged (`n_input` pointwise;
 #'   `n_input * repeats` position).
 #' * `p_value`: exact sign-test p-value over `n_directional_items`; `1` when
@@ -223,7 +225,9 @@ probe_bias <- function(data,
 #'   a split vote ties and leaves the item unscored. An odd number avoids
 #'   two-way ties when the judge returns no tie label and no `NA`; an
 #'   acceptance policy counts unscored items against the probe in its upper
-#'   bounds, so they can keep it from passing (see [acceptance_policy()]'s
+#'   bounds, so they can keep it from passing, and so do scored items whose
+#'   missing repeats could change their outcome, which it reads from the
+#'   `evidence` attribute (see [acceptance_policy()]'s
 #'   `max_probe_flip_rate`). Taking the mode also
 #'   attenuates a bias that appears on a minority of calls: a judge that,
 #'   independently on each call, takes the first slot with probability
@@ -240,7 +244,10 @@ probe_bias <- function(data,
 #' @return A one-row `yourhonor_bias` tibble (see *Result columns*) with the
 #'   attributes `audit_id`, `evidence`, and `item_evidence`. Both evidence
 #'   attributes are lists with one `"position"` element: `evidence` holds one
-#'   row per judgment (condition, repeat, display and canonical choice);
+#'   row per judgment (condition, repeat, display and canonical choice), and
+#'   records `tie_label` as its attribute of that name (`NA` when none), so
+#'   an acceptance policy knows which answers a missing judgment could have
+#'   been;
 #'   `item_evidence` holds one row per item (modal choice per condition,
 #'   `flipped`, `display_first_rate`, `position_direction`).
 #' @export
@@ -351,10 +358,14 @@ probe_position <- function(data,
   )
   # A single probe has no family to correct over; combine_bias() re-adjusts.
   rows <- finalize_bias_rows(row, "none")
+  ev <- tibble::as_tibble(ev)
+  # The answers a missing judgment could have been: an acceptance policy
+  # completes missing repeats with the tie label only when one was in use.
+  attr(ev, "tie_label") <- if (is.null(tie_label)) NA_character_ else tie_label
   new_yourhonor_bias(
     rows,
     audit_id = audit_id,
-    evidence = list(position = tibble::as_tibble(ev)),
+    evidence = list(position = ev),
     item_evidence = list(position = item_evidence)
   )
 }
@@ -649,6 +660,169 @@ position_tied_items <- function(ev) {
   unique(ev$.item_id[vapply(orders[tied], `[[`, integer(1), 1L)])
 }
 
+# The modal choices one display order can end with over every completion of
+# its missing judgments (NA for a tied or empty mode, as modal_value()). A
+# completion answers each missing judgment with either candidate, or with
+# the tie label when `tie_possible`.
+reachable_modes <- function(choices, tie_possible) {
+  missing <- sum(is.na(choices))
+  observed <- choices[!is.na(choices)]
+  if (missing == 0L) return(modal_value(observed))
+  values <- c("candidate_a", "candidate_b", "tie")
+  counts <- vapply(values, function(v) sum(observed == v), integer(1))
+  modes <- character(0)
+  for (to_a in 0:missing) {
+    for (to_b in 0:(missing - to_a)) {
+      to_tie <- missing - to_a - to_b
+      if (to_tie > 0L && !tie_possible) next
+      total <- counts + c(to_a, to_b, to_tie)
+      top <- values[total == max(total)]
+      modes <- c(modes, if (length(top) == 1L) top else NA_character_)
+    }
+  }
+  unique(modes)
+}
+
+# An item's outcome from its two display orders' modal choices, coded as the
+# item evidence codes it: NA unscored, 0 unflipped, 1 towards the first slot,
+# -1 towards the second.
+position_outcome <- function(original_choice, swapped_choice) {
+  if (is.na(original_choice) || is.na(swapped_choice)) return(NA_integer_)
+  if (original_choice == swapped_choice) return(0L)
+  slots <- c(
+    canonical_slot(original_choice, "original"),
+    canonical_slot(swapped_choice, "swapped")
+  )
+  as.integer(sign(sum(slots == 1L) - sum(slots == 2L)))
+}
+
+# Scored position items whose missing repeats could change their outcome,
+# counted by the directions they can reach, once per bound. For the upper
+# bound: `free` (both, or a tie, which it counts as a flip either way),
+# `first` or `second` only. For the lower bound, where a tie only takes the
+# item out of the denominator and counting it unflipped instead is never
+# higher (best_case_lower_bounds()), only the reachable flips matter:
+# `lower_free` (both), `lower_first`, `lower_second`, or none (it starts
+# unflipped and stays so). `observed_first` and `observed_second` count the
+# observed flips among them.
+# Their modal choice is not evidence the bounds can take as observed: a
+# judge could otherwise abstain on the repeats that would have flipped.
+position_unsettled_counts <- function(evidence, item_evidence, tie_possible) {
+  out <- no_unsettled_items
+  orders <- split(
+    evidence$canonical_choice,
+    list(evidence$.item_id, evidence$.condition), drop = TRUE
+  )
+  for (i in which(!is.na(item_evidence$flipped))) {
+    id <- item_evidence$.item_id[[i]]
+    original <- orders[[paste(id, "original", sep = ".")]]
+    swapped <- orders[[paste(id, "swapped", sep = ".")]]
+    if (!anyNA(original) && !anyNA(swapped)) next
+    outcomes <- unique(unlist(lapply(
+      reachable_modes(original, tie_possible), function(o) {
+        vapply(reachable_modes(swapped, tie_possible), function(s) {
+          position_outcome(o, s)
+        }, integer(1))
+      }
+    )))
+    if (length(outcomes) < 2L) next
+    observed <- item_evidence$position_direction[[i]]
+    if (observed > 0L) out$observed_first <- out$observed_first + 1L
+    if (observed < 0L) out$observed_second <- out$observed_second + 1L
+    flips <- c(1L, -1L) %in% outcomes
+    upper <- if (anyNA(outcomes) || all(flips)) {
+      "free"
+    } else if (flips[[1]]) {
+      "first"
+    } else {
+      "second"
+    }
+    out[[upper]] <- out[[upper]] + 1L
+    if (any(flips)) {
+      lower <- paste0(
+        "lower_",
+        if (all(flips)) "free" else if (flips[[1]]) "first" else "second"
+      )
+      out[[lower]] <- out[[lower]] + 1L
+    }
+  }
+  out
+}
+
+# The unsettled items of a position row, read from its probe's per-judgment
+# evidence: none when no scored item can have a missing judgment, and NULL
+# when one can but the evidence is absent or does not reproduce the row's
+# counts. Every unscored item not lost to an unbreakable tie has a missing
+# judgment, so at most `n_items_missing - (n_unscored - n_unscored_tied)`
+# scored items do; with nothing missing, or at `repeats = 1`, that is 0.
+position_row_unsettled <- function(row, bias) {
+  if (!identical(row[["probe"]][[1]], "position")) return(no_unsettled_items)
+  if (isTRUE(row_count(row, "n_judgments_missing") == 0)) {
+    return(no_unsettled_items)
+  }
+  scored_with_missing <- row_count(row, "n_items_missing") -
+    (row_count(row, "n_unscored") - row_count(row, "n_unscored_tied"))
+  if (isTRUE(scored_with_missing <= 0)) return(no_unsettled_items)
+  all_evidence <- attr(bias, "evidence", exact = TRUE)
+  evidence <- if (is.list(all_evidence) && !is.data.frame(all_evidence)) {
+    all_evidence[["position"]]
+  }
+  item_evidence <- matching_position_evidence(row, evidence)
+  if (is.null(item_evidence)) return(NULL)
+  # An object from before the tie label was recorded may have used one, and
+  # a tie in the evidence shows one was in use whatever the label says.
+  tie_label <- attr(evidence, "tie_label", exact = TRUE)
+  tie_possible <- !(is.character(tie_label) && length(tie_label) == 1L &&
+                      is.na(tie_label)) ||
+    any(evidence$canonical_choice == "tie", na.rm = TRUE)
+  position_unsettled_counts(evidence, item_evidence, tie_possible)
+}
+
+row_count <- function(row, field) {
+  value <- row[[field]]
+  if (is.numeric(value) && length(value) == 1L && is_finite_number(value[[1]])) {
+    as.numeric(value[[1]])
+  } else {
+    NA_real_
+  }
+}
+
+# Item evidence rebuilt from per-judgment evidence, or NULL unless the
+# rebuild reproduces every count of `row` the bounds rest on.
+matching_position_evidence <- function(row, evidence) {
+  columns <- c(".item_id", ".condition", "display_choice", "canonical_choice")
+  if (!is.data.frame(evidence) || nrow(evidence) < 1L ||
+      !all(columns %in% names(evidence))) {
+    return(NULL)
+  }
+  # A list, matrix or raw column cannot be split by item; it is not a probe's.
+  if (!all(vapply(evidence[columns], function(column) {
+    is.atomic(column) && is.null(dim(column)) && !is.raw(column)
+  }, logical(1)))) {
+    return(NULL)
+  }
+  choice <- evidence$canonical_choice
+  if (!is.character(choice) || !is.character(evidence$.condition) ||
+      anyNA(evidence$.item_id) ||
+      !all(evidence$.condition %in% c("original", "swapped")) ||
+      !all(choice %in% c("candidate_a", "candidate_b", "tie", NA)) ||
+      !identical(is.na(choice), is.na(evidence$display_choice))) {
+    return(NULL)
+  }
+  item_evidence <- position_item_evidence(evidence, character(0))
+  stats <- position_stats(item_evidence, evidence, 0.95)
+  fields <- c(
+    "n_input", "n_scored", "n_discordant", "statistic", "n_directional_items",
+    "n_unscored_tied", "n_items_missing", "n_judgments", "n_judgments_missing"
+  )
+  for (field in fields) {
+    if (!identical(row_count(row, field), as.numeric(stats[[field]]))) {
+      return(NULL)
+    }
+  }
+  item_evidence
+}
+
 position_direction_label <- function(first_rate) {
   if (is.na(first_rate) || first_rate == 0.5) {
     "balanced"
@@ -916,9 +1090,16 @@ bias_row_counts <- function(row) {
 # treat it as agreement. With nothing unscored these equal the row's own
 # `conf_high` and `directional_conf_high`. Counts that are missing or do not
 # add up give `NA` bounds, which the policy reads as an unusable interval.
-worst_case_upper_bounds <- function(row) {
+#
+# `unsettled` (position_unsettled_counts()) names the scored position items
+# whose missing repeats could change their outcome: their observed flips are
+# taken out of the counts, and each is then a flip in whichever direction its
+# repeats can reach (`free` items either way, `first` and `second` items only
+# that way). With none, the bounds are exactly the row's counts' ones.
+worst_case_upper_bounds <- function(row, unsettled = no_unsettled_items) {
   counts <- bias_row_counts(row)
   conf_level <- row$conf_level[[1]]
+  counts <- settled_counts(counts, unsettled)
   if (is.null(counts) || !is_finite_number(conf_level)) {
     return(list(flip = NA_real_, directional = NA_real_))
   }
@@ -927,24 +1108,55 @@ worst_case_upper_bounds <- function(row) {
   positive <- counts$positive
   negative <- counts$negative
   flip_high <- exact_binom_interval(
-    counts$n_discordant + n_unscored, n_input, conf_level
+    counts$n_discordant + unsettled_total(unsettled) + n_unscored, n_input,
+    conf_level
   )[[2]]
   # Moving an item from the negative cell to the positive one raises both
   # signed endpoints, so the most positive upper endpoint is at the
   # all-positive split and the most negative lower endpoint at the
   # all-negative one: the larger absolute endpoint of those two bounds every
-  # split.
+  # split. An unsettled item that cannot reach a direction stays unflipped
+  # in that split, which keeps that endpoint highest.
   directional_high <- max(
     directional_magnitude_interval(
-      positive + n_unscored, negative, n_input, conf_level,
-      upper_cap = flip_high
+      positive + n_unscored + unsettled$free + unsettled$first, negative,
+      n_input, conf_level, upper_cap = flip_high
     )[[2]],
     directional_magnitude_interval(
-      positive, negative + n_unscored, n_input, conf_level,
-      upper_cap = flip_high
+      positive, negative + n_unscored + unsettled$free + unsettled$second,
+      n_input, conf_level, upper_cap = flip_high
     )[[2]]
   )
   list(flip = flip_high, directional = directional_high)
+}
+
+# No unsettled items: the bounds use the row's counts as they stand.
+no_unsettled_items <- list(
+  free = 0L, first = 0L, second = 0L,
+  lower_free = 0L, lower_first = 0L, lower_second = 0L,
+  observed_first = 0L, observed_second = 0L
+)
+
+unsettled_total <- function(unsettled) {
+  unsettled$free + unsettled$first + unsettled$second
+}
+
+# The row's counts with the unsettled items' observed flips taken out, so the
+# remaining cells hold only flips no completion can undo. NULL when the row's
+# counts are unusable or the unsettled items do not fit inside them.
+settled_counts <- function(counts, unsettled) {
+  if (is.null(counts)) return(NULL)
+  total <- unsettled_total(unsettled)
+  observed <- unsettled$observed_first + unsettled$observed_second
+  if (unsettled$observed_first > counts$positive ||
+      unsettled$observed_second > counts$negative ||
+      total > counts$n_scored || observed > total) {
+    return(NULL)
+  }
+  counts$positive <- counts$positive - unsettled$observed_first
+  counts$negative <- counts$negative - unsettled$observed_second
+  counts$n_discordant <- counts$n_discordant - observed
+  counts
 }
 
 # Lower bounds on a bias row's flip and net directional rates under the
@@ -967,12 +1179,34 @@ worst_case_upper_bounds <- function(row) {
 # k = 0 or k = n_completed. With nothing to complete these are the row's own
 # `conf_low` and `directional_conf_low`. Counts that are missing or do not
 # add up give `NA` bounds, as in worst_case_upper_bounds().
-best_case_lower_bounds <- function(row) {
+#
+# Unsettled scored position items (`unsettled`, see
+# worst_case_upper_bounds()) are completed too: each starts unflipped and
+# may flip only in a direction its repeats can reach (`lower_*`). Starting
+# unflipped is safe even where no completion leaves the item unflipped:
+# an extra outcome can only lower a minimum, and a completion that ties the
+# item leaves it out of that completion's denominator, which counting it
+# unflipped is never above (for the flip rate, an exact lower endpoint falls
+# as n grows at a fixed count; for the net rate a test checks it over every
+# pair of counts, n up to 40). The families then start from the
+# settled counts, and the one adding to the negative cell reaches
+# `n_completed + lower_free + lower_second` while the other reaches
+# `n_completed + lower_free + lower_first`. The least over every
+# allocation still lies on them: from any
+# allocation whose signed interval is above 0, emptying the positive cell
+# down to the settled count lowers both endpoints, landing on the negative
+# family either still above 0 (no higher) or, because the interval cannot
+# step over 0, after passing an interval that contains it, in which case one
+# of the two families contains one as well; likewise below 0. So the
+# bounds stay at or below every completion's.
+best_case_lower_bounds <- function(row, unsettled = no_unsettled_items) {
   unusable <- list(flip = NA_real_, directional = NA_real_)
   counts <- bias_row_counts(row)
   conf_level <- row$conf_level[[1]]
+  counts <- settled_counts(counts, unsettled)
   if (is.null(counts) || !is_finite_number(conf_level)) return(unusable)
-  if (counts$n_unscored == 0L) {
+  n_unsettled <- unsettled_total(unsettled)
+  if (counts$n_unscored == 0L && n_unsettled == 0L) {
     return(list(
       flip = row$conf_low[[1]], directional = row$directional_conf_low[[1]]
     ))
@@ -988,7 +1222,7 @@ best_case_lower_bounds <- function(row) {
     return(unusable)
   }
   n_completed <- counts$n_unscored - tied
-  if (n_completed == 0L) {
+  if (n_completed == 0L && n_unsettled == 0L) {
     return(list(
       flip = row$conf_low[[1]], directional = row$directional_conf_low[[1]]
     ))
@@ -1001,10 +1235,12 @@ best_case_lower_bounds <- function(row) {
   # Completed items as flips against the positive cell, then against the
   # negative one.
   towards_negative <- signed_difference_interval(
-    positive, negative + n_completed, n, conf_level
+    positive, negative + n_completed + unsettled$lower_free +
+      unsettled$lower_second, n, conf_level
   )
   towards_positive <- signed_difference_interval(
-    positive + n_completed, negative, n, conf_level
+    positive + n_completed + unsettled$lower_free + unsettled$lower_first,
+    negative, n, conf_level
   )
   cancel_positive <- if (start[[2]] < 0) {
     magnitude_lower(start)
