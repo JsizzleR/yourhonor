@@ -266,7 +266,9 @@ test_that("evidence without a recorded tie label is completed with ties", {
   # either way; the lower bound still moves them only towards the first slot.
   expect_identical(
     position_row_unsettled(bias, bias),
-    utils::modifyList(no_unsettled_items, list(free = 30L, lower_first = 30L))
+    utils::modifyList(
+      no_unsettled_items, list(free = 30L, lower_first = 30L, unscorable = 30L)
+    )
   )
   rows <- position_gates(bias, policy)
   expect_identical(gate_status(rows), c(flip = "FAIL", direction = "FAIL"))
@@ -352,7 +354,9 @@ test_that("an always-first judge missing single repeats at repeats = 2 still fai
     unsettled,
     utils::modifyList(
       no_unsettled_items,
-      list(free = 15L, lower_first = 15L, observed_first = 15L)
+      list(
+        free = 15L, lower_first = 15L, observed_first = 15L, unscorable = 15L
+      )
     )
   )
   # Unflipped, they leave 85 of 100 flips towards the first slot.
@@ -428,4 +432,166 @@ test_that("evidence with a list, matrix or raw column is not matched", {
       gate_status(rows), c(flip = "INDETERMINATE", direction = "INDETERMINATE")
     )
   }
+})
+
+count_policy <- function(min_probe_n, flip = 0.15, missing = 0.05) {
+  acceptance_policy(
+    min_agreement_lower = 0.9, min_n = 50, min_class_n = 15,
+    min_recall = 0.8, max_missing_rate = 0,
+    max_pairwise_disagreement = NULL,
+    required_probes = "position", min_probe_n = min_probe_n,
+    max_probe_flip_rate = flip, max_probe_directional_rate = flip,
+    max_probe_missing_rate = missing, coefficient = "gwet_ac1"
+  )
+}
+
+# 100 pairs at repeats = 2; the judge never flips (A, A original; B, B
+# swapped) but abstains on one original repeat of items 1-5 (`"abstain"`),
+# or answers it B so the order's choices tie (`"tie"`).
+count_script <- function(how, k = 5L) {
+  function(item, condition) {
+    if (condition == "swapped") return(rep("B", 2))
+    if (item > k || how == "complete") return(rep("A", 2))
+    if (how == "abstain") c("A", NA) else c("A", "B")
+  }
+}
+
+test_that("the probe count leaves out scored items a completion could leave unscored", {
+  policy <- count_policy(min_probe_n = 100)
+  complete <- scripted_position(100, count_script("complete"), repeats = 2)
+  abstained <- scripted_position(100, count_script("abstain"), repeats = 2)
+  tied <- scripted_position(100, count_script("tie"), repeats = 2)
+  expect_identical(abstained$n_scored, 100L)
+  expect_identical(tied$n_scored, 95L)
+  # Positive control: complete, the judge passes.
+  rows <- position_gates(complete, policy)
+  expect_identical(gate_status(rows), c(flip = "PASS", direction = "PASS"))
+  expect_identical(rows$bias_position_n$value, 100)
+  expect_identical(rows$bias_position_n$reason, "Sample size is sufficient.")
+  # The completion that ties the abstained repeats leaves 95 scored items.
+  expect_identical(
+    position_gates(tied, policy)$bias_position_n$status, "INDETERMINATE"
+  )
+  # So abstaining cannot pass on the count those items would lose.
+  rows <- position_gates(abstained, policy)
+  expect_identical(rows$bias_position_missing_rate$status, "PASS")
+  expect_identical(rows$bias_position_n$status, "INDETERMINATE")
+  expect_identical(rows$bias_position_n$value, 95)
+  expect_identical(
+    rows$bias_position_n$reason,
+    paste(
+      "Sample size is below the declared minimum. The count leaves out the",
+      "5 scored items whose missing repeats a completion could answer so",
+      "that they are unscored."
+    )
+  )
+  expect_identical(rows$bias_position$status, "INDETERMINATE")
+  expect_null(rows$bias_position_direction)
+  # With the floor at what every completion keeps, the intervals are
+  # assessed and still pass.
+  rows <- position_gates(abstained, count_policy(min_probe_n = 95))
+  expect_identical(rows$bias_position_n$status, "PASS")
+  expect_identical(rows$bias_position_n$value, 95)
+  expect_match(
+    rows$bias_position_n$reason,
+    "^Sample size is sufficient\\. The count leaves out the 5 scored items "
+  )
+  expect_identical(gate_status(rows), c(flip = "PASS", direction = "PASS"))
+})
+
+test_that("a missing repeat that cannot tie its order keeps the item counted", {
+  # Repeats = 3, no tie label: A, A, NA keeps A whatever the answer.
+  script <- function(item, condition) {
+    if (condition == "swapped") return(rep("B", 3))
+    if (item <= 5L) c("A", "A", NA) else rep("A", 3)
+  }
+  bias <- scripted_position(100, script, repeats = 3)
+  rows <- position_gates(bias, count_policy(min_probe_n = 100))
+  expect_identical(rows$bias_position_n$status, "PASS")
+  expect_identical(rows$bias_position_n$value, 100)
+  expect_identical(rows$bias_position_n$reason, "Sample size is sufficient.")
+  # Without the evidence they may be the ones a completion leaves unscored.
+  attr(bias, "evidence") <- NULL
+  expect_identical(
+    position_gates(bias, count_policy(min_probe_n = 100))$bias_position_n$value, 95
+  )
+})
+
+test_that("a FAIL needs the probe count every completion keeps", {
+  # The always-first judge of the repeats = 2 test above: 15 of 100 pairs miss one
+  # original-order repeat, which answered B would tie the item.
+  script <- function(item, condition) {
+    if (item <= 15L && condition == "original") return(c("A", NA))
+    rep("A", 2)
+  }
+  bias <- scripted_position(100, script, repeats = 2)
+  complete <- scripted_position(100, function(item, condition) rep("A", 2),
+                                repeats = 2)
+  expect_identical(position_row_unsettled(bias, bias)$unscorable, 15L)
+  policy <- count_policy(min_probe_n = 90, flip = 0.6, missing = 0.1)
+  # Positive control: complete, the biased judge fails at the same floor.
+  expect_identical(
+    gate_status(position_gates(complete, policy)), c(flip = "FAIL", direction = "FAIL")
+  )
+  rows <- position_gates(bias, policy)
+  expect_identical(rows$bias_position_n$value, 85)
+  expect_identical(rows$bias_position$status, "INDETERMINATE")
+  rows <- position_gates(bias, count_policy(min_probe_n = 85, flip = 0.6, missing = 0.1))
+  expect_identical(gate_status(rows), c(flip = "FAIL", direction = "FAIL"))
+})
+
+test_that("without matching evidence the probe count leaves out every scored item that may miss a repeat", {
+  abstained <- scripted_position(100, count_script("abstain"), repeats = 2)
+  stripped <- abstained
+  attr(stripped, "evidence") <- NULL
+  expect_null(position_row_unsettled(stripped, stripped))
+  rows <- position_gates(stripped, count_policy(min_probe_n = 100))
+  expect_identical(rows$bias_position_n$status, "INDETERMINATE")
+  expect_identical(rows$bias_position_n$value, 95)
+  expect_match(
+    rows$bias_position_n$reason,
+    paste(
+      "The count leaves out the 5 scored items that may have a missing",
+      "repeat: the probe's per-judgment evidence that would settle them is",
+      "unavailable or does not reproduce this probe's counts."
+    ),
+    fixed = TRUE
+  )
+  # At that floor the count passes and the intervals still are not
+  # assessed.
+  rows <- position_gates(stripped, count_policy(min_probe_n = 95))
+  expect_identical(rows$bias_position_n$status, "PASS")
+  expect_identical(
+    gate_status(rows), c(flip = "INDETERMINATE", direction = "INDETERMINATE")
+  )
+  # One item reads in the singular, with or without the evidence.
+  one <- scripted_position(100, count_script("abstain", k = 1L), repeats = 2)
+  expect_match(
+    position_gates(one, count_policy(min_probe_n = 100))$bias_position_n$reason,
+    "leaves out the 1 scored item whose missing repeats a completion could answer so that it is unscored.",
+    fixed = TRUE
+  )
+  attr(one, "evidence") <- NULL
+  expect_match(
+    position_gates(one, count_policy(min_probe_n = 100))$bias_position_n$reason,
+    "leaves out the 1 scored item that may have a missing repeat: the probe's per-judgment evidence that would settle it is",
+    fixed = TRUE
+  )
+  # A hand-edited count that cannot place them leaves the count unavailable.
+  edited <- stripped
+  edited$n_items_missing <- NA_integer_
+  rows <- position_gates(edited, count_policy(min_probe_n = 50))
+  expect_identical(rows$bias_position_n$status, "INDETERMINATE")
+  expect_identical(rows$bias_position_n$value, NA_real_)
+  expect_match(rows$bias_position$reason, "^Sample size is unavailable;")
+  # A hand-edited negative count keeps its own value, as before.
+  edited <- stripped
+  edited$n_scored <- -5L
+  rows <- position_gates(edited, count_policy(min_probe_n = 50))
+  expect_identical(rows$bias_position_n$value, -5)
+  expect_identical(rows$bias_position_n$reason, "Sample size is below the declared minimum.")
+  edited$n_items_missing <- NA_integer_
+  expect_identical(
+    position_gates(edited, count_policy(min_probe_n = 50))$bias_position_n$value, -5
+  )
 })

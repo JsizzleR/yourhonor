@@ -368,7 +368,10 @@ extract_vitals_samples <- function(task) {
 #'   keyed by class name when class-specific; unset thresholds are `null`.
 #' * `checks`: array of objects, one per policy check, with `check`, `status`,
 #'   `value` (the number compared with `threshold`, `null` when
-#'   unavailable: the observed value, or for an interval check the bound
+#'   unavailable: the observed value, which for `bias_<probe>_n` is a
+#'   count of scored items no completion of missing repeats could leave
+#'   unscored, see `min_probe_n` in [acceptance_policy()]; or for an
+#'   interval check the bound
 #'   assessed, which for a bias probe's flip-rate and directional checks
 #'   counts every unscored item, and every scored position item whose
 #'   missing repeats could change its outcome, against the probe over
@@ -400,7 +403,18 @@ extract_vitals_samples <- function(task) {
 #'   so a reader can rebuild the matrix in `label_levels` order.
 #' * `bias`: `null`, or `audit_id` plus `results`, an array of row objects
 #'   with the columns of the bias tibble (see [probe_bias()]), among them
-#'   `n_unscored_tied`, an additive column of `yourhonor.audit.v1`.
+#'   `n_unscored_tied`, an additive column of `yourhonor.audit.v1`. The
+#'   probes' per-judgment evidence is not written, so where a bias check's
+#'   `reason` counts scored items whose missing repeats could change their
+#'   outcome, or could leave them unscored, that count comes from the
+#'   evidence (without it, the `bias_<probe>_n` count is `n_scored` less
+#'   `n_items_missing - (n_unscored - n_unscored_tied)`, taken from 0 to
+#'   `n_scored`, all written). A `bias_<probe>_n` value is then `n_scored`
+#'   less the count in its reason, but an interval check's value also
+#'   depends on how many of those items flipped and which directions each
+#'   could reach, which the reason does not say, so it cannot be
+#'   recomputed from the JSON. Every other bias check's value can be, from
+#'   the row's written columns (see `min_probe_n` in [acceptance_policy()]).
 #' * `stability`: `null`, or the summary fields of a `yourhonor_stability`
 #'   object (see [test_retest()]): `audit_id` (string or `null`), `n_items`,
 #'   `n_items_scored`, `n_runs`, `label_levels` (array), `weights`,

@@ -84,7 +84,10 @@ check names. \code{required_probes} is an array;
 keyed by class name when class-specific; unset thresholds are \code{null}.
 \item \code{checks}: array of objects, one per policy check, with \code{check}, \code{status},
 \code{value} (the number compared with \code{threshold}, \code{null} when
-unavailable: the observed value, or for an interval check the bound
+unavailable: the observed value, which for \verb{bias_<probe>_n} is a
+count of scored items no completion of missing repeats could leave
+unscored, see \code{min_probe_n} in \code{\link[=acceptance_policy]{acceptance_policy()}}; or for an
+interval check the bound
 assessed, which for a bias probe's flip-rate and directional checks
 counts every unscored item, and every scored position item whose
 missing repeats could change its outcome, against the probe over
@@ -116,7 +119,18 @@ reference label, the judge label, the count \code{n}, and its share \code{prop},
 so a reader can rebuild the matrix in \code{label_levels} order.
 \item \code{bias}: \code{null}, or \code{audit_id} plus \code{results}, an array of row objects
 with the columns of the bias tibble (see \code{\link[=probe_bias]{probe_bias()}}), among them
-\code{n_unscored_tied}, an additive column of \code{yourhonor.audit.v1}.
+\code{n_unscored_tied}, an additive column of \code{yourhonor.audit.v1}. The
+probes' per-judgment evidence is not written, so where a bias check's
+\code{reason} counts scored items whose missing repeats could change their
+outcome, or could leave them unscored, that count comes from the
+evidence (without it, the \verb{bias_<probe>_n} count is \code{n_scored} less
+\code{n_items_missing - (n_unscored - n_unscored_tied)}, taken from 0 to
+\code{n_scored}, all written). A \verb{bias_<probe>_n} value is then \code{n_scored}
+less the count in its reason, but an interval check's value also
+depends on how many of those items flipped and which directions each
+could reach, which the reason does not say, so it cannot be
+recomputed from the JSON. Every other bias check's value can be, from
+the row's written columns (see \code{min_probe_n} in \code{\link[=acceptance_policy]{acceptance_policy()}}).
 \item \code{stability}: \code{null}, or the summary fields of a \code{yourhonor_stability}
 object (see \code{\link[=test_retest]{test_retest()}}): \code{audit_id} (string or \code{null}), \code{n_items},
 \code{n_items_scored}, \code{n_runs}, \code{label_levels} (array), \code{weights},

@@ -68,7 +68,22 @@
 #'   conditions (see [probe_bias()]). It counts items, not judgments
 #'   (`n_judgments`) or condition pairs (`n_comparisons`): a position probe
 #'   over 30 pairs at `repeats = 3` has `n_comparisons = 90` but at most 30
-#'   scored items.
+#'   scored items. With `repeats >= 2` a position item can be scored with
+#'   some repeats missing; when answers for them could leave it unscored
+#'   (its display order's choices would tie), the count leaves it out, so
+#'   the interval checks are assessed only when every completion of the
+#'   missing judgments keeps enough scored items. Unscored items that a
+#'   completion would score are not counted. Those items are found from the
+#'   probe's per-judgment evidence (see `max_probe_flip_rate`); without
+#'   matching evidence the count leaves out every scored item that may have
+#'   a missing repeat. The `bias_<probe>_n` check's `value` is the count
+#'   compared, the probe's `n_scored` whenever no item is left out
+#'   (unavailable when the counts that place those items are). One missing
+#'   judgment can leave an item out, so a floor near the probe's item count
+#'   lets a judge that would fail skip the interval checks with a few such
+#'   omissions: the flip-rate check is `INDETERMINATE` (never `PASS`) and
+#'   the directional check is not reported. `max_probe_missing_rate`
+#'   bounds how many omissions there can be.
 #'   Required when `required_probes` is non-empty and rejected otherwise.
 #' @param max_probe_flip_rate Maximum upper confidence bound for a required
 #'   probe's flip rate. The upper bound assessed counts every unscored item
@@ -761,9 +776,33 @@ single_probe_checks <- function(probe, x, bias, policy) {
       paste0("Bias probe did not yield usable evidence: ", row$status[[1]], ".")
     )))
   }
-  n_row <- compare_min_count(
-    paste0(check, "_n"), row$n_scored[[1]], policy$min_probe_n
-  )
+  # Scored position items whose missing repeats could change their outcome
+  # are bounded from the probe's own per-judgment evidence (NULL: it is
+  # unavailable or does not match the row's counts). A completion that
+  # leaves some of them unscored could put the count under the floor, so
+  # the count leaves those out.
+  unsettled <- position_row_unsettled(row, bias)
+  n_settled <- settled_scored_count(row, unsettled)
+  n_row <- compare_min_count(paste0(check, "_n"), n_settled, policy$min_probe_n)
+  n_left_out <- row_count(row, "n_scored") - row_count(n_row, "value")
+  if (isTRUE(n_left_out > 0)) {
+    n_row$reason <- paste(
+      n_row$reason, "The count leaves out the", n_left_out,
+      if (n_left_out == 1) "scored item" else "scored items",
+      if (is.null(unsettled)) {
+        paste(
+          "that may have a missing repeat: the probe's per-judgment evidence",
+          "that would settle", if (n_left_out == 1) "it" else "them",
+          "is unavailable or does not reproduce this probe's counts."
+        )
+      } else {
+        paste(
+          "whose missing repeats a completion could answer so that",
+          if (n_left_out == 1) "it is unscored." else "they are unscored."
+        )
+      }
+    )
+  }
   rows <- c(rows, list(n_row))
   if (!same_confidence_level(row$conf_level[[1]], policy$conf_level)) {
     return(c(rows, list(confidence_level_check(
@@ -777,7 +816,7 @@ single_probe_checks <- function(probe, x, bias, policy) {
     return(c(rows, prerequisite(
       "INDETERMINATE",
       paste(
-        if (is_finite_number(row$n_scored[[1]])) {
+        if (is_finite_number(n_row$value)) {
           "Sample size is below the declared minimum;"
         } else {
           "Sample size is unavailable;"
@@ -786,10 +825,8 @@ single_probe_checks <- function(probe, x, bias, policy) {
       )
     )))
   }
-  # Scored position items whose missing repeats could change their outcome
-  # are bounded from the probe's own per-judgment evidence; without it they
-  # cannot be, so neither interval is assessed.
-  unsettled <- position_row_unsettled(row, bias)
+  # Without the evidence the unsettled items cannot be bounded, so neither
+  # interval is assessed.
   if (is.null(unsettled)) {
     reason <- paste(
       "Scored items may have missing repeats, and the probe's per-judgment",

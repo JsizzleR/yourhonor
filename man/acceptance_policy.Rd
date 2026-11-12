@@ -91,7 +91,22 @@ probe: the probe's \code{n_scored}, the items with a decided judgment in both
 conditions (see \code{\link[=probe_bias]{probe_bias()}}). It counts items, not judgments
 (\code{n_judgments}) or condition pairs (\code{n_comparisons}): a position probe
 over 30 pairs at \code{repeats = 3} has \code{n_comparisons = 90} but at most 30
-scored items.
+scored items. With \code{repeats >= 2} a position item can be scored with
+some repeats missing; when answers for them could leave it unscored
+(its display order's choices would tie), the count leaves it out, so
+the interval checks are assessed only when every completion of the
+missing judgments keeps enough scored items. Unscored items that a
+completion would score are not counted. Those items are found from the
+probe's per-judgment evidence (see \code{max_probe_flip_rate}); without
+matching evidence the count leaves out every scored item that may have
+a missing repeat. The \verb{bias_<probe>_n} check's \code{value} is the count
+compared, the probe's \code{n_scored} whenever no item is left out
+(unavailable when the counts that place those items are). One missing
+judgment can leave an item out, so a floor near the probe's item count
+lets a judge that would fail skip the interval checks with a few such
+omissions: the flip-rate check is \code{INDETERMINATE} (never \code{PASS}) and
+the directional check is not reported. \code{max_probe_missing_rate}
+bounds how many omissions there can be.
 Required when \code{required_probes} is non-empty and rejected otherwise.}
 
 \item{max_probe_flip_rate}{Maximum upper confidence bound for a required

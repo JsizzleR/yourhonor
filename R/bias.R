@@ -704,7 +704,10 @@ position_outcome <- function(original_choice, swapped_choice) {
 # higher (best_case_lower_bounds()), only the reachable flips matter:
 # `lower_free` (both), `lower_first`, `lower_second`, or none (it starts
 # unflipped and stays so). `observed_first` and `observed_second` count the
-# observed flips among them.
+# observed flips among them, and `unscorable` those a completion could leave
+# unscored, which the probe count leaves out (settled_scored_count()).
+# Completing each order with its observed mode keeps the observed outcome,
+# so an item that can also be left unscored has two outcomes and is counted.
 # Their modal choice is not evidence the bounds can take as observed: a
 # judge could otherwise abstain on the repeats that would have flipped.
 position_unsettled_counts <- function(evidence, item_evidence, tie_possible) {
@@ -729,6 +732,7 @@ position_unsettled_counts <- function(evidence, item_evidence, tie_possible) {
     observed <- item_evidence$position_direction[[i]]
     if (observed > 0L) out$observed_first <- out$observed_first + 1L
     if (observed < 0L) out$observed_second <- out$observed_second + 1L
+    if (anyNA(outcomes)) out$unscorable <- out$unscorable + 1L
     flips <- c(1L, -1L) %in% outcomes
     upper <- if (anyNA(outcomes) || all(flips)) {
       "free"
@@ -776,6 +780,27 @@ position_row_unsettled <- function(row, bias) {
                       is.na(tie_label)) ||
     any(evidence$canonical_choice == "tie", na.rm = TRUE)
   position_unsettled_counts(evidence, item_evidence, tie_possible)
+}
+
+# The scored items of a bias row that every completion of its missing
+# judgments keeps scored, which is what `min_probe_n` is compared with: the
+# observed `n_scored` less the unsettled items a completion could leave
+# unscored, or, when `unsettled` is NULL (no matching evidence), less every
+# scored item that may have a missing repeat. Unscored items a completion
+# would score are not credited. With none to leave out it is the row's own
+# `n_scored`, as it stands.
+settled_scored_count <- function(row, unsettled) {
+  n_scored <- row$n_scored[[1]]
+  if (!is.null(unsettled)) {
+    if (unsettled$unscorable == 0L) return(n_scored)
+    return(n_scored - unsettled$unscorable)
+  }
+  scored_with_missing <- row_count(row, "n_items_missing") -
+    (row_count(row, "n_unscored") - row_count(row, "n_unscored_tied"))
+  n_scored <- row_count(row, "n_scored")
+  # A hand-edited count of none or fewer has nothing to leave out.
+  if (isTRUE(n_scored <= 0)) return(n_scored)
+  n_scored - min(n_scored, max(scored_with_missing, 0))
 }
 
 row_count <- function(row, field) {
@@ -1134,7 +1159,7 @@ worst_case_upper_bounds <- function(row, unsettled = no_unsettled_items) {
 no_unsettled_items <- list(
   free = 0L, first = 0L, second = 0L,
   lower_free = 0L, lower_first = 0L, lower_second = 0L,
-  observed_first = 0L, observed_second = 0L
+  observed_first = 0L, observed_second = 0L, unscorable = 0L
 )
 
 unsettled_total <- function(unsettled) {

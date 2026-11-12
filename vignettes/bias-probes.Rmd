@@ -112,7 +112,12 @@ neither fail the probe nor pass a judge that would have failed. The policy
 reads those items from the probe's per-judgment evidence, so keep the
 `probe_position()` result whole: when a scored item may have a missing
 repeat and that evidence is missing or does not match the probe's counts,
-the two interval checks are `INDETERMINATE`.
+the interval checks are not assessed (`INDETERMINATE`). The policy's
+`min_probe_n` count also leaves out each scored item whose missing repeats
+could be answered so that a display order's choices tie, so a completion
+cannot leave a `PASS` or `FAIL` resting on fewer scored items than the
+policy requires (without the evidence, every scored item that may have a
+missing repeat is left out).
 
 ```{r}
 bias[, c("probe", "n_scored", "n_unscored", "unscored_rate", "missing_rate")]
