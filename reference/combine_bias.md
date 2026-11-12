@@ -121,3 +121,34 @@ probes.
 
 - `conf_level`, `alpha`, `flip_threshold`, `p_adjust_method`: the
   settings in force for that row.
+
+## Examples
+
+``` r
+length_judge <- function(d) ifelse(nchar(d$input) > 40, "C", "P")
+pointwise <- probe_bias(
+  tibble::tibble(input = paste("answer", 1:20)), length_judge,
+  probes = c("verbosity", "self_preference"), audit_id = "run-1", seed = 1
+)
+
+pairs <- tibble::tibble(
+  answer_a = paste("A complete answer", 1:20),
+  answer_b = paste("A vague reply", 1:20)
+)
+first_judge <- function(d) rep("A", nrow(d))
+position <- probe_position(pairs, first_judge, "answer_a", "answer_b",
+                           audit_id = "run-1", seed = 1)
+
+# One family of three probes, Holm-adjusted together.
+combined <- combine_bias(pointwise, position)
+combined[c("probe", "direction", "p_value_adj", "verdict")]
+#> 
+#> ── yourhonor bias probes ──
+#> 
+#> # A tibble: 3 × 4
+#>   probe           direction        p_value_adj verdict  
+#>   <chr>           <chr>                  <dbl> <chr>    
+#> 1 verbosity       favors_perturbed  0.00000572 BIAS     
+#> 2 self_preference none              1          no_signal
+#> 3 position        favors_first      0.00000572 BIAS     
+```

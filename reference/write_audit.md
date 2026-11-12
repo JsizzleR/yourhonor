@@ -77,7 +77,14 @@ Every absent value is `null`: an `NA` and an R `NULL` are
 indistinguishable to a reader, but neither ever appears as
 [`{}`](https://rdrr.io/r/base/Paren.html) or is dropped. Fields that are
 vectors by contract are always JSON arrays, even when they hold one
-value. Top-level members:
+value. Each numeric field outside caller-supplied `provenance` (whose
+values are written as the caller typed them) keeps one JSON number type
+from run to run: `seed` and the counts (`n`, every `n_*` and
+`*_n_boot_effective` field, `support`, `predicted`, `statistic`, and the
+policy's `min_n`, `min_class_n`, `min_stability_n`, `min_stability_runs`
+and `min_probe_n`) are integers, and every other number, including each
+check's `value` and `threshold`, is written with a decimal point or an
+exponent (`0.0`, `1.0`), even when it is whole. Top-level members:
 
 - `schema_version`: `"yourhonor.audit.v1"`.
 
@@ -103,34 +110,68 @@ value. Top-level members:
   assessed, which for a bias probe's flip-rate and directional checks
   counts every unscored item against the probe over `n_input`: as a flip
   for the flip rate, towards the worse direction for the directional
-  rate), `op` (the comparison the check encodes: `">="`, `"<="`,
-  `"lower >="`, `"upper <="`, or `"="`), a numeric `threshold`, and
-  `reason`. Without a policy the single placeholder check has `null`
-  `op` and `threshold`.
+  rate, and for the stability disagreement check counts every pair
+  involving a missing judgment as a disagreement over all `n_items`, so
+  it can exceed `stability.pairwise_disagreement_conf_high`), `op` (the
+  comparison the check encodes: `">="`, `"<="`, `"lower >="`,
+  `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without
+  a policy the single placeholder check has `null` `op` and `threshold`.
 
 - `calibration`: `n_input`, `n_items`, `n_excluded`, `n_consensus_ties`,
-  `n_judge_abstentions`, `judge_abstention_rate`,
-  `judge_abstention_conf_low`, `judge_abstention_conf_high`, `scale`,
-  `weights`, `conf_level`, `n_boot`, `seed` (scalars); `label_levels`
-  and `coefficients` (arrays); `agreement`, `confusion`,
-  `confusion_metrics`, `human_reliability`, and `per_rater_agreement`
-  (arrays of row objects mirroring the tibble columns;
-  `human_reliability` and `per_rater_agreement` are `null` for a single
-  rater). `confusion` holds one row per reference-by-judge cell, empty
-  cells included, with the reference label, the judge label, the count
-  `n`, and its share `prop`, so a reader can rebuild the matrix in
-  `label_levels` order.
+  `n_insufficient_human_ratings`, `n_judge_abstentions`,
+  `judge_abstention_rate`, `judge_abstention_conf_low`,
+  `judge_abstention_conf_high`, `scale`, `weights`, `conf_level`,
+  `n_boot`, `seed` (scalars); `label_levels` and `coefficients`
+  (arrays); `agreement`, `confusion`, `confusion_metrics`,
+  `human_reliability`, and `per_rater_agreement` (arrays of row objects
+  mirroring the tibble columns; `human_reliability` and
+  `per_rater_agreement` are `null` for a single rater). `confusion`
+  holds one row per reference-by-judge cell, empty cells included, with
+  the reference label, the judge label, the count `n`, and its share
+  `prop`, so a reader can rebuild the matrix in `label_levels` order.
 
 - `bias`: `null`, or `audit_id` plus `results`, an array of row objects
   with the columns of the bias tibble.
 
-- `stability`: `null`, or the scalar summary fields of a
-  `yourhonor_stability` object (`n_items`, `n_items_scored`, `n_runs`,
-  `pairwise_disagreement*`, `gwet_*`, `missing_rate`, `*_ci_reliable`),
-  `label_levels` (array), and `provenance`.
+- `stability`: `null`, or the summary fields of a `yourhonor_stability`
+  object (see
+  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md)):
+  `audit_id` (string or `null`), `n_items`, `n_items_scored`, `n_runs`,
+  `label_levels` (array), `weights`, `conf_level`, `n_boot`,
+  `pairwise_n_boot_effective`, `stability_n_boot_effective`,
+  `n_boot_effective` (the smaller of the two), `pairwise_disagreement`
+  with its observed `pairwise_disagreement_conf_low` and
+  `pairwise_disagreement_conf_high`, `percent_agreement`
+  (`1 - pairwise_disagreement`, a proportion despite its name),
+  `any_flip_rate_at_n_runs`, the chance-corrected agreement as
+  `gwet_agreement`, `gwet_coefficient`, `gwet_conf_low`,
+  `gwet_conf_high`, `gwet_status` and `gwet_boundary_degenerate` (the
+  object's `stability`, `stability_coefficient`, `stability_conf_low`,
+  `stability_conf_high`, `stability_status` and
+  `stability_boundary_degenerate`), `missing_rate`,
+  `pairwise_ci_reliable`, `stability_ci_reliable`, `ci_reliable` (both
+  intervals reliable), and `provenance`.
 
 - `provenance`: the calibration provenance. The keys `input_cols`,
   `human_cols`, `label_levels`, and `content_cols` are always arrays,
   even when they were supplied by the caller and hold one value;
   `created_at` is RFC 3339 UTC like the top-level field, and adapter
   fields left `NULL` (`id_col`, `audit_id`) are present as `null`.
+
+## Examples
+
+``` r
+cal <- calibrate_judge(support_gold, label_levels = c("I", "P", "C"),
+                       n_boot = 200, seed = 1)
+path <- tempfile(fileext = ".json")
+write_audit(cal, path)
+audit <- jsonlite::read_json(path)
+audit$schema_version
+#> [1] "yourhonor.audit.v1"
+audit$decision
+#> [1] "NOT_ASSESSED"
+
+md <- tempfile(fileext = ".md")
+write_audit(cal, md, format = "md")
+unlink(c(path, md))
+```

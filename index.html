@@ -11,8 +11,8 @@
 <script src="deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
 <script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Calibrate Large Language Model Judges">
-<meta name="description" content="Treat a large language model used as an evaluator (an &quot;LLM-as-judge&quot;) as a measurement instrument and report its psychometric properties. Given a judge and a set of human-labeled examples, yourhonor reports chance-corrected agreement between the judge and humans (Cohens kappa, Krippendorffs alpha and Gwets AC1 and weighted AC2) with bootstrap confidence intervals, human-human reliability when several raters are supplied, per-class error intervals, structured paired bias probes and test-retest stability. Explicit acceptance policies turn evidence into conservative decisions, and versioned artifacts support portable aggregate audit review. It complements the ellmer and vitals' evaluation stack: it does not run evaluations, it measures the judge that scores them.">
-<meta property="og:description" content="Treat a large language model used as an evaluator (an &quot;LLM-as-judge&quot;) as a measurement instrument and report its psychometric properties. Given a judge and a set of human-labeled examples, yourhonor reports chance-corrected agreement between the judge and humans (Cohens kappa, Krippendorffs alpha and Gwets AC1 and weighted AC2) with bootstrap confidence intervals, human-human reliability when several raters are supplied, per-class error intervals, structured paired bias probes and test-retest stability. Explicit acceptance policies turn evidence into conservative decisions, and versioned artifacts support portable aggregate audit review. It complements the ellmer and vitals' evaluation stack: it does not run evaluations, it measures the judge that scores them.">
+<meta name="description" content="Treat a large language model used as an evaluator (an &quot;LLM-as-judge&quot;) as a measurement instrument and report its psychometric properties. Given a judge and a set of human-labeled examples, yourhonor reports chance-corrected agreement between the judge and humans with bootstrap confidence intervals: Cohens kappa (Cohen 1960) &lt;doi:10.1177/001316446002000104&gt;, Krippendorffs alpha (Hayes and Krippendorff 2007) &lt;doi:10.1080/19312450709336664&gt;, and Gwets AC1 (Gwet 2008) &lt;doi:10.1348/000711006X126600&gt; and weighted AC2 (Gwet 2014, ISBN:978-0970806284). It also reports human-human reliability when several raters are supplied, per-class error intervals, structured paired bias probes and test-retest stability. Explicit acceptance policies turn evidence into conservative decisions, and versioned artifacts support portable aggregate audit review. It complements the ellmer and vitals' evaluation stack: it does not run evaluations, it measures the judge that scores them.">
+<meta property="og:description" content="Treat a large language model used as an evaluator (an &quot;LLM-as-judge&quot;) as a measurement instrument and report its psychometric properties. Given a judge and a set of human-labeled examples, yourhonor reports chance-corrected agreement between the judge and humans with bootstrap confidence intervals: Cohens kappa (Cohen 1960) &lt;doi:10.1177/001316446002000104&gt;, Krippendorffs alpha (Hayes and Krippendorff 2007) &lt;doi:10.1080/19312450709336664&gt;, and Gwets AC1 (Gwet 2008) &lt;doi:10.1348/000711006X126600&gt; and weighted AC2 (Gwet 2014, ISBN:978-0970806284). It also reports human-human reliability when several raters are supplied, per-class error intervals, structured paired bias probes and test-retest stability. Explicit acceptance policies turn evidence into conservative decisions, and versioned artifacts support portable aggregate audit review. It complements the ellmer and vitals' evaluation stack: it does not run evaluations, it measures the judge that scores them.">
 <meta property="og:image" content="https://jsizzler.github.io/yourhonor/logo.svg">
 </head>
 <body>
@@ -23,7 +23,7 @@
 
     <a class="navbar-brand me-2" href="index.html">yourhonor</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.0.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -34,6 +34,7 @@
       <ul class="navbar-nav me-auto">
 <li class="nav-item"><a class="nav-link" href="articles/yourhonor.html">Get started</a></li>
 <li class="nav-item"><a class="nav-link" href="reference/index.html">Reference</a></li>
+<li class="nav-item"><a class="nav-link" href="articles/index.html">Articles</a></li>
 <li class="nav-item"><a class="nav-link" href="news/index.html">Changelog</a></li>
       </ul>
 <ul class="navbar-nav">
@@ -116,7 +117,7 @@ The blind-judge contract. Left, what the caller holds: the gold frame with id (v
 <span>  <span class="va">label</span><span class="op">[</span><span class="va">noise</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"I"</span>, <span class="st">"P"</span>, <span class="st">"C"</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">noise</span><span class="op">)</span>, replace <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span>  <span class="fu">tibble</span><span class="fu">::</span><span class="fu"><a href="https://tibble.tidyverse.org/reference/tibble.html" class="external-link">tibble</a></span><span class="op">(</span>.item_id <span class="op">=</span> <span class="va">data</span><span class="op">$</span><span class="va">.item_id</span>, label <span class="op">=</span> <span class="va">label</span><span class="op">)</span></span>
 <span><span class="op">}</span></span></code></pre></div>
-<p>Calibration compares the judge with the raters’ consensus. It cannot see the flaw, because no input in <code>synthetic_gold</code> is longer than 180 characters:</p>
+<p>Calibration compares the judge with the raters’ consensus. It cannot see the flaw, because the longest input in <code>synthetic_gold</code> is 145 characters:</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">cal</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/calibrate_judge.html">calibrate_judge</a></span><span class="op">(</span></span>
 <span>  <span class="va">synthetic_gold</span>,</span>
@@ -163,16 +164,16 @@ The blind-judge contract. Left, what the caller holds: the gold frame with id (v
 <span>  seed <span class="op">=</span> <span class="fl">1</span>,</span>
 <span>  audit_id <span class="op">=</span> <span class="st">"synthetic-judge-v1"</span></span>
 <span><span class="op">)</span></span>
-<span><span class="va">bias</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"probe"</span>, <span class="st">"flip_rate"</span>, <span class="st">"directional_rate"</span>, <span class="st">"direction"</span>, <span class="st">"p_value_adj"</span>, <span class="st">"verdict"</span><span class="op">)</span><span class="op">]</span></span>
+<span><span class="va">bias</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"probe"</span>, <span class="st">"directional_rate"</span>, <span class="st">"direction"</span>, <span class="st">"p_value_adj"</span>, <span class="st">"verdict"</span><span class="op">)</span><span class="op">]</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; ── yourhonor bias probes ──</span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; # A tibble: 3 × 6</span></span>
-<span><span class="co">#&gt;   probe           flip_rate directional_rate direction       p_value_adj verdict</span></span>
-<span><span class="co">#&gt;   &lt;chr&gt;               &lt;dbl&gt;            &lt;dbl&gt; &lt;chr&gt;                 &lt;dbl&gt; &lt;chr&gt;  </span></span>
-<span><span class="co">#&gt; 1 verbosity           0.435            0.365 favors_perturb…    2.48e-16 BIAS   </span></span>
-<span><span class="co">#&gt; 2 self_preference     0.085            0.035 favors_perturb…    2.87e- 1 no_sig…</span></span>
-<span><span class="co">#&gt; 3 bandwagon           0.055            0.025 favors_perturb…    2.87e- 1 no_sig…</span></span>
+<span><span class="co">#&gt; # A tibble: 3 × 5</span></span>
+<span><span class="co">#&gt;   probe           directional_rate direction        p_value_adj verdict  </span></span>
+<span><span class="co">#&gt;   &lt;chr&gt;                      &lt;dbl&gt; &lt;chr&gt;                  &lt;dbl&gt; &lt;chr&gt;    </span></span>
+<span><span class="co">#&gt; 1 verbosity                  0.365 favors_perturbed    2.48e-16 BIAS     </span></span>
+<span><span class="co">#&gt; 2 self_preference            0.035 favors_perturbed    2.87e- 1 no_signal</span></span>
+<span><span class="co">#&gt; 3 bandwagon                  0.025 favors_perturbed    2.87e- 1 no_signal</span></span>
 <span></span>
 <span><span class="va">stability</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/test_retest.html">test_retest</a></span><span class="op">(</span></span>
 <span>  <span class="va">synthetic_gold</span>,</span>
@@ -217,61 +218,68 @@ The blind-judge contract. Left, what the caller holds: the gold frame with id (v
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; ── yourhonor assessment: FAIL ──────────────────────────────────────────────────</span></span>
 <span><span class="co">#&gt; Judge evidence: n = 200 of 200.</span></span>
-<span><span class="co">#&gt; Agreement evidence: gwet_ac2 = 0.97 [0.93, 1.00] (almost perfect).</span></span>
+<span><span class="co">#&gt; Agreement with humans: gwet_ac2 = 0.97 (almost perfect); 95% bootstrap interval</span></span>
+<span><span class="co">#&gt; [0.93, 1.00], exact lower bound 0.90.</span></span>
 <span><span class="co">#&gt; Per-class evidence:</span></span>
 <span><span class="co">#&gt; • "I": support 22, precision 0.91, recall 0.95</span></span>
 <span><span class="co">#&gt; • "P": support 62, precision 0.98, recall 0.97</span></span>
 <span><span class="co">#&gt; • "C": support 116, precision 0.98, recall 0.98</span></span>
 <span><span class="co">#&gt; Human reliability benchmark: gwet_ac2 = 0.92.</span></span>
 <span><span class="co">#&gt; Policy-failing bias checks: bias_verbosity_direction, bias_verbosity.</span></span>
-<span><span class="co">#&gt; Pairwise disagreement: 0.07 [0.05, 0.12].</span></span>
-<span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; ── policy checks ──</span></span>
-<span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; PASS: usable_items = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
-<span><span class="co">#&gt; PASS: calibration_confidence_level = 0.95 (= 0.95) - Confidence level matches</span></span>
-<span><span class="co">#&gt; policy.</span></span>
-<span><span class="co">#&gt; PASS: calibration_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
-<span><span class="co">#&gt; PASS: agreement_gwet_ac2 = 0.905 (lower &gt;= 0.75) - Interval clears threshold.</span></span>
-<span><span class="co">#&gt; The lower bound is conf_low_exact (the exact bound on observed agreement mapped</span></span>
-<span><span class="co">#&gt; onto the coefficient's scale, capped at the bound of the perfect samples the</span></span>
-<span><span class="co">#&gt; ratings can be corrected into).</span></span>
-<span><span class="co">#&gt; PASS: class_support = 22 (&gt;= 20) - All classes meet support.</span></span>
-<span><span class="co">#&gt; INDETERMINATE: recall_I = 0.772 (lower &gt;= 0.8) - Interval overlaps threshold.</span></span>
-<span><span class="co">#&gt; PASS: recall_P = 0.888 (lower &gt;= 0.75) - Interval clears threshold.</span></span>
-<span><span class="co">#&gt; PASS: recall_C = 0.939 (lower &gt;= 0.85) - Interval clears threshold.</span></span>
-<span><span class="co">#&gt; PASS: precision_C = 0.939 (lower &gt;= 0.85) - Interval clears threshold.</span></span>
-<span><span class="co">#&gt; PASS: bias_verbosity_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
-<span><span class="co">#&gt; PASS: bias_verbosity_n = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
-<span><span class="co">#&gt; FAIL: bias_verbosity_direction = 0.469 (upper &lt;= 0.1) - Interval exceeds</span></span>
-<span><span class="co">#&gt; threshold.</span></span>
-<span><span class="co">#&gt; FAIL: bias_verbosity = 0.507 (upper &lt;= 0.1) - Interval exceeds threshold.</span></span>
-<span><span class="co">#&gt; PASS: bias_self_preference_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
-<span><span class="co">#&gt; PASS: bias_self_preference_n = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
-<span><span class="co">#&gt; INDETERMINATE: bias_self_preference_direction = 0.102 (upper &lt;= 0.1) - Interval</span></span>
-<span><span class="co">#&gt; overlaps threshold.</span></span>
-<span><span class="co">#&gt; INDETERMINATE: bias_self_preference = 0.133 (upper &lt;= 0.1) - Interval overlaps</span></span>
-<span><span class="co">#&gt; threshold.</span></span>
-<span><span class="co">#&gt; PASS: bias_bandwagon_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
-<span><span class="co">#&gt; PASS: bias_bandwagon_n = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
-<span><span class="co">#&gt; PASS: bias_bandwagon_direction = 0.0808 (upper &lt;= 0.1) - Interval clears</span></span>
-<span><span class="co">#&gt; threshold.</span></span>
-<span><span class="co">#&gt; PASS: bias_bandwagon = 0.0963 (upper &lt;= 0.1) - Interval clears threshold.</span></span>
-<span><span class="co">#&gt; INDETERMINATE: stability_pairwise_disagreement = 0.119 (upper &lt;= 0.1) -</span></span>
-<span><span class="co">#&gt; Interval overlaps threshold.</span></span>
-<span><span class="co">#&gt; PASS: stability_items = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
-<span><span class="co">#&gt; PASS: stability_runs = 5 (&gt;= 3) - Sample size is sufficient.</span></span>
-<span><span class="co">#&gt; PASS: stability_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
+<span><span class="co">#&gt; Pairwise disagreement: 0.07; 95% interval [0.05, 0.12], worst-case upper bound</span></span>
+<span><span class="co">#&gt; 0.12.</span></span>
+<span><span class="co">#&gt; Assessment checks:</span></span>
+<span><span class="co">#&gt;   • PASS: usable_items = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
+<span><span class="co">#&gt;   • PASS: calibration_confidence_level = 0.95 (= 0.95) - Confidence level</span></span>
+<span><span class="co">#&gt;   matches policy.</span></span>
+<span><span class="co">#&gt;   • PASS: calibration_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
+<span><span class="co">#&gt;   • PASS: agreement_gwet_ac2 = 0.905 (lower &gt;= 0.75) - Interval clears</span></span>
+<span><span class="co">#&gt;   threshold. The lower bound is conf_low_exact (the exact bound on observed</span></span>
+<span><span class="co">#&gt;   agreement mapped onto the coefficient's scale, capped at the bound of the</span></span>
+<span><span class="co">#&gt;   perfect samples the ratings can be corrected into).</span></span>
+<span><span class="co">#&gt;   • PASS: class_support = 22 (&gt;= 20) - All classes meet support.</span></span>
+<span><span class="co">#&gt;   • INDETERMINATE: recall_I = 0.772 (lower &gt;= 0.8) - Interval overlaps</span></span>
+<span><span class="co">#&gt;   threshold.</span></span>
+<span><span class="co">#&gt;   • PASS: recall_P = 0.888 (lower &gt;= 0.75) - Interval clears threshold.</span></span>
+<span><span class="co">#&gt;   • PASS: recall_C = 0.939 (lower &gt;= 0.85) - Interval clears threshold.</span></span>
+<span><span class="co">#&gt;   • PASS: precision_C = 0.939 (lower &gt;= 0.85) - Interval clears threshold.</span></span>
+<span><span class="co">#&gt;   • PASS: bias_verbosity_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
+<span><span class="co">#&gt;   • PASS: bias_verbosity_n = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
+<span><span class="co">#&gt;   • FAIL: bias_verbosity_direction = 0.469 (upper &lt;= 0.1) - Interval exceeds</span></span>
+<span><span class="co">#&gt;   threshold.</span></span>
+<span><span class="co">#&gt;   • FAIL: bias_verbosity = 0.507 (upper &lt;= 0.1) - Interval exceeds threshold.</span></span>
+<span><span class="co">#&gt;   • PASS: bias_self_preference_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
+<span><span class="co">#&gt;   • PASS: bias_self_preference_n = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
+<span><span class="co">#&gt;   • INDETERMINATE: bias_self_preference_direction = 0.102 (upper &lt;= 0.1) -</span></span>
+<span><span class="co">#&gt;   Interval overlaps threshold.</span></span>
+<span><span class="co">#&gt;   • INDETERMINATE: bias_self_preference = 0.133 (upper &lt;= 0.1) - Interval</span></span>
+<span><span class="co">#&gt;   overlaps threshold.</span></span>
+<span><span class="co">#&gt;   • PASS: bias_bandwagon_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
+<span><span class="co">#&gt;   • PASS: bias_bandwagon_n = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
+<span><span class="co">#&gt;   • PASS: bias_bandwagon_direction = 0.0808 (upper &lt;= 0.1) - Interval clears</span></span>
+<span><span class="co">#&gt;   threshold.</span></span>
+<span><span class="co">#&gt;   • PASS: bias_bandwagon = 0.0963 (upper &lt;= 0.1) - Interval clears threshold.</span></span>
+<span><span class="co">#&gt;   • INDETERMINATE: stability_pairwise_disagreement = 0.119 (upper &lt;= 0.1) -</span></span>
+<span><span class="co">#&gt;   Interval overlaps threshold.</span></span>
+<span><span class="co">#&gt;   • PASS: stability_items = 200 (&gt;= 150) - Sample size is sufficient.</span></span>
+<span><span class="co">#&gt;   • PASS: stability_runs = 5 (&gt;= 3) - Sample size is sufficient.</span></span>
+<span><span class="co">#&gt;   • PASS: stability_missing_rate = 0 (&lt;= 0.01) - Criterion met.</span></span>
 <span><span class="va">verdict</span><span class="op">$</span><span class="va">decision</span></span>
 <span><span class="co">#&gt; [1] "FAIL"</span></span></code></pre></div>
-<p>Agreement with the human consensus is almost perfect and clears the floor; the judge is still not deployable, because the verbosity probe found the planted flaw and both its checks fail. The <code>INDETERMINATE</code> rows are the other half of the honesty: 22 incorrect answers cannot pin recall on <code>I</code> to 0.80, self-preference came back <code>no_signal</code> yet its interval cannot exclude 0.10, and pairwise disagreement of 0.07 has an upper bound above 0.10. None of those is a <code>PASS</code>, and none is reported as one. Required evidence that was never supplied is <code>NOT_ASSESSED</code>, never silently passed.</p>
+<p>Agreement with the human consensus is almost perfect and clears the floor; the judge is still not deployable, because the verbosity probe found the planted flaw and both its checks fail. The 4 <code>INDETERMINATE</code> rows (<code>recall_I</code>, <code>bias_self_preference_direction</code>, <code>bias_self_preference</code>, and <code>stability_pairwise_disagreement</code>) are the other half of the honesty: 22 incorrect answers cannot pin recall on <code>I</code> to 0.80, self-preference came back <code>no_signal</code> yet its intervals cannot exclude 0.10, and pairwise disagreement of 0.07 has an upper bound of 0.119, above 0.10. None of those is a <code>PASS</code>, and none is reported as one. Required evidence that was never supplied is <code>NOT_ASSESSED</code>, never silently passed.</p>
 </div>
 <div class="section level2">
 <h2 id="learn-more">Learn more<a class="anchor" aria-label="anchor" href="#learn-more"></a>
 </h2>
 <ul>
 <li>
-<code><a href="articles/yourhonor.html">vignette("yourhonor")</a></code> walks through the same audit step by step: the gold set, the blind judge contract, rare classes, several raters, pointwise and position probes, repeatability, the policy decision, a written artifact, and reusing vitals scores.</li>
+<code><a href="articles/yourhonor.html">vignette("yourhonor")</a></code> (Get started) walks through the same audit step by step: the gold set, the blind judge contract, rare classes, a first policy decision and several raters.</li>
+<li>
+<code><a href="articles/bias-probes.html">vignette("bias-probes")</a></code> covers the pointwise and position probes and their unscored items; <code><a href="articles/stability.html">vignette("stability")</a></code> covers test-retest stability and reusing vitals scores; <code><a href="articles/policies-audit.html">vignette("policies-audit")</a></code> covers the policy decision and the written artifact.</li>
+<li>
+<code><a href="articles/exact-bound.html">vignette("exact-bound")</a></code> derives <code>conf_low_exact</code>, the exact lower bound on agreement that a policy assesses.</li>
+<li>
+<a href="https://jsizzler.github.io/yourhonor/articles/ellmer-judge.html">Wrap an ellmer chat as a judge</a>, an article on the package website, turns an ellmer chat into a judge function with structured output.</li>
 <li>
 <code><a href="reference/acceptance_policy.html">?acceptance_policy</a></code> and <code><a href="reference/report.html">?report</a></code> document every threshold, its gate, and how a check becomes <code>PASS</code>, <code>FAIL</code>, <code>NOT_ASSESSED</code> or <code>INDETERMINATE</code>.</li>
 <li>
@@ -281,7 +289,7 @@ The blind-judge contract. Left, what the caller holds: the gold frame with id (v
 <div class="section level2">
 <h2 id="statistical-scope">Statistical scope<a class="anchor" aria-label="anchor" href="#statistical-scope"></a>
 </h2>
-<p>Calibration and stability intervals treat items as independent sampling units; repeated templates, conversations, users, or vitals epochs are not extra items. Freeze a representative, held-out gold set before tuning the judge, and record its version and the model and prompt versions in <code>provenance</code>. Agreement estimators are delegated to <a href="https://cran.r-project.org/package=irrCAC" class="external-link">irrCAC</a>. <code>support_gold</code> and <code>synthetic_gold</code> are API demonstrations, not benchmarks. The vignette’s <em>Statistical scope</em> section says more.</p>
+<p>Calibration and stability intervals treat items as independent sampling units; repeated templates, conversations, users, or vitals epochs are not extra items. Freeze a representative, held-out gold set before tuning the judge, and record its version and the model and prompt versions in <code>provenance</code>. Agreement estimators are delegated to <a href="https://cran.r-project.org/package=irrCAC" class="external-link">irrCAC</a>. <code>support_gold</code> and <code>synthetic_gold</code> are API demonstrations, not benchmarks. The <em>Statistical scope</em> sections of <code><a href="articles/yourhonor.html">vignette("yourhonor")</a></code> and <code><a href="articles/policies-audit.html">vignette("policies-audit")</a></code> say more.</p>
 </div>
 <div class="section level2">
 <h2 id="license">License<a class="anchor" aria-label="anchor" href="#license"></a>

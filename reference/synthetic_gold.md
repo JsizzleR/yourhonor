@@ -81,7 +81,7 @@ calibrate_judge(
 #> 
 #> ── yourhonor judge calibration ─────────────────────────────────────────────────
 #> 200 usable items of 200 - descriptive judge-vs-human agreement:
-#> • cohen_kappa: -0.00 [-0.00, -0.00] (slight)
+#> • cohen_kappa: -0.00 [-0.00, 0.00] (slight)
 #> • krippendorff_alpha: -0.22 [-0.27, -0.18] (poor)
 #> • gwet_ac2: 0.68 [0.61, 0.76] (substantial)
 #> 84 disagreements; inspect `confusion_metrics()` before use.

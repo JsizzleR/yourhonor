@@ -41,7 +41,8 @@ calibrate_judge(
 
 - input_cols:
 
-  Columns visible to `judge`. Required when `judge` is a function. Human
+  Columns visible to `judge`. Required when `judge` is a function, and
+  refused when `judge = NULL`, where no judge receives them. Human
   columns and `judge_col` are forbidden.
 
 - id_col:
@@ -64,13 +65,15 @@ calibrate_judge(
   Complete label universe in intended order. Labels are matched exactly
   (case and whitespace are significant) and empty labels are rejected;
   represent a failed judgement as `NA`. Required for
-  `scale = "ordinal"`. When `NULL`, the universe is inferred from the
-  human and judge labels together: when factor columns (or a judge
-  returning a factor) declare at least two levels between them, those
-  levels come first, then any other observed label; otherwise the
-  observed labels in the order first seen. A label only the judge used
-  is then a category, not an error; when `label_levels` is supplied,
-  every human and judge label must be in it.
+  `scale = "ordinal"`, where a warning is raised when it orders the
+  levels of an ordered factor column (a human column, or `judge_col`
+  when `judge = NULL`) neither forwards nor reversed. When `NULL`, the
+  universe is inferred from the human and judge labels together: when
+  factor columns (or a judge returning a factor) declare at least two
+  levels between them, those levels come first, then any other observed
+  label; otherwise the observed labels in the order first seen. A label
+  only the judge used is then a category, not an error; when
+  `label_levels` is supplied, every human and judge label must be in it.
 
 - scale:
 
@@ -112,16 +115,16 @@ calibrate_judge(
 
 A `yourhonor_calibration` object with agreement, confusion and per-class
 metrics, human reliability, judge-versus-each-rater agreement,
-item-level evidence, label metadata, and provenance. `human_ceiling`
-remains as a compatibility alias for `human_reliability` but is no
-longer described as an upper bound.
+item-level evidence, label metadata, and provenance.
 
 Item-level elements:
 
 - `items`: `gold` plus `.item_id` (source-row key), `.judge_item_id`
   (the shuffled key the judge saw; `NA` when `judge = NULL`), the judge
   label, `agree`, and for several raters `human_consensus`,
-  `n_human_observed`, and `consensus_tie`.
+  `n_human_observed`, and `consensus_tie`. These names are reserved: a
+  `gold` column (or `judge_col`) using one is an error rather than being
+  overwritten.
 
 - `judge_output`: the judge's own returned rows, in the order returned
   by the judge, keyed by `.judge_item_id` with `.item_id` joined in and
@@ -186,7 +189,9 @@ counted in `n_excluded`, which
 [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)'s
 `max_missing_rate` bounds; its optional `max_abstention_rate` bounds the
 abstention interval alone, because a judge that abstains on hard items
-looks more accurate on the items it did answer.
+looks more accurate on the items it did answer. A numeric `NaN`, in a
+gold column or from `judge`, is read as `NA`, never as the label
+`"NaN"`.
 
 ## Examples
 

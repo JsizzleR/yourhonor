@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">yourhonor</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.0.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -17,6 +17,7 @@
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../articles/yourhonor.html">Get started</a></li>
 <li class="nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
+<li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
 <li class="active nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
  <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="../search.json"></form></li>
@@ -33,138 +34,62 @@
     </div>
 
     <div class="section level2">
-<h2 class="pkg-version" data-toc-text="0.0.0.9000" id="yourhonor-0009000-development-version-unreleased">yourhonor 0.0.0.9000 (development version, unreleased)<a class="anchor" aria-label="anchor" href="#yourhonor-0009000-development-version-unreleased"></a></h2>
-<p>Initial development version. Nothing has been released; the list below is the feature set as it stands, and the “Review fixes” section records what changed during the pre-release code review so that early adopters can update their calls.</p>
-<div class="section level3">
-<h3 id="features-0-0-0-9000">Features<a class="anchor" aria-label="anchor" href="#features-0-0-0-9000"></a></h3>
+<h2 class="pkg-version" data-toc-text="0.1.0" id="yourhonor-010">yourhonor 0.1.0<a class="anchor" aria-label="anchor" href="#yourhonor-010"></a></h2>
+<ul><li>Initial CRAN submission. yourhonor treats an LLM-as-judge as a measurement instrument: it calibrates the judge blind against human raters, puts an interval on every estimate, probes it for bias and test-retest stability, and lets an explicit acceptance policy decide what the evidence supports.</li>
+</ul><div class="section level3">
+<h3 id="calibration-and-agreement-0-1-0">Calibration and agreement<a class="anchor" aria-label="anchor" href="#calibration-and-agreement-0-1-0"></a></h3>
 <ul><li>
-<code><a href="../reference/calibrate_judge.html">calibrate_judge()</a></code> compares judge labels with one or more human raters. A live judge sees only the columns listed in <code>input_cols</code>; human columns and <code>judge_col</code> are rejected as inputs. Items are shuffled before grading and keyed with a fresh opaque <code>.item_id</code>; keyed output is validated and restored to source order. With several raters the reference label is the modal consensus, ties are excluded and counted, and human-human reliability is reported as a benchmark rather than a ceiling.</li>
+<code><a href="../reference/calibrate_judge.html">calibrate_judge()</a></code> compares a judge’s labels with one or more human raters, either from a live judge function or from labels already in the data. A live judge sees only the columns named in <code>input_cols</code>; human columns and the judge-label column are refused as inputs. Items are shuffled before grading and keyed with a fresh opaque <code>.item_id</code>, keyed output is validated and restored to source order, and both key spaces are kept (<code>.item_id</code>, <code>.judge_item_id</code> and a <code>blinding_map</code>) so judge-side logs can be joined back without un-blinding the run.</li>
+<li>With several raters the reference label is the modal consensus (ties are excluded and counted), and human-human reliability is reported as a benchmark, not a ceiling. Judge abstentions (<code>NA</code> labels) are reported separately from human gaps, with a Clopper-Pearson interval on the abstention rate.</li>
 <li>
-<code><a href="../reference/agreement.html">agreement()</a></code> reports Cohen’s kappa, Krippendorff’s alpha, and Gwet’s AC1 (nominal) or AC2 (weighted) with item-bootstrap intervals, a fixed label universe, explicit missingness, and an explicit <code>status</code> for degenerate data. Zero-width bootstraps at empirically perfect agreement are flagged unreliable rather than reported as certainty.</li>
+<code><a href="../reference/agreement.html">agreement()</a></code> reports Cohen’s kappa, Krippendorff’s alpha, and Gwet’s AC1 (nominal) or AC2 (weighted) with item-bootstrap intervals over a fixed label universe, explicit missingness and an explicit <code>status</code> for degenerate data. Point estimates come from irrCAC; the bootstrap scores each resample natively, with identical draws, in bounded memory.</li>
+<li>Each coefficient also carries <code>conf_low_exact</code>, a resampling-free finite-sample lower bound on its observed agreement mapped onto the coefficient’s scale. A boundary-degenerate bootstrap (a zero-width interval at perfect agreement) is flagged unreliable rather than read as certainty. <code><a href="../articles/exact-bound.html">vignette("exact-bound")</a></code> derives the bound.</li>
 <li>
-<code><a href="../reference/confusion.html">confusion()</a></code> and <code><a href="../reference/confusion_metrics.html">confusion_metrics()</a></code> give the confusion matrix in declared label order plus per-class support, precision, and recall with exact intervals; <code><a href="../reference/plot_confusion.html">plot_confusion()</a></code> draws the matrix with ggplot2.</li>
+<code><a href="../reference/confusion.html">confusion()</a></code> and <code><a href="../reference/confusion_metrics.html">confusion_metrics()</a></code> give the confusion matrix in the declared label order with per-class support, precision and recall and exact intervals; <code><a href="../reference/plot_confusion.html">plot_confusion()</a></code> draws it with ggplot2.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="bias-probes-0-1-0">Bias probes<a class="anchor" aria-label="anchor" href="#bias-probes-0-1-0"></a></h3>
+<ul><li>
+<code><a href="../reference/probe_bias.html">probe_bias()</a></code> runs pointwise verbosity, self-preference and bandwagon probes in one blind, randomised batch. <code><a href="../reference/probe_position.html">probe_position()</a></code> swaps candidate columns through neutral display slots and maps each choice back to the stable candidate identity.</li>
+<li>Every probe reports its flip rate, a net directional rate with a conservative interval, a sign-test p-value adjusted across the multiple-comparison family, raw missingness and a verdict. A large but balanced flip rate is reported but never flagged as bias.</li>
 <li>
-<code><a href="../reference/probe_bias.html">probe_bias()</a></code> runs pointwise verbosity, self-preference, and bandwagon probes in one blind, randomised batch. <code><a href="../reference/probe_position.html">probe_position()</a></code> swaps structured candidate columns into neutral display slots and maps choices back to stable candidate identity. <code><a href="../reference/combine_bias.html">combine_bias()</a></code> merges probe evidence under one multiple-comparison family. All three report raw missingness and conservative directional intervals.</li>
+<code><a href="../reference/combine_bias.html">combine_bias()</a></code> merges probe runs under one multiple-comparison family.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="stability-0-1-0">Stability<a class="anchor" aria-label="anchor" href="#stability-0-1-0"></a></h3>
+<ul><li>
+<code><a href="../reference/test_retest.html">test_retest()</a></code> re-grades items and reports mean pairwise disagreement between runs with a conservative interval, a chance-corrected stability coefficient, and an any-flip rate tied explicitly to the number of runs.</li>
+<li>It also reports a worst-case pairwise disagreement in which every pair involving a missing re-run judgment disagrees, so abstaining where the judge is unstable cannot hide instability.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="acceptance-policies-and-reports-0-1-0">Acceptance policies and reports<a class="anchor" aria-label="anchor" href="#acceptance-policies-and-reports-0-1-0"></a></h3>
+<ul><li>
+<code><a href="../reference/acceptance_policy.html">acceptance_policy()</a></code> makes every threshold a declared parameter: sample size, class support, agreement, per-class recall and precision, missingness and abstention, probe and stability requirements. A threshold supplied without the gate that reads it is an error.</li>
 <li>
-<code><a href="../reference/test_retest.html">test_retest()</a></code> re-grades items and reports mean pairwise disagreement with a hybrid bootstrap/Wilson interval, chance-corrected stability, and an any-flip rate that is explicitly tied to the number of runs.</li>
+<code><a href="../reference/report.html">report()</a></code> turns the evidence into <code>PASS</code>, <code>FAIL</code>, <code>NOT_ASSESSED</code> or <code>INDETERMINATE</code>, check by check, with numeric <code>value</code>, <code>op</code> and <code>threshold</code> columns. Missing evidence is never reported as a pass, and unscored probe items and missing re-run judgments count against the judge in the bounds a policy assesses. Without a policy the report is descriptive. It prints to the console or renders as Markdown, and its agreement and stability headlines show the bound the policy assesses beside the observed interval.</li>
+<li>Every piece of evidence can carry an <code>audit_id</code>, and <code><a href="../reference/report.html">report()</a></code> refuses to bind evidence tagged for a different judge.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="audit-artifacts-and-vitals-0-1-0">Audit artifacts and vitals<a class="anchor" aria-label="anchor" href="#audit-artifacts-and-vitals-0-1-0"></a></h3>
+<ul><li>
+<code><a href="../reference/write_audit.html">write_audit()</a></code> writes a Markdown report or a versioned, language-neutral JSON summary (<code>yourhonor.audit.v1</code>) that omits item rows. <code><a href="../reference/write_audit.html">?write_audit</a></code> documents every field. A field’s JSON number type never changes between runs: counts are integers and every other number is written as a decimal.</li>
 <li>
-<code><a href="../reference/acceptance_policy.html">acceptance_policy()</a></code> makes thresholds explicit, including sample-size, class-support, missingness, probe, and stability requirements. <code><a href="../reference/report.html">report()</a></code> turns the evidence into <code>PASS</code>, <code>FAIL</code>, <code>NOT_ASSESSED</code>, or <code>INDETERMINATE</code> and is descriptive only when no policy is supplied.</li>
+<code><a href="../reference/audit_vitals.html">audit_vitals()</a></code> and <code><a href="../reference/stability_vitals.html">stability_vitals()</a></code> reuse grades and epochs already present in a vitals task without another model call; <code><a href="../reference/stability_vitals.html">stability_vitals()</a></code> refuses epochs whose judge-visible content changed.</li>
 <li>
-<code><a href="../reference/audit_vitals.html">audit_vitals()</a></code> and <code><a href="../reference/stability_vitals.html">stability_vitals()</a></code> reuse grades and epochs already present in a vitals task without another model call; <code><a href="../reference/stability_vitals.html">stability_vitals()</a></code> refuses epochs whose judge-visible content changed. <code><a href="../reference/write_audit.html">write_audit()</a></code> writes a Markdown report or a versioned JSON summary (<code>yourhonor.audit.v1</code>) that omits item rows.</li>
-<li>
+<code><a href="../articles/yourhonor.html">vignette("yourhonor")</a></code> walks through an audit end to end, with further vignettes on bias probes, stability and vitals, and policies and audit artifacts; an article on the package website shows how to wrap an ellmer chat as a judge.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="errors-and-missing-values-0-1-0">Errors and missing values<a class="anchor" aria-label="anchor" href="#errors-and-missing-values-0-1-0"></a></h3>
+<ul><li>Errors carry classes by family (<code>yourhonor_input_error</code>, <code>yourhonor_judge_error</code>, <code>yourhonor_policy_error</code>, <code>yourhonor_binding_error</code>), each also of class <code>yourhonor_error</code>, so a caller can catch a family without matching message text (see <code>?yourhonor-errors</code>).</li>
+<li>A missing label is <code>NA</code> everywhere: a numeric <code>NaN</code> from a judge, a precomputed rating column or a vitals score is missing, never the label <code>"NaN"</code>, and empty or whitespace-only labels are refused.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="data-0-1-0">Data<a class="anchor" aria-label="anchor" href="#data-0-1-0"></a></h3>
+<ul><li>
 <code>support_gold</code> is an eight-item synthetic dataset for API demonstration.</li>
 <li>
-<code>synthetic_gold</code> is a 200-item synthetic dataset with three simulated raters, sized so an audit can reach a verdict; it drives the README’s end-to-end run and the vignette. Every label is planted and the text is templated.</li>
+<code>synthetic_gold</code> is a 200-item synthetic dataset with three simulated raters, sized so an audit can reach a verdict. Every label is planted and the text is templated; it is not a benchmark.</li>
 </ul></div>
-<div class="section level3">
-<h3 id="review-fixes-0-0-0-9000">Review fixes<a class="anchor" aria-label="anchor" href="#review-fixes-0-0-0-9000"></a></h3>
-<p>User-visible changes made while addressing the pre-release code review.</p>
-<div class="section level4">
-<h4 id="calibration-edge-cases-0-0-0-9000">Calibration edge cases (<a href="https://github.com/JsizzleR/yourhonor/issues/1" class="external-link">#1</a>)<a class="anchor" aria-label="anchor" href="#calibration-edge-cases-0-0-0-9000"></a></h4>
-<ul><li>A calibration whose human (consensus) reference uses a single category now reports <code>status = "insufficient_reference_variation"</code> for every coefficient instead of an estimate: Gwet’s AC1 read “almost perfect” there while kappa read zero.</li>
-<li>Agreement tables gain <code>conf_low_exact</code>, a resampling-free finite-sample lower bound on each coefficient’s own observed agreement (irrCAC’s weighted pairwise <code>pa</code>), mapped onto the coefficient’s scale. It is Clopper-Pearson for two raters without weights, a binomial stop-loss bound for kappa, AC1, AC2 and two-rater alpha otherwise, and for alpha with three or more raters a relative-entropy bound on its rating-weighted ratio. Near misses earn their weighted credit, so the bound approaches the estimate as items grow for weighted and multi-rater coefficients too. Policies assess the smaller of it and the bootstrap <code>conf_low</code> on every sample; on a perfect sample the bootstrap interval is a zero-width point at 1, so the exact bound decides there, and a perfect sample is no longer <code>INDETERMINATE</code> where one error could <code>PASS</code>. Small-<code>n</code> bootstrap optimism no longer reaches a decision. For kappa and alpha on imbalanced labels the bound is weak (it is divided by <code>1 - pe</code>) and usually decides the check below a few hundred items.</li>
-<li>Chance agreement now counts only the categories some rater used, so declaring an unused level no longer moves Gwet’s AC1. Weights still follow the full declared scale, so under weights an unused level still enters the chance term (linear AC2 on levels 1-3: <code>pe</code> 0.55 with three declared levels, 0.70 with a fourth). Beyond the observed levels it leaves kappa’s and alpha’s estimates unchanged but lowers their <code>conf_low_exact</code>. This applies to <code><a href="../reference/test_retest.html">test_retest()</a></code> too.</li>
-<li>
-<code>ci_reliable</code> also requires at least 30 finite resamples, so an <code>n_boot</code> below 30 can never give a reliable interval; the documentation now says so.</li>
-<li>
-<code><a href="../reference/calibrate_judge.html">calibrate_judge()</a></code> reports judge abstentions (an <code>NA</code> judge label on an item with a human reference) separately from human gaps: <code>n_judge_abstentions</code>, <code>judge_abstention_rate</code>, and its Clopper-Pearson interval. <code>acceptance_policy(max_abstention_rate = )</code> bounds the interval’s upper end. The encoding is documented under “Missing labels and abstentions” in <code><a href="../reference/calibrate_judge.html">?calibrate_judge</a></code>.</li>
-<li>
-<code><a href="../reference/acceptance_policy.html">acceptance_policy()</a></code>’s <code>coefficient</code> now defaults to <code>NULL</code>, the calibration’s Gwet coefficient (AC1 nominal, AC2 ordinal); the old <code>"gwet_ac1"</code> default left an ordinal calibration <code>NOT_ASSESSED</code>. When the calibration did not compute that Gwet coefficient (for example <code>coefficients = "cohen_kappa"</code>), the agreement check is <code>NOT_ASSESSED</code> and the rest of the report is still assessed. Naming a coefficient the calibration did not compute is an error at assessment.</li>
-<li>The JSON artifact adds <code>calibration.confusion</code> (long-form counts), <code>calibration.per_rater_agreement</code>, and the abstention fields.</li>
-</ul></div>
-<div class="section level4">
-<h4 id="labels-and-blinding-0-0-0-9000">Labels and blinding<a class="anchor" aria-label="anchor" href="#labels-and-blinding-0-0-0-9000"></a></h4>
-<ul><li>Ratings are integer-coded before they reach irrCAC, which upper-cases, trims, and blanks character labels internally. Labels that differ only by case or whitespace now stay distinct in every coefficient and in test-retest stability, matching <code><a href="../reference/confusion.html">confusion()</a></code>. Empty or whitespace-only labels are rejected everywhere with a request to use <code>NA</code> instead.</li>
-<li>Inferred label universes union declared factor levels with every label observed in a non-factor column, so <code><a href="../reference/confusion.html">confusion()</a></code> no longer silently drops a pair whose label is absent from a factor’s levels.</li>
-<li>Blind grading strips element names and free-form attributes from every judge-visible vector, list element, record field, and nested frame, closing a channel through which a column built with <code><a href="https://rdrr.io/r/base/lapply.html" class="external-link">sapply()</a></code> over labels or IDs carried them to the judge row-aligned through the shuffle. Structural attributes (class, levels, tzone, units, dim, ptype) are kept; S4 objects, environments, and functions inside list columns pass through as is.</li>
-<li>Calibration results keep both key spaces: <code>items$.item_id</code> is the source-row key and <code>items$.judge_item_id</code> is the key the judge saw. <code>cal$blinding_map</code> maps between them and <code>cal$judge_output</code> is keyed by both. <code><a href="../reference/test_retest.html">test_retest()</a></code> returns a parallel <code>judge_item_ids</code> matrix. Join judge-side logs on the judge key, never on the row number.</li>
-<li>A judge that returns a factor declares its own label universe; those levels are kept when <code>label_levels</code> is <code>NULL</code>. <code><a href="../reference/stability_vitals.html">stability_vitals()</a></code> likewise uses a factor <code>score_col</code>’s levels so declared-but-unobserved labels count toward chance agreement.</li>
-</ul></div>
-<div class="section level4">
-<h4 id="agreement-and-confusion-0-0-0-9000">Agreement and confusion<a class="anchor" aria-label="anchor" href="#agreement-and-confusion-0-0-0-9000"></a></h4>
-<ul><li>
-<code><a href="../reference/agreement.html">agreement()</a></code> and <code><a href="../reference/confusion.html">confusion()</a></code> gain explicit column arguments (<code>rater_cols</code>; <code>human_col</code> and <code>judge_col</code>). Without them, columns named <code>human</code> and <code>judge</code> are used when both exist; otherwise <code><a href="../reference/agreement.html">agreement()</a></code> treats every column as a rater and <code><a href="../reference/confusion.html">confusion()</a></code> reads a two-column frame positionally and errors on wider frames. Any inferred choice that ignored or positionally read columns is reported with a message of class <code>yourhonor_inferred_columns</code>. <code><a href="../reference/plot_confusion.html">plot_confusion()</a></code> forwards <code>...</code> to <code><a href="../reference/confusion.html">confusion()</a></code>.</li>
-<li>
-<code>coefficients</code> now defaults to <code>NULL</code> in <code><a href="../reference/agreement.html">agreement()</a></code> and <code><a href="../reference/calibrate_judge.html">calibrate_judge()</a></code>, meaning kappa, alpha, and AC1 with AC2 substituted for AC1 under weights. Explicitly requesting <code>"gwet_ac1"</code> with weights is an error rather than a silent substitution.</li>
-<li>
-<code>agreement(&lt;calibration&gt;)</code> inherits every stored setting (<code>coefficients</code>, <code>conf_level</code>, <code>n_boot</code>, <code>seed</code>, <code>label_levels</code>, <code>weights</code>) for arguments left at their default, so <code>agreement(cal, n_boot = 50)</code> keeps the stored seed and confidence level. One set of bootstrap resamples is shared by all coefficients within a call.</li>
-<li>
-<code><a href="../reference/plot_confusion.html">plot_confusion()</a></code> keeps the declared label order on both axes instead of sorting alphabetically; <code><a href="../reference/confusion.html">confusion()</a></code> attaches the resolved order as the <code>"label_levels"</code> attribute.</li>
-<li>
-<code><a href="https://rdrr.io/r/base/print.html" class="external-link">print()</a></code> for a calibration shows each coefficient’s interval and interpretation; the interval was previously dropped.</li>
-<li>The modal-consensus rule for multiple raters, its exclusions (<code>n_consensus_ties</code>, <code>n_insufficient_human_ratings</code>, <code>n_excluded</code>), and its optimistic direction are documented in <code><a href="../reference/calibrate_judge.html">?calibrate_judge</a></code>.</li>
-</ul></div>
-<div class="section level4">
-<h4 id="bias-probes-0-0-0-9000">Bias probes<a class="anchor" aria-label="anchor" href="#bias-probes-0-0-0-9000"></a></h4>
-<ul><li>
-<code><a href="../reference/probe_bias.html">probe_bias()</a></code> and <code><a href="../reference/probe_position.html">probe_position()</a></code> return one shared schema (32 columns) built by a single constructor, so pointwise and position rows can always be combined. <code>n_missing</code> and <code>pair_missing_rate</code> are renamed <code>n_unscored</code> and <code>unscored_rate</code>; <code>n_items_missing</code> (items with at least one <code>NA</code> judgment) and <code>n_directional_items</code> are reported for every probe. The <code>evidence</code> and <code>item_evidence</code> attributes are lists named by probe on every object; <code><a href="../reference/combine_bias.html">combine_bias()</a></code> concatenates them without nesting.</li>
-<li>
-<code><a href="../reference/probe_position.html">probe_position()</a></code> counts an item toward the directional sign test only when it was decided in both display orders and its canonical choice moved with the order, so abstaining on one order no longer reads as a position preference. A tie counts as a decided judgement that commits to neither slot. The directional rate and interval use scored items as the denominator, as the pointwise probes do.</li>
-<li>A probe with no label movement now enters the multiple-comparison family with <code>p_value = 1</code> instead of <code>NA</code>; <code>p_value</code> is <code>NA</code> only when <code>status == "insufficient_data"</code>, and <code><a href="../reference/combine_bias.html">combine_bias()</a></code> recomputes verdicts.</li>
-<li>
-<code>flip_threshold</code> is now a practical-significance floor on the net <code>directional_rate</code>, not on the any-direction <code>flip_rate</code>: a large but balanced flip rate is reported but never flagged <code>"BIAS"</code>.</li>
-<li>The directional interval’s upper bound is capped at the flip-rate upper bound over the same denominator, since the net rate can never exceed the any-direction rate.</li>
-<li>
-<code><a href="../reference/probe_bias.html">probe_bias()</a></code> aborts when <code>input</code> is not a character column or contains <code>NA</code>; a pasted <code>NA</code> would otherwise be graded as a real answer and hide abstention from the missingness gate.</li>
-</ul></div>
-<div class="section level4">
-<h4 id="stability-0-0-0-9000">Stability<a class="anchor" aria-label="anchor" href="#stability-0-0-0-9000"></a></h4>
-<ul><li>The pairwise-disagreement interval is documented as a hybrid: the percentile item bootstrap widened to a Wilson score interval for the mean per-item disagreement. It can only widen. The chance-corrected estimate and its <code>stability_status</code> are derived from the same filtered matrix, and the label universe for the coefficient comes from every run.</li>
-</ul></div>
-<div class="section level4">
-<h4 id="policy-and-report-0-0-0-9000">Policy and report<a class="anchor" aria-label="anchor" href="#policy-and-report-0-0-0-9000"></a></h4>
-<ul><li>
-<code><a href="../reference/report.html">report()</a></code> always returns a visible <code>yourhonor_report</code> list with <code>decision</code>, <code>checks</code>, and the supplied evidence; <code>output</code> only sets the default print rendering. Use <code>x$decision</code> instead of <code>attr(x, "decision")</code>, and <code>format(x, output = "md")</code> or <code>as.character(x)</code> for the Markdown lines.</li>
-<li>
-<code>checks</code> gains numeric <code>value</code> and <code>threshold</code> columns and an <code>op</code> column (<code>"&gt;="</code>, <code>"&lt;="</code>, <code>"lower &gt;="</code>, <code>"upper &lt;="</code>, <code>"="</code>); the old prose <code>threshold</code> string is gone. Each required probe yields up to four checks (<code>bias_&lt;probe&gt;</code>, <code>_direction</code>, <code>_missing_rate</code>, <code>_n</code>), and printed check lines show <code>value (op threshold)</code>.</li>
-<li>
-<code><a href="../reference/acceptance_policy.html">acceptance_policy()</a></code> rejects a stability or probe threshold supplied without its gate (<code>max_pairwise_disagreement</code> or <code>required_probes</code>), so a policy can never carry a threshold the assessment does not read. Those errors and probe-name errors carry class <code>yourhonor_policy_error</code>. Every required argument is checked with <code><a href="https://rlang.r-lib.org/reference/check_required.html" class="external-link">rlang::check_required()</a></code>.</li>
-<li>Validation errors name the caller’s argument (for example <code>n_boot</code>, <code>ordered_levels</code>, <code>choice_levels</code>) and the calling function rather than an internal helper.</li>
-<li>The report’s bias summary distinguishes required probes from probes supplied outside the policy, and mentions descriptive signals in the latter.</li>
-</ul></div>
-<div class="section level4">
-<h4 id="vitals-adapters-and-artifacts-0-0-0-9000">vitals adapters and artifacts<a class="anchor" aria-label="anchor" href="#vitals-adapters-and-artifacts-0-0-0-9000"></a></h4>
-<ul><li>
-<code><a href="../reference/audit_vitals.html">audit_vitals()</a></code> uses <code>score_col</code> directly as the judge-label column, so <code>cal$judge_col</code>, <code>cal$items</code>, and the JSON provenance no longer contain an internal sentinel name. It aborts when the samples already contain a <code>human_col</code> column instead of overwriting it, and validates <code>provenance</code>.</li>
-<li>
-<code><a href="../reference/write_audit.html">write_audit()</a></code> gains <code>overwrite = FALSE</code>; an existing file is an error unless <code>overwrite = TRUE</code>. JSON is written at full precision (<code>digits = NA</code>), every absent value is <code>null</code> (never <code><a href="https://rdrr.io/r/base/Paren.html" class="external-link">{}</a></code>), vector-by-contract fields (<code>label_levels</code>, <code>coefficients</code>, <code>required_probes</code>, adapter <code>input_cols</code> and <code>human_cols</code>) are always arrays, class-specific <code>min_recall</code> and <code>min_precision</code> are objects keyed by class, <code>created_at</code> is RFC 3339 UTC (<code>2026-01-31T12:00:00Z</code>), and <code>checks</code> carries <code>value</code>, <code>op</code>, and <code>threshold</code>. The schema is documented in <code><a href="../reference/write_audit.html">?write_audit</a></code>.</li>
-</ul></div>
-<div class="section level4">
-<h4 id="second-review-pass-0-0-0-9000">Second review pass<a class="anchor" aria-label="anchor" href="#second-review-pass-0-0-0-9000"></a></h4>
-<ul><li>Validation messages that name unknown labels (<code><a href="../reference/agreement.html">agreement()</a></code>, <code><a href="../reference/confusion.html">confusion()</a></code>, <code><a href="../reference/calibrate_judge.html">calibrate_judge()</a></code>, <code><a href="../reference/test_retest.html">test_retest()</a></code>, <code><a href="../reference/stability_vitals.html">stability_vitals()</a></code>) render again instead of failing inside cli; absent explicit columns are pluralised, and the label-universe minimum names the actual count (one for agreement and confusion, two for calibration).</li>
-<li>Printed check lines raise their precision until the value and threshold differ, so a <code>FAIL</code> at <code>0.1005</code> against <code>0.1</code> no longer reads <code>= 0.1 (&lt;= 0.1)</code>. <code>checks$value</code> is always the quantity <code>op</code> compares and is <code>NA</code> when the interval is untrusted; the reason then names the cause (a boundary-degenerate bootstrap, too few finite resamples, an unavailable or reversed interval) rather than echoing <code>status = "ok"</code>.</li>
-<li>A required probe smaller than <code>min_probe_n</code> is again <code>INDETERMINATE</code> under <code>bias_&lt;probe&gt;</code> with its interval unassessed, rather than a possible <code>FAIL</code>. A probe or calibration at another confidence level withholds only its interval checks (<code>bias_&lt;probe&gt;_missing_rate</code> and <code>_n</code>, <code>usable_items</code>, <code>calibration_missing_rate</code>, and <code>class_support</code> are still assessed). A duplicated coefficient row or an empty class-metrics table is reported as <code>INDETERMINATE</code> or <code>NOT_ASSESSED</code> instead of being read silently.</li>
-<li>
-<code><a href="../reference/acceptance_policy.html">acceptance_policy()</a></code> rejects an orphan threshold with a readable sentence, and every validation error it raises carries class <code>yourhonor_policy_error</code>.</li>
-<li>The console report prints every class line and the <code>n of N</code> judge-evidence line that the Markdown report already had (and, like the Markdown report, tolerates a calibration without class metrics), and a non-required probe whose verdict is <code>INCONCLUSIVE</code> is mentioned in the bias summary whether or not the policy names required probes. A check value and threshold that only part beyond 15 significant digits are printed exactly.</li>
-<li>
-<code>agreement(&lt;calibration&gt;, weights = ...)</code> re-resolves the inherited coefficients under the new weights instead of treating the stored Gwet variant as an explicit, conflicting request. <code><a href="../reference/confusion.html">confusion()</a></code> and <code><a href="../reference/confusion_metrics.html">confusion_metrics()</a></code> reject <code>human_col</code>/<code>judge_col</code> on a calibration object as <code><a href="../reference/agreement.html">agreement()</a></code> rejects <code>rater_cols</code>; <code><a href="../reference/confusion_metrics.html">confusion_metrics()</a></code> applies <code>label_levels</code> to a calibration’s or confusion tibble’s stored metrics; frames with duplicated column names are refused; the positional-inference hint names both selectors; and errors from <code><a href="../reference/confusion_metrics.html">confusion_metrics()</a></code> name it and say whether a calibration object or a confusion tibble was passed. A count above the integer range (for example <code>n_boot = 1e10</code>) is rejected with a message naming that bound.</li>
-<li>The bootstrap draws one resample per iteration, shared by every requested coefficient, instead of materialising an <code>n x n_boot</code> index matrix, and draws nothing when no coefficient is estimable.</li>
-<li>
-<code><a href="../reference/combine_bias.html">combine_bias()</a></code> carries over only evidence for probes present in each constituent’s rows, so stale evidence left by row-subsetting cannot shadow a newer run, refuses an unnamed evidence list instead of emptying it, and names given to <code>...</code> no longer prefix the evidence names. <code><a href="../reference/probe_position.html">probe_position()</a></code> reserves <code>.judge_item_id</code>, <code>display_choice</code>, and <code>canonical_choice</code>; <code><a href="../reference/probe_bias.html">probe_bias()</a></code> validates <code>id_col</code> on the full data before sampling.</li>
-<li>Structured judge output returning a <code>.judge_item_id</code> column is rejected, and <code>judge_output$label</code> is always character. <code><a href="../reference/test_retest.html">test_retest()</a></code> unions a judge’s factor levels with every label observed across runs, and an unused blank factor level is dropped from inferred levels (<code><a href="../reference/test_retest.html">test_retest()</a></code>, <code><a href="../reference/stability_vitals.html">stability_vitals()</a></code>). <code><a href="../reference/stability_vitals.html">stability_vitals()</a></code> documents that level inference applies to unweighted runs only.</li>
-<li>
-<code><a href="../reference/write_audit.html">write_audit()</a></code> writes doubles with 17 significant digits so they round-trip exactly, refuses a directory as <code>path</code>, and the calibration provenance uses the same RFC 3339 <code>created_at</code> as the top level with <code>NULL</code> adapter fields (<code>id_col</code>, <code>audit_id</code>) present as <code>null</code>. <code>provenance</code> must have unique, non-blank names. Any task whose <code>$get_samples</code> is callable is accepted by the vitals adapters.</li>
-</ul></div>
-<div class="section level4">
-<h4 id="third-review-pass-0-0-0-9000">Third review pass<a class="anchor" aria-label="anchor" href="#third-review-pass-0-0-0-9000"></a></h4>
-<ul><li>
-<code><a href="../reference/calibrate_judge.html">calibrate_judge()</a></code> without <code>label_levels</code> infers the label set from the human and judge labels together (with factor levels), so a label only the judge used no longer aborts; supplied <code>label_levels</code> are still enforced.</li>
-<li>A structured judge may return <code>.item_id</code> as the exact string form of the issued key; any other key gets the package’s own error instead of a vctrs one.</li>
-<li>
-<code><a href="../reference/agreement.html">agreement()</a></code> and <code><a href="../reference/calibrate_judge.html">calibrate_judge()</a></code> reject a repeated coefficient.</li>
-<li>
-<code>interpret_agreement()</code> bands now match Landis and Koch exactly: 0 is <code>"slight"</code>, not <code>"poor"</code>.</li>
-<li>
-<code><a href="../reference/agreement.html">agreement()</a></code> on all-missing ratings now says there are no non-missing ratings instead of blaming <code>label_levels</code>.</li>
-<li>The acceptance policy’s bias flip-rate and directional checks now count every unscored probe item (a missing judgment, or a position item lost to a within-condition tie across <code>repeats</code>) as a worst-case flip in their upper bounds. A weakly position-biased judge could previously pass at the default <code>repeats = 2</code> because its bias landed in ties; it now reads <code>INDETERMINATE</code>. Unscored items never cause a <code>FAIL</code>, and fully scored probes are assessed exactly as before.</li>
-<li>
-<code><a href="../reference/probe_position.html">probe_position()</a></code> documents that even <code>repeats</code> can tie, and that taking the mode attenuates a per-call bias.</li>
-<li>
-<code>conf_low_exact</code> is now capped at the bound of the perfect samples a sample can be corrected into, so a judge is never assessed above a judge that matches the human reference on the same items. The cap costs most at small <code>n</code> with rare categories; coverage is unchanged. Inversions between two imperfect samples remain possible, since correcting an error can lower the estimate itself.</li>
-<li>The <code><a href="../reference/write_audit.html">write_audit()</a></code> documentation says that “full precision” refers to the stored doubles: irrCAC rounds each coefficient to five decimals.</li>
-</ul></div>
-</div>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>

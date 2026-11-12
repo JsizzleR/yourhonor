@@ -49,9 +49,12 @@ confusion(
 ## Value
 
 A tibble with `human_label`, `judge_label`, `n`, and `prop`, in
-`label_levels` order. The resolved level order is attached as the
-`"label_levels"` attribute. Per-class metrics remain attached for
-compatibility and are also available through
+`label_levels` order. `prop` is `NA` where its denominator is zero (the
+row of a human label never observed under `normalize = "row"`, or the
+column of a judge label never used under `normalize = "col"`). The
+resolved level order is attached as the `"label_levels"` attribute.
+Per-class metrics remain attached for compatibility and are also
+available through
 [`confusion_metrics()`](https://jsizzler.github.io/yourhonor/reference/confusion_metrics.md).
 
 ## Examples

@@ -2,8 +2,13 @@ pandoc: 3.8.3
 pkgdown: 2.2.1
 pkgdown_sha: ~
 articles:
+  bias-probes: bias-probes.html
+  articles/ellmer-judge: ellmer-judge.html
+  exact-bound: exact-bound.html
+  policies-audit: policies-audit.html
+  stability: stability.html
   yourhonor: yourhonor.html
-last_built: 2026-11-02T22:24Z
+last_built: 2026-11-12T03:04Z
 urls:
   reference: https://jsizzler.github.io/yourhonor/reference
   article: https://jsizzler.github.io/yourhonor/articles

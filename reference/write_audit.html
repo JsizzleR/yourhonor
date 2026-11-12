@@ -11,7 +11,7 @@ aggregate evidence, policy checks, and provenance."><meta property="og:image" co
 
     <a class="navbar-brand me-2" href="../index.html">yourhonor</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.0.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -21,6 +21,7 @@ aggregate evidence, policy checks, and provenance."><meta property="og:image" co
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../articles/yourhonor.html">Get started</a></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
+<li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
  <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="../search.json"></form></li>
@@ -117,8 +118,16 @@ agreement and is capped at the rounded <code>estimate</code> (and at the bound o
 perfect samples it can be corrected into; see <code><a href="agreement.html">agreement()</a></code>). Every absent
 value is <code>null</code>: an <code>NA</code> and an R <code>NULL</code> are indistinguishable to a reader,
 but neither ever appears as <code><a href="https://rdrr.io/r/base/Paren.html" class="external-link">{}</a></code> or is dropped. Fields that are vectors by
-contract are always JSON arrays, even when they hold one value. Top-level
-members:</p><ul><li><p><code>schema_version</code>: <code>"yourhonor.audit.v1"</code>.</p></li>
+contract are always JSON arrays, even when they hold one value. Each
+numeric field outside caller-supplied <code>provenance</code> (whose values are
+written as the caller typed them) keeps one JSON number type from run to
+run: <code>seed</code> and the
+counts (<code>n</code>, every <code>n_*</code> and <code>*_n_boot_effective</code> field, <code>support</code>,
+<code>predicted</code>, <code>statistic</code>, and the policy's <code>min_n</code>, <code>min_class_n</code>,
+<code>min_stability_n</code>, <code>min_stability_runs</code> and <code>min_probe_n</code>) are integers,
+and every other number, including each check's <code>value</code> and <code>threshold</code>,
+is written with a decimal point or an exponent (<code>0.0</code>, <code>1.0</code>), even when
+it is whole. Top-level members:</p><ul><li><p><code>schema_version</code>: <code>"yourhonor.audit.v1"</code>.</p></li>
 <li><p><code>created_at</code>: UTC timestamp in RFC 3339 form, e.g.
 <code>"2026-01-31T12:00:00Z"</code>.</p></li>
 <li><p><code>decision</code>: the overall assessment (<code>PASS</code>, <code>FAIL</code>, <code>INDETERMINATE</code>,
@@ -136,12 +145,15 @@ unavailable: the observed value, or for an interval check the bound
 assessed, which for a bias probe's flip-rate and directional checks
 counts every unscored item against the probe over <code>n_input</code>: as a flip
 for the flip rate, towards the worse direction for the directional
-rate), <code>op</code> (the
+rate, and for the stability disagreement check counts every pair
+involving a missing judgment as a disagreement over all <code>n_items</code>, so
+it can exceed <code>stability.pairwise_disagreement_conf_high</code>), <code>op</code> (the
 comparison the check encodes: <code>"&gt;="</code>, <code>"&lt;="</code>, <code>"lower &gt;="</code>,
 <code>"upper &lt;="</code>, or <code>"="</code>), a numeric <code>threshold</code>, and <code>reason</code>. Without a
 policy the single placeholder check has <code>null</code> <code>op</code> and <code>threshold</code>.</p></li>
 <li><p><code>calibration</code>: <code>n_input</code>, <code>n_items</code>, <code>n_excluded</code>, <code>n_consensus_ties</code>,
-<code>n_judge_abstentions</code>, <code>judge_abstention_rate</code>,
+<code>n_insufficient_human_ratings</code>, <code>n_judge_abstentions</code>,
+<code>judge_abstention_rate</code>,
 <code>judge_abstention_conf_low</code>, <code>judge_abstention_conf_high</code>, <code>scale</code>,
 <code>weights</code>, <code>conf_level</code>, <code>n_boot</code>, <code>seed</code> (scalars); <code>label_levels</code> and
 <code>coefficients</code> (arrays); <code>agreement</code>, <code>confusion</code>, <code>confusion_metrics</code>,
@@ -153,10 +165,22 @@ reference label, the judge label, the count <code>n</code>, and its share <code>
 so a reader can rebuild the matrix in <code>label_levels</code> order.</p></li>
 <li><p><code>bias</code>: <code>null</code>, or <code>audit_id</code> plus <code>results</code>, an array of row objects
 with the columns of the bias tibble.</p></li>
-<li><p><code>stability</code>: <code>null</code>, or the scalar summary fields of a
-<code>yourhonor_stability</code> object (<code>n_items</code>, <code>n_items_scored</code>, <code>n_runs</code>,
-<code>pairwise_disagreement*</code>, <code>gwet_*</code>, <code>missing_rate</code>, <code>*_ci_reliable</code>),
-<code>label_levels</code> (array), and <code>provenance</code>.</p></li>
+<li><p><code>stability</code>: <code>null</code>, or the summary fields of a <code>yourhonor_stability</code>
+object (see <code><a href="test_retest.html">test_retest()</a></code>): <code>audit_id</code> (string or <code>null</code>), <code>n_items</code>,
+<code>n_items_scored</code>, <code>n_runs</code>, <code>label_levels</code> (array), <code>weights</code>,
+<code>conf_level</code>, <code>n_boot</code>, <code>pairwise_n_boot_effective</code>,
+<code>stability_n_boot_effective</code>, <code>n_boot_effective</code> (the smaller of the
+two), <code>pairwise_disagreement</code> with its observed
+<code>pairwise_disagreement_conf_low</code> and <code>pairwise_disagreement_conf_high</code>,
+<code>percent_agreement</code> (<code>1 - pairwise_disagreement</code>, a proportion despite
+its name), <code>any_flip_rate_at_n_runs</code>, the chance-corrected agreement as
+<code>gwet_agreement</code>, <code>gwet_coefficient</code>, <code>gwet_conf_low</code>, <code>gwet_conf_high</code>,
+<code>gwet_status</code> and <code>gwet_boundary_degenerate</code> (the object's
+<code>stability</code>, <code>stability_coefficient</code>, <code>stability_conf_low</code>,
+<code>stability_conf_high</code>, <code>stability_status</code> and
+<code>stability_boundary_degenerate</code>), <code>missing_rate</code>,
+<code>pairwise_ci_reliable</code>, <code>stability_ci_reliable</code>, <code>ci_reliable</code> (both
+intervals reliable), and <code>provenance</code>.</p></li>
 <li><p><code>provenance</code>: the calibration provenance. The keys <code>input_cols</code>,
 <code>human_cols</code>, <code>label_levels</code>, and <code>content_cols</code> are always arrays, even
 when they were supplied by the caller and hold one value; <code>created_at</code>
@@ -164,6 +188,23 @@ is RFC 3339 UTC like the top-level field, and adapter fields left <code>NULL</co
 (<code>id_col</code>, <code>audit_id</code>) are present as <code>null</code>.</p></li>
 </ul></div>
 
+    <div class="section level2">
+    <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="va">cal</span> <span class="op">&lt;-</span> <span class="fu"><a href="calibrate_judge.html">calibrate_judge</a></span><span class="op">(</span><span class="va">support_gold</span>, label_levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"I"</span>, <span class="st">"P"</span>, <span class="st">"C"</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>                       n_boot <span class="op">=</span> <span class="fl">200</span>, seed <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">path</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempfile</a></span><span class="op">(</span>fileext <span class="op">=</span> <span class="st">".json"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu">write_audit</span><span class="op">(</span><span class="va">cal</span>, <span class="va">path</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">audit</span> <span class="op">&lt;-</span> <span class="fu">jsonlite</span><span class="fu">::</span><span class="fu"><a href="https://jeroen.r-universe.dev/jsonlite/reference/read_json.html" class="external-link">read_json</a></span><span class="op">(</span><span class="va">path</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">audit</span><span class="op">$</span><span class="va">schema_version</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "yourhonor.audit.v1"</span>
+<span class="r-in"><span><span class="va">audit</span><span class="op">$</span><span class="va">decision</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "NOT_ASSESSED"</span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="va">md</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempfile</a></span><span class="op">(</span>fileext <span class="op">=</span> <span class="st">".md"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu">write_audit</span><span class="op">(</span><span class="va">cal</span>, <span class="va">md</span>, format <span class="op">=</span> <span class="st">"md"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/unlink.html" class="external-link">unlink</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">path</span>, <span class="va">md</span><span class="op">)</span><span class="op">)</span></span></span>
+</code></pre></div>
+    </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>
 

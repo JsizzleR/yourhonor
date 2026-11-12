@@ -54,10 +54,13 @@ stability_vitals(
 - label_levels:
 
   Optional complete label universe. For unweighted runs left `NULL` with
-  a factor `score_col`, the factor's non-blank levels are used so
-  declared-but-unobserved labels still count toward chance agreement.
-  Weighted runs always require it: a factor's level order is not taken
-  as evidence of the ordinal order.
+  a factor `score_col`, the factor's non-blank levels are used as the
+  label universe; a level no epoch used changes no unweighted
+  coefficient (see
+  [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md)).
+  A numeric `NaN` score is a missing judgment, not a label. Weighted
+  runs always require it: a factor's level order is not taken as
+  evidence of the ordinal order.
 
 - weights:
 
@@ -82,3 +85,25 @@ stability_vitals(
 ## Value
 
 A `yourhonor_stability` object with `source = "vitals"` provenance.
+
+## Examples
+
+``` r
+# Three epochs of six items, in long form as vitals stores them; the
+# judge-visible `input` is the same in every epoch.
+samples <- tibble::tibble(
+  id = rep(paste0("q", 1:6), each = 3),
+  epoch = rep(1:3, times = 6),
+  input = rep(paste("question", 1:6), each = 3),
+  score = c("C", "C", "C", "P", "P", "C", "I", "I", "I",
+            "C", "C", "C", "P", "P", "P", "I", "P", "I")
+)
+stability_vitals(samples, content_cols = "input",
+                 label_levels = c("I", "P", "C"), n_boot = 200, seed = 1)
+#> 
+#> ── yourhonor test-retest stability ──
+#> 
+#> 3 runs - pairwise disagreement 0.22 [0.00, 0.61].
+#> gwet_ac1: 0.67 [0.34, 1.00].
+#> Any-flip rate at exactly 3 runs: 0.33; missing judgments: 0.00.
+```

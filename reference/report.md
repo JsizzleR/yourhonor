@@ -82,7 +82,7 @@ rep
 #> 
 #> Assessment: **NOT_ASSESSED**.
 #> 
-#> Agreement with humans: **gwet_ac1 = 0.65** [0.25, 1.00] (substantial).
+#> Agreement with humans: **gwet_ac1 = 0.65** (substantial); 95% bootstrap interval [0.25, 1.00], exact lower bound 0.08.
 #> 
 #> ### Per-class evidence
 #> 
@@ -91,6 +91,7 @@ rep
 #> - `C`: support 4, precision 0.80, recall 1.00
 #> 
 #> Bias probes: **NOT ASSESSED**.
+#> 
 #> Test-retest stability: **NOT ASSESSED**.
 #> 
 #> ### Assessment checks

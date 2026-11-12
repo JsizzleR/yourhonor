@@ -13,7 +13,7 @@ never as independent calibration rows."><meta property="og:image" content="https
 
     <a class="navbar-brand me-2" href="../index.html">yourhonor</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.0.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -23,6 +23,7 @@ never as independent calibration rows."><meta property="og:image" content="https
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../articles/yourhonor.html">Get started</a></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
+<li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
  <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="../search.json"></form></li>
@@ -94,8 +95,9 @@ reliability. Identifier, epoch, and score columns are not content columns.</p></
 <dt id="arg-label-levels">label_levels<a class="anchor" aria-label="anchor" href="#arg-label-levels"></a></dt>
 <dd><p>Optional complete label universe. For unweighted runs
 left <code>NULL</code> with a factor <code>score_col</code>, the factor's non-blank levels are
-used so declared-but-unobserved labels still count toward chance
-agreement. Weighted runs always require it: a factor's level order is
+used as the label universe; a level no epoch used changes no unweighted
+coefficient (see <code><a href="agreement.html">agreement()</a></code>). A numeric <code>NaN</code> score is a missing
+judgment, not a label. Weighted runs always require it: a factor's level order is
 not taken as evidence of the ordinal order.</p></dd>
 
 
@@ -124,6 +126,27 @@ not taken as evidence of the ordinal order.</p></dd>
     <p>A <code>yourhonor_stability</code> object with <code>source = "vitals"</code> provenance.</p>
     </div>
 
+    <div class="section level2">
+    <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># Three epochs of six items, in long form as vitals stores them; the</span></span></span>
+<span class="r-in"><span><span class="co"># judge-visible `input` is the same in every epoch.</span></span></span>
+<span class="r-in"><span><span class="va">samples</span> <span class="op">&lt;-</span> <span class="fu">tibble</span><span class="fu">::</span><span class="fu"><a href="https://tibble.tidyverse.org/reference/tibble.html" class="external-link">tibble</a></span><span class="op">(</span></span></span>
+<span class="r-in"><span>  id <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/rep.html" class="external-link">rep</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="st">"q"</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">6</span><span class="op">)</span>, each <span class="op">=</span> <span class="fl">3</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>  epoch <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/rep.html" class="external-link">rep</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="fl">3</span>, times <span class="op">=</span> <span class="fl">6</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>  input <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/rep.html" class="external-link">rep</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="st">"question"</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">6</span><span class="op">)</span>, each <span class="op">=</span> <span class="fl">3</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>  score <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"C"</span>, <span class="st">"C"</span>, <span class="st">"C"</span>, <span class="st">"P"</span>, <span class="st">"P"</span>, <span class="st">"C"</span>, <span class="st">"I"</span>, <span class="st">"I"</span>, <span class="st">"I"</span>,</span></span>
+<span class="r-in"><span>            <span class="st">"C"</span>, <span class="st">"C"</span>, <span class="st">"C"</span>, <span class="st">"P"</span>, <span class="st">"P"</span>, <span class="st">"P"</span>, <span class="st">"I"</span>, <span class="st">"P"</span>, <span class="st">"I"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu">stability_vitals</span><span class="op">(</span><span class="va">samples</span>, content_cols <span class="op">=</span> <span class="st">"input"</span>,</span></span>
+<span class="r-in"><span>                 label_levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"I"</span>, <span class="st">"P"</span>, <span class="st">"C"</span><span class="op">)</span>, n_boot <span class="op">=</span> <span class="fl">200</span>, seed <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> ── <span style="font-weight: bold;">yourhonor test-retest stability</span> ──</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> 3 runs - pairwise disagreement 0.22 [0.00, 0.61].</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> gwet_ac1: 0.67 [0.34, 1.00].</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Any-flip rate at exactly 3 runs: 0.33; missing judgments: 0.00.</span>
+</code></pre></div>
+    </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>
 

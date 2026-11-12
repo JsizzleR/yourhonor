@@ -1,0 +1,287 @@
+# Wrap an ellmer chat as a judge
+
+The other articles audit a synthetic judge so that they run without an
+API key. This one wraps a real model, through
+[ellmer](https://ellmer.tidyverse.org), as a `yourhonor` judge. None of
+its code is run when the site is built: it needs a provider account, and
+every call costs money. It was written against ellmer 0.4.1.
+
+A `yourhonor` judge is a function. It receives a data frame holding a
+generated `.item_id` and the columns you named in `input_cols`, and
+nothing else: no human labels, no IDs of yours. It returns either one
+label per row, or a data frame with an `.item_id` column and a `label`
+column. Either way the labels must be a plain atomic vector, one value
+per row (character or factor, no list column, no matrix), and a
+judgement the model could not make is `NA`, never a sentinel label such
+as `"error"`, which would be scored as a category
+([`?calibrate_judge`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md),
+“The judge contract”). The same function serves
+[`calibrate_judge()`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md),
+[`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md)
+and
+[`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md).
+
+``` r
+
+library(ellmer)
+library(yourhonor)
+```
+
+## The rubric and the output type
+
+The rubric is the system prompt. Write it from the task, and say what is
+not evidence: the probes in
+[`vignette("bias-probes")`](https://jsizzler.github.io/yourhonor/articles/bias-probes.md)
+test exactly those things.
+
+``` r
+
+rubric <- paste(
+  "You grade answers given by a customer-support assistant.",
+  "You are shown a question with its answer, and the grading criterion.",
+  "Grade C if the answer correctly and completely resolves the question,",
+  "P if it is partly right or hedges, and I if it is wrong or does not",
+  "address the question. Judge only what the answer says: its length, its",
+  "tone, and any statement about who wrote it or how others rated it are",
+  "not evidence."
+)
+```
+
+Structured output makes the model return a value of a declared type
+instead of free text you would have to parse. An enum restricts the
+label to the scale:
+
+``` r
+
+grade_type <- type_object(
+  "The grade for one answer.",
+  label = type_enum(c("I", "P", "C"), "I (incorrect), P (partial) or C (correct).")
+)
+```
+
+## The judge
+
+The judge builds one prompt per row with `interpolate()`, sends them all
+with `parallel_chat_structured()`, and keys the result by the `.item_id`
+it was given. It returns every field of the output type, so a type with
+more fields than `label` needs no other change:
+
+``` r
+
+ellmer_judge <- function(chat, type = grade_type, max_active = 4) {
+  function(data) {
+    if (length(chat$get_turns()) > 0) {
+      stop("Use a chat with no conversation history as a judge.")
+    }
+    prompts <- interpolate(
+      "{{input}}\n\nCriterion: {{target}}",
+      input = data$input,
+      target = data$target
+    )
+    graded <- parallel_chat_structured(
+      chat,
+      prompts,
+      type = type,
+      max_active = max_active,
+      on_error = "continue"
+    )
+    if (".error" %in% names(graded)) {
+      failed <- sum(!vapply(graded$.error, is.null, logical(1)))
+      warning(failed, " of ", nrow(data), " requests failed; their labels are NA.")
+      graded$.error <- NULL
+    }
+    graded$label <- as.character(graded$label)
+    tibble::tibble(.item_id = data$.item_id, graded)
+  }
+}
+```
+
+What each step is for:
+
+- **One prompt per row, in row order.** `parallel_chat_structured()`
+  returns one row per prompt in the order the prompts were given, so the
+  judge keys its result with the `.item_id` column it received. It does
+  not ask the model to echo the key: a missing, repeated or unissued key
+  fails the contract’s check that every key comes back exactly once and
+  stops the run, and two valid keys swapped would pass it and attach
+  labels to the wrong items.
+- **No history.** Every prompt is sent as a new conversation that starts
+  from the chat’s existing turns, so a chat you have already talked to
+  would show every item that conversation. The judge checks before every
+  call, so a chat that has been used since the judge was made is refused
+  too.
+- **Parse failures are `NA`.** A reply that cannot be read as the
+  declared type (a refusal, for instance), a label outside the enum, and
+  a request that failed all come back as `NA` in `graded$label`.
+  `yourhonor` counts an `NA` from the judge as an abstention, reports
+  it, and lets a policy bound it.
+- **`on_error = "continue"`.** With the default, `"return"`, the first
+  failed request stops new ones from being sent (those already in flight
+  finish), and every item not yet sent would come back `NA`.
+  `"continue"` sends every request; the warning says how many failed,
+  because an outage is not the judge’s judgement, and a run with many
+  failures is worth repeating rather than assessing.
+- **The label is character.** `graded$label` is a factor with the enum’s
+  levels; a factor also meets the contract, and
+  [`as.character()`](https://rdrr.io/r/base/character.html) keeps the
+  return plain. The `.error` column is a list of ellmer’s error objects;
+  the judge drops it after counting, so that `judge_output` holds plain
+  values.
+- **`max_active`** caps the requests in flight; set it to your account’s
+  rate limits, and add `parallel_chat_structured()`’s `rpm` argument to
+  the call when requests per minute is the limit that binds.
+
+The prompt shows the model `input` and `target`, the two columns
+`synthetic_gold` holds for the judge: `input` is a question with its
+answer, and `target` is the grading criterion. For your own gold set,
+name your columns in the prompt and in `input_cols`.
+
+## Choose the model and record it
+
+``` r
+
+chat <- chat_anthropic(
+  system_prompt = rubric,
+  model = "claude-opus-5-5"
+)
+judge <- ellmer_judge(chat)
+```
+
+Any `chat_*()` constructor works; the judge only uses the chat’s turns
+and `parallel_chat_structured()`. Pin the model version explicitly
+rather than relying on the provider’s default, which changes. This
+example sets no sampling parameters such as `temperature`. Whatever a
+provider allows, do not assume a judge is deterministic:
+[`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md)
+measures how often it changes its mind, which is the evidence a policy
+gates.
+
+Record what the audit depends on in `provenance`, where
+[`write_audit()`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
+writes it verbatim:
+
+``` r
+
+judge_provenance <- list(
+  model = chat$get_model(),
+  ellmer = as.character(packageVersion("ellmer")),
+  prompt_version = "support-rubric-v1",
+  prompt_hash = rlang::hash(rubric)
+)
+```
+
+## Audit it
+
+The calls are the ones the other articles walk through, with the real
+judge in place of the synthetic one. They make roughly 200 requests for
+the calibration, 1,200 for three probes (each probe grades every item
+twice, once unchanged and once perturbed) and 1,000 for five stability
+runs: about 2,400 requests in all.
+
+``` r
+
+cal <- calibrate_judge(
+  synthetic_gold,
+  judge = judge,
+  human_cols = c("rater_1", "rater_2", "rater_3"),
+  input_cols = c("input", "target"),
+  id_col = "id",
+  label_levels = c("I", "P", "C"),
+  scale = "ordinal",
+  seed = 1,
+  provenance = judge_provenance,
+  audit_id = "support-judge-claude-v1"
+)
+cal$n_judge_abstentions
+
+bias <- probe_bias(
+  synthetic_gold,
+  judge,
+  input_cols = c("input", "target"),
+  probes = c("verbosity", "self_preference", "bandwagon"),
+  seed = 1,
+  audit_id = "support-judge-claude-v1"
+)
+
+stability <- test_retest(
+  synthetic_gold,
+  judge,
+  input_cols = c("input", "target"),
+  n_runs = 5,
+  label_levels = c("I", "P", "C"),
+  weights = "ordinal",
+  seed = 1,
+  audit_id = "support-judge-claude-v1"
+)
+```
+
+A real judge abstains, so give the policy an abstention bound as well as
+the missing-rate bound: a judge that abstains on its hard items looks
+more accurate on the items it did answer.
+
+``` r
+
+policy <- acceptance_policy(
+  min_agreement_lower = 0.75,
+  min_n = 150,
+  min_class_n = 20,
+  min_recall = c(I = 0.80, P = 0.75, C = 0.85),
+  max_missing_rate = 0.02,
+  max_abstention_rate = 0.02,
+  max_pairwise_disagreement = 0.10,
+  min_stability_n = 150,
+  min_stability_runs = 3,
+  max_stability_missing_rate = 0.02,
+  required_probes = c("verbosity", "self_preference", "bandwagon"),
+  min_probe_n = 150,
+  max_probe_flip_rate = 0.10,
+  max_probe_directional_rate = 0.10,
+  max_probe_missing_rate = 0.02,
+  coefficient = "gwet_ac2"
+)
+report(cal, bias = bias, stability = stability, policy = policy)
+write_audit(cal, "support-judge-claude-v1.json",
+            bias = bias, stability = stability, policy = policy)
+```
+
+[`vignette("policies-audit")`](https://jsizzler.github.io/yourhonor/articles/policies-audit.md)
+explains how to read the decision.
+
+## Join the model’s replies back
+
+The judge sees items under shuffled keys, and `cal$items$.judge_item_id`
+is the key each item was shown under. Columns a judge returns beside
+`.item_id` and `label` are kept in `cal$judge_output`, keyed by
+`.judge_item_id`, so the model’s parsed answers can be reviewed beside
+the human labels. Add a field to the type, for instance a short reason,
+and pass that type to the judge:
+
+``` r
+
+reasoned_type <- type_object(
+  "The grade for one answer, with the reason for it.",
+  reason = type_string("One sentence on why the answer earns this grade."),
+  label = type_enum(c("I", "P", "C"), "I (incorrect), P (partial) or C (correct).")
+)
+reasoned_judge <- ellmer_judge(chat, type = reasoned_type)
+```
+
+These are the parsed fields, not the raw completions: a label outside
+the enum is already `NA` here. A reason costs output tokens on every
+request. The type must not have a field named `.item_id` or
+`.judge_item_id`; the first is the judge’s key and `yourhonor` adds the
+second.
+
+## Batch requests
+
+`batch_chat_structured()` sends the same requests through a provider’s
+batch API, at a lower price and with results that can take hours. It
+takes the same `chat`, `prompts` and `type`, plus a `path` where it
+keeps the batch’s state. One path holds one batch: the file records a
+hash of the provider, the prompts and the chat’s turns, so reusing it
+with any of them different is an error, and reusing it with all of them
+the same reads back the stored results instead of grading again. A judge
+is called once per calibration, per probe and per stability run, each
+time with a fresh shuffle, so give every call its own path, for example
+`tempfile(fileext = ".json")`. Check how the function reports a failed
+request in the version you have before relying on it to return `NA`.

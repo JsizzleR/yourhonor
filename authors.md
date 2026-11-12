@@ -7,15 +7,15 @@
 ## Citation
 
 Source:
-[`DESCRIPTION`](https://github.com/JsizzleR/yourhonor/blob/main/DESCRIPTION)
+[`inst/CITATION`](https://github.com/JsizzleR/yourhonor/blob/main/inst/CITATION)
 
 Clark J (2026). *yourhonor: Calibrate Large Language Model Judges*. R
-package version 0.0.0.9000, <https://github.com/JsizzleR/yourhonor>.
+package version 0.1.0, <https://github.com/JsizzleR/yourhonor>.
 
     @Manual{,
-      title = {yourhonor: Calibrate Large Language Model Judges},
+      title = {{yourhonor}: Calibrate Large Language Model Judges},
       author = {Jay Clark},
       year = {2026},
-      note = {R package version 0.0.0.9000},
+      note = {R package version 0.1.0},
       url = {https://github.com/JsizzleR/yourhonor},
     }

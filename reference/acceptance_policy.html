@@ -11,7 +11,7 @@ the task and the cost of each class of mistake."><meta property="og:image" conte
 
     <a class="navbar-brand me-2" href="../index.html">yourhonor</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.0.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -21,6 +21,7 @@ the task and the cost of each class of mistake."><meta property="og:image" conte
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../articles/yourhonor.html">Get started</a></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
+<li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
  <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="../search.json"></form></li>
@@ -104,13 +105,23 @@ judge-consensus pair.</p></dd>
 
 
 <dt id="arg-max-pairwise-disagreement">max_pairwise_disagreement<a class="anchor" aria-label="anchor" href="#arg-max-pairwise-disagreement"></a></dt>
-<dd><p>Maximum stability disagreement. Set <code>NULL</code>
-explicitly when stability is outside this policy.</p></dd>
+<dd><p>Maximum upper confidence bound for mean
+pairwise stability disagreement. The upper bound assessed is the
+stability's <code>pairwise_disagreement_worst_case_high</code>, which counts every
+pair involving a missing judgment as a disagreement over all <code>n_items</code>
+items (see <code><a href="test_retest.html">test_retest()</a></code>); the lower bound is the observed
+<code>pairwise_disagreement_conf_low</code>. Counting missing judgments this way
+can therefore turn this check's <code>PASS</code> into <code>INDETERMINATE</code> but never
+into <code>FAIL</code>: a <code>FAIL</code> rests on the observed judgments' interval alone,
+as without the worst case. (Abstaining on runs that agree can still
+raise that observed interval, since it is the judge's own evidence.) Set <code>NULL</code> explicitly when
+stability is outside this policy.</p></dd>
 
 
 <dt id="arg-min-stability-n">min_stability_n<a class="anchor" aria-label="anchor" href="#arg-min-stability-n"></a></dt>
 <dd><p>Minimum independent items with at least two stability
-judgments. Required when <code>max_pairwise_disagreement</code> is not <code>NULL</code> and
+judgments (<code>n_items_scored</code>; items counted only by the worst case do not
+count). Required when <code>max_pairwise_disagreement</code> is not <code>NULL</code> and
 rejected otherwise.</p></dd>
 
 
@@ -121,8 +132,13 @@ rejected otherwise.</p></dd>
 
 <dt id="arg-max-stability-missing-rate">max_stability_missing_rate<a class="anchor" aria-label="anchor" href="#arg-max-stability-missing-rate"></a></dt>
 <dd><p>Maximum fraction of individual repeated
-judgments that may be missing. Required when stability is in the policy
-and rejected otherwise.</p></dd>
+judgments that may be missing. Below this rate missing judgments still
+count against the disagreement check: its upper bound treats each one
+as disagreeing with its item's other runs (see
+<code>max_pairwise_disagreement</code>), so a judge cannot pass by abstaining on the
+items where it is unstable. Only cells of the run matrix are counted: an
+item or run absent from the evidence entirely is not missing. Required
+when stability is in the policy and rejected otherwise.</p></dd>
 
 
 <dt id="arg-required-probes">required_probes<a class="anchor" aria-label="anchor" href="#arg-required-probes"></a></dt>
@@ -131,9 +147,13 @@ signal.</p></dd>
 
 
 <dt id="arg-min-probe-n">min_probe_n<a class="anchor" aria-label="anchor" href="#arg-min-probe-n"></a></dt>
-<dd><p>Minimum paired comparisons required for every required
-bias probe. Required when <code>required_probes</code> is non-empty and rejected
-otherwise.</p></dd>
+<dd><p>Minimum scored items required for every required bias
+probe: the probe's <code>n_scored</code>, the items with a decided judgment in both
+conditions (see <code><a href="probe_bias.html">probe_bias()</a></code>). It counts items, not judgments
+(<code>n_judgments</code>) or condition pairs (<code>n_comparisons</code>): a position probe
+over 30 pairs at <code>repeats = 3</code> has <code>n_comparisons = 90</code> but at most 30
+scored items.
+Required when <code>required_probes</code> is non-empty and rejected otherwise.</p></dd>
 
 
 <dt id="arg-max-probe-flip-rate">max_probe_flip_rate<a class="anchor" aria-label="anchor" href="#arg-max-probe-flip-rate"></a></dt>
@@ -208,6 +228,83 @@ be supplied together with their gate and are rejected without it, so a policy
 can never carry a threshold that the assessment does not read.</p>
     </div>
 
+    <div class="section level2">
+    <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># A calibration-only policy: stability and bias are outside it.</span></span></span>
+<span class="r-in"><span><span class="va">policy</span> <span class="op">&lt;-</span> <span class="fu">acceptance_policy</span><span class="op">(</span></span></span>
+<span class="r-in"><span>  min_agreement_lower <span class="op">=</span> <span class="fl">0.6</span>, min_n <span class="op">=</span> <span class="fl">5</span>, min_class_n <span class="op">=</span> <span class="fl">2</span>,</span></span>
+<span class="r-in"><span>  min_recall <span class="op">=</span> <span class="fl">0.6</span>, max_missing_rate <span class="op">=</span> <span class="fl">0.05</span>,</span></span>
+<span class="r-in"><span>  max_pairwise_disagreement <span class="op">=</span> <span class="cn">NULL</span></span></span>
+<span class="r-in"><span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">policy</span></span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">yourhonor acceptance policy</span> <span style="color: #00BBBB;">─────────────────────────────────────────────────</span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Agreement coefficient: the calibration's Gwet coefficient (gwet_ac1 unweighted,</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> gwet_ac2 weighted).</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Confidence level: 0.95.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Calibration:</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • agreement lower &gt;= 0.6</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • usable items &gt;= 5</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • class support &gt;= 2</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • recall lower &gt;= 0.6</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • missing rate &lt;= 0.05</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Stability: outside the policy.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Bias: outside the policy.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Assess it with `report(calibration, policy = &lt;this policy&gt;)`.</span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Eight items meet the count floors but are too few for the interval</span></span></span>
+<span class="r-in"><span><span class="co"># checks to pass.</span></span></span>
+<span class="r-in"><span><span class="va">cal</span> <span class="op">&lt;-</span> <span class="fu"><a href="calibrate_judge.html">calibrate_judge</a></span><span class="op">(</span><span class="va">support_gold</span>, label_levels <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"I"</span>, <span class="st">"P"</span>, <span class="st">"C"</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>                       n_boot <span class="op">=</span> <span class="fl">200</span>, seed <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="report.html">report</a></span><span class="op">(</span><span class="va">cal</span>, policy <span class="op">=</span> <span class="va">policy</span><span class="op">)</span><span class="op">$</span><span class="va">checks</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 8 × 6</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   check                        status         value op       threshold reason   </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                        <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>          <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>        <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>    </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">1</span> usable_items                 PASS          8      &gt;=            5    Sample s…</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">2</span> calibration_confidence_level PASS          0.95   =             0.95 Confiden…</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">3</span> calibration_missing_rate     PASS          0      &lt;=            0.05 Criterio…</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">4</span> agreement_gwet_ac1           INDETERMINATE 0.079<span style="text-decoration: underline;">5</span> lower &gt;=      0.6  Interval…</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">5</span> class_support                PASS          2      &gt;=            2    All clas…</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">6</span> recall_I                     INDETERMINATE 0.012<span style="text-decoration: underline;">6</span> lower &gt;=      0.6  Interval…</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">7</span> recall_P                     INDETERMINATE 0.012<span style="text-decoration: underline;">6</span> lower &gt;=      0.6  Interval…</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">8</span> recall_C                     INDETERMINATE 0.398  lower &gt;=      0.6  Interval…</span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Switching a gate on requires its dependent thresholds; class-specific</span></span></span>
+<span class="r-in"><span><span class="co"># recall floors are a named vector.</span></span></span>
+<span class="r-in"><span><span class="fu">acceptance_policy</span><span class="op">(</span></span></span>
+<span class="r-in"><span>  min_agreement_lower <span class="op">=</span> <span class="fl">0.6</span>, min_n <span class="op">=</span> <span class="fl">50</span>, min_class_n <span class="op">=</span> <span class="fl">10</span>,</span></span>
+<span class="r-in"><span>  min_recall <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>I <span class="op">=</span> <span class="fl">0.5</span>, C <span class="op">=</span> <span class="fl">0.7</span><span class="op">)</span>, max_missing_rate <span class="op">=</span> <span class="fl">0.05</span>,</span></span>
+<span class="r-in"><span>  max_pairwise_disagreement <span class="op">=</span> <span class="fl">0.1</span>, min_stability_n <span class="op">=</span> <span class="fl">50</span>,</span></span>
+<span class="r-in"><span>  min_stability_runs <span class="op">=</span> <span class="fl">3</span>, max_stability_missing_rate <span class="op">=</span> <span class="fl">0.01</span>,</span></span>
+<span class="r-in"><span>  required_probes <span class="op">=</span> <span class="st">"verbosity"</span>, min_probe_n <span class="op">=</span> <span class="fl">50</span>,</span></span>
+<span class="r-in"><span>  max_probe_flip_rate <span class="op">=</span> <span class="fl">0.1</span>, max_probe_directional_rate <span class="op">=</span> <span class="fl">0.05</span>,</span></span>
+<span class="r-in"><span>  max_probe_missing_rate <span class="op">=</span> <span class="fl">0.01</span></span></span>
+<span class="r-in"><span><span class="op">)</span></span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">yourhonor acceptance policy</span> <span style="color: #00BBBB;">─────────────────────────────────────────────────</span></span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Agreement coefficient: the calibration's Gwet coefficient (gwet_ac1 unweighted,</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> gwet_ac2 weighted).</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Confidence level: 0.95.</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Calibration:</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • agreement lower &gt;= 0.6</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • usable items &gt;= 50</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • class support &gt;= 10</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • recall (I) lower &gt;= 0.5</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • recall (C) lower &gt;= 0.7</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • missing rate &lt;= 0.05</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Stability:</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • pairwise disagreement upper &lt;= 0.1</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • items &gt;= 50</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • runs &gt;= 3</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • missing rate &lt;= 0.01</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Bias (required probes: <span style="color: #0000BB;">"verbosity"</span>):</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • scored items &gt;= 50</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • flip rate upper &lt;= 0.1</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • directional rate upper &lt;= 0.05</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> • missing rate &lt;= 0.01</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Assess it with `report(calibration, policy = &lt;this policy&gt;)`.</span>
+</code></pre></div>
+    </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>
 

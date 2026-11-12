@@ -66,12 +66,24 @@ acceptance_policy(
 
 - max_pairwise_disagreement:
 
-  Maximum stability disagreement. Set `NULL` explicitly when stability
-  is outside this policy.
+  Maximum upper confidence bound for mean pairwise stability
+  disagreement. The upper bound assessed is the stability's
+  `pairwise_disagreement_worst_case_high`, which counts every pair
+  involving a missing judgment as a disagreement over all `n_items`
+  items (see
+  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md));
+  the lower bound is the observed `pairwise_disagreement_conf_low`.
+  Counting missing judgments this way can therefore turn this check's
+  `PASS` into `INDETERMINATE` but never into `FAIL`: a `FAIL` rests on
+  the observed judgments' interval alone, as without the worst case.
+  (Abstaining on runs that agree can still raise that observed interval,
+  since it is the judge's own evidence.) Set `NULL` explicitly when
+  stability is outside this policy.
 
 - min_stability_n:
 
-  Minimum independent items with at least two stability judgments.
+  Minimum independent items with at least two stability judgments
+  (`n_items_scored`; items counted only by the worst case do not count).
   Required when `max_pairwise_disagreement` is not `NULL` and rejected
   otherwise.
 
@@ -83,7 +95,13 @@ acceptance_policy(
 - max_stability_missing_rate:
 
   Maximum fraction of individual repeated judgments that may be missing.
-  Required when stability is in the policy and rejected otherwise.
+  Below this rate missing judgments still count against the disagreement
+  check: its upper bound treats each one as disagreeing with its item's
+  other runs (see `max_pairwise_disagreement`), so a judge cannot pass
+  by abstaining on the items where it is unstable. Only cells of the run
+  matrix are counted: an item or run absent from the evidence entirely
+  is not missing. Required when stability is in the policy and rejected
+  otherwise.
 
 - required_probes:
 
@@ -91,8 +109,14 @@ acceptance_policy(
 
 - min_probe_n:
 
-  Minimum paired comparisons required for every required bias probe.
-  Required when `required_probes` is non-empty and rejected otherwise.
+  Minimum scored items required for every required bias probe: the
+  probe's `n_scored`, the items with a decided judgment in both
+  conditions (see
+  [`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md)).
+  It counts items, not judgments (`n_judgments`) or condition pairs
+  (`n_comparisons`): a position probe over 30 pairs at `repeats = 3` has
+  `n_comparisons = 90` but at most 30 scored items. Required when
+  `required_probes` is non-empty and rejected otherwise.
 
 - max_probe_flip_rate:
 
@@ -165,3 +189,81 @@ Stability and bias thresholds are grouped behind a parent gate:
 must be supplied together with their gate and are rejected without it,
 so a policy can never carry a threshold that the assessment does not
 read.
+
+## Examples
+
+``` r
+# A calibration-only policy: stability and bias are outside it.
+policy <- acceptance_policy(
+  min_agreement_lower = 0.6, min_n = 5, min_class_n = 2,
+  min_recall = 0.6, max_missing_rate = 0.05,
+  max_pairwise_disagreement = NULL
+)
+policy
+#> 
+#> ── yourhonor acceptance policy ─────────────────────────────────────────────────
+#> Agreement coefficient: the calibration's Gwet coefficient (gwet_ac1 unweighted,
+#> gwet_ac2 weighted).
+#> Confidence level: 0.95.
+#> Calibration:
+#> • agreement lower >= 0.6
+#> • usable items >= 5
+#> • class support >= 2
+#> • recall lower >= 0.6
+#> • missing rate <= 0.05
+#> Stability: outside the policy.
+#> Bias: outside the policy.
+#> Assess it with `report(calibration, policy = <this policy>)`.
+
+# Eight items meet the count floors but are too few for the interval
+# checks to pass.
+cal <- calibrate_judge(support_gold, label_levels = c("I", "P", "C"),
+                       n_boot = 200, seed = 1)
+report(cal, policy = policy)$checks
+#> # A tibble: 8 × 6
+#>   check                        status         value op       threshold reason   
+#>   <chr>                        <chr>          <dbl> <chr>        <dbl> <chr>    
+#> 1 usable_items                 PASS          8      >=            5    Sample s…
+#> 2 calibration_confidence_level PASS          0.95   =             0.95 Confiden…
+#> 3 calibration_missing_rate     PASS          0      <=            0.05 Criterio…
+#> 4 agreement_gwet_ac1           INDETERMINATE 0.0795 lower >=      0.6  Interval…
+#> 5 class_support                PASS          2      >=            2    All clas…
+#> 6 recall_I                     INDETERMINATE 0.0126 lower >=      0.6  Interval…
+#> 7 recall_P                     INDETERMINATE 0.0126 lower >=      0.6  Interval…
+#> 8 recall_C                     INDETERMINATE 0.398  lower >=      0.6  Interval…
+
+# Switching a gate on requires its dependent thresholds; class-specific
+# recall floors are a named vector.
+acceptance_policy(
+  min_agreement_lower = 0.6, min_n = 50, min_class_n = 10,
+  min_recall = c(I = 0.5, C = 0.7), max_missing_rate = 0.05,
+  max_pairwise_disagreement = 0.1, min_stability_n = 50,
+  min_stability_runs = 3, max_stability_missing_rate = 0.01,
+  required_probes = "verbosity", min_probe_n = 50,
+  max_probe_flip_rate = 0.1, max_probe_directional_rate = 0.05,
+  max_probe_missing_rate = 0.01
+)
+#> 
+#> ── yourhonor acceptance policy ─────────────────────────────────────────────────
+#> Agreement coefficient: the calibration's Gwet coefficient (gwet_ac1 unweighted,
+#> gwet_ac2 weighted).
+#> Confidence level: 0.95.
+#> Calibration:
+#> • agreement lower >= 0.6
+#> • usable items >= 50
+#> • class support >= 10
+#> • recall (I) lower >= 0.5
+#> • recall (C) lower >= 0.7
+#> • missing rate <= 0.05
+#> Stability:
+#> • pairwise disagreement upper <= 0.1
+#> • items >= 50
+#> • runs >= 3
+#> • missing rate <= 0.01
+#> Bias (required probes: "verbosity"):
+#> • scored items >= 50
+#> • flip rate upper <= 0.1
+#> • directional rate upper <= 0.05
+#> • missing rate <= 0.01
+#> Assess it with `report(calibration, policy = <this policy>)`.
+```

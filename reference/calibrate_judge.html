@@ -13,7 +13,7 @@ acceptance_policy()."><meta property="og:image" content="https://jsizzler.github
 
     <a class="navbar-brand me-2" href="../index.html">yourhonor</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.0.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -23,6 +23,7 @@ acceptance_policy()."><meta property="og:image" content="https://jsizzler.github
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../articles/yourhonor.html">Get started</a></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
+<li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
  <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="../search.json"></form></li>
@@ -82,7 +83,8 @@ precomputed labels from <code>judge_col</code>.</p></dd>
 
 <dt id="arg-input-cols">input_cols<a class="anchor" aria-label="anchor" href="#arg-input-cols"></a></dt>
 <dd><p>Columns visible to <code>judge</code>. Required when <code>judge</code> is a
-function. Human columns and <code>judge_col</code> are forbidden.</p></dd>
+function, and refused when <code>judge = NULL</code>, where no judge receives them.
+Human columns and <code>judge_col</code> are forbidden.</p></dd>
 
 
 <dt id="arg-id-col">id_col<a class="anchor" aria-label="anchor" href="#arg-id-col"></a></dt>
@@ -105,11 +107,13 @@ human-reliability benchmark.</p></dd>
 <dd><p>Complete label universe in intended order. Labels are
 matched exactly (case and whitespace are significant) and empty labels are
 rejected; represent a failed judgement as <code>NA</code>. Required for
-<code>scale = "ordinal"</code>. When <code>NULL</code>, the universe is inferred from the human
-and judge labels together: when factor columns (or a judge returning a
-factor) declare at least two levels between them, those levels come
-first, then any other observed label; otherwise the observed labels in
-the order first seen. A label
+<code>scale = "ordinal"</code>, where a warning is raised when it orders the levels
+of an ordered factor column (a human column, or <code>judge_col</code> when
+<code>judge = NULL</code>) neither forwards nor reversed. When <code>NULL</code>, the universe
+is inferred from the human and judge labels together: when factor
+columns (or a judge returning a factor) declare at least two levels
+between them, those levels come first, then any other observed label;
+otherwise the observed labels in the order first seen. A label
 only the judge used is then a category, not an error; when
 <code>label_levels</code> is supplied, every human and judge label must be in it.</p></dd>
 
@@ -149,13 +153,13 @@ evidence so <code><a href="report.html">report()</a></code> can prevent accident
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>A <code>yourhonor_calibration</code> object with agreement, confusion and
 per-class metrics, human reliability, judge-versus-each-rater agreement,
-item-level evidence, label metadata, and provenance. <code>human_ceiling</code> remains
-as a compatibility alias for <code>human_reliability</code> but is no longer described
-as an upper bound.</p>
+item-level evidence, label metadata, and provenance.</p>
 <p>Item-level elements:</p><ul><li><p><code>items</code>: <code>gold</code> plus <code>.item_id</code> (source-row key), <code>.judge_item_id</code>
 (the shuffled key the judge saw; <code>NA</code> when <code>judge = NULL</code>), the judge
 label, <code>agree</code>, and for several raters <code>human_consensus</code>,
-<code>n_human_observed</code>, and <code>consensus_tie</code>.</p></li>
+<code>n_human_observed</code>, and <code>consensus_tie</code>. These names are reserved: a
+<code>gold</code> column (or <code>judge_col</code>) using one is an error rather than being
+overwritten.</p></li>
 <li><p><code>judge_output</code>: the judge's own returned rows, in the order returned
 by the judge, keyed by <code>.judge_item_id</code> with <code>.item_id</code> joined in and
 <code>label</code> as character; <code>NULL</code> when <code>judge = NULL</code>. The judge must not
@@ -218,7 +222,8 @@ in the gold set. Both are excluded from agreement and counted in
 <code>n_excluded</code>, which <code><a href="acceptance_policy.html">acceptance_policy()</a></code>'s <code>max_missing_rate</code> bounds;
 its optional <code>max_abstention_rate</code> bounds the abstention interval alone,
 because a judge that abstains on hard items looks more accurate on the
-items it did answer.</p>
+items it did answer. A numeric <code>NaN</code>, in a gold column or from <code>judge</code>, is
+read as <code>NA</code>, never as the label <code>"NaN"</code>.</p>
     </div>
 
     <div class="section level2">

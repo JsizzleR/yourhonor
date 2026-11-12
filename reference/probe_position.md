@@ -28,7 +28,11 @@ probe_position(
 
 - data:
 
-  A data frame with separate candidate columns.
+  A data frame with separate candidate columns. Missing candidates are
+  an error, as for
+  [`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md):
+  a pair with an `NA` candidate would otherwise be graded as a real
+  comparison and hide abstention from the missingness gate.
 
 - judge:
 
@@ -182,3 +186,39 @@ only to the position probe are `NA` for pointwise probes.
 
 - `conf_level`, `alpha`, `flip_threshold`, `p_adjust_method`: the
   settings in force for that row.
+
+## Examples
+
+``` r
+pairs <- tibble::tibble(
+  question = paste("question", 1:20),
+  answer_a = paste("A complete, sourced answer to question", 1:20),
+  answer_b = paste("A vague reply to question", 1:20)
+)
+# Picks the complete answer wherever it is shown: no position bias.
+content_judge <- function(d) {
+  ifelse(grepl("complete", d$.candidate_1), "A", "B")
+}
+fair <- probe_position(pairs, content_judge, "answer_a", "answer_b",
+                       context_cols = "question", seed = 1)
+fair[c("flip_rate", "direction", "position_preference", "verdict")]
+#> 
+#> ── yourhonor bias probes ──
+#> 
+#> # A tibble: 1 × 4
+#>   flip_rate direction position_preference verdict  
+#>       <dbl> <chr>                   <dbl> <chr>    
+#> 1         0 balanced                   NA no_signal
+
+# Always picks the first slot, which swapping the display order exposes.
+first_judge <- function(d) rep("A", nrow(d))
+biased <- probe_position(pairs, first_judge, "answer_a", "answer_b",
+                         seed = 1)
+biased[c("flip_rate", "direction", "position_preference", "verdict")]
+#> ── yourhonor bias probes ──
+#> 
+#> # A tibble: 1 × 4
+#>   flip_rate direction    position_preference verdict
+#>       <dbl> <chr>                      <dbl> <chr>  
+#> 1         1 favors_first                   1 BIAS   
+```

@@ -1,54 +1,105 @@
 # Changelog
 
-## yourhonor 0.0.0.9000 (development version, unreleased)
+## yourhonor 0.1.0
 
-Initial development version. Nothing has been released; the list below
-is the feature set as it stands, and the “Review fixes” section records
-what changed during the pre-release code review so that early adopters
-can update their calls.
+- Initial CRAN submission. yourhonor treats an LLM-as-judge as a
+  measurement instrument: it calibrates the judge blind against human
+  raters, puts an interval on every estimate, probes it for bias and
+  test-retest stability, and lets an explicit acceptance policy decide
+  what the evidence supports.
 
-### Features
+### Calibration and agreement
 
 - [`calibrate_judge()`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md)
-  compares judge labels with one or more human raters. A live judge sees
-  only the columns listed in `input_cols`; human columns and `judge_col`
-  are rejected as inputs. Items are shuffled before grading and keyed
-  with a fresh opaque `.item_id`; keyed output is validated and restored
-  to source order. With several raters the reference label is the modal
-  consensus, ties are excluded and counted, and human-human reliability
-  is reported as a benchmark rather than a ceiling.
+  compares a judge’s labels with one or more human raters, either from a
+  live judge function or from labels already in the data. A live judge
+  sees only the columns named in `input_cols`; human columns and the
+  judge-label column are refused as inputs. Items are shuffled before
+  grading and keyed with a fresh opaque `.item_id`, keyed output is
+  validated and restored to source order, and both key spaces are kept
+  (`.item_id`, `.judge_item_id` and a `blinding_map`) so judge-side logs
+  can be joined back without un-blinding the run.
+- With several raters the reference label is the modal consensus (ties
+  are excluded and counted), and human-human reliability is reported as
+  a benchmark, not a ceiling. Judge abstentions (`NA` labels) are
+  reported separately from human gaps, with a Clopper-Pearson interval
+  on the abstention rate.
 - [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md)
   reports Cohen’s kappa, Krippendorff’s alpha, and Gwet’s AC1 (nominal)
-  or AC2 (weighted) with item-bootstrap intervals, a fixed label
-  universe, explicit missingness, and an explicit `status` for
-  degenerate data. Zero-width bootstraps at empirically perfect
-  agreement are flagged unreliable rather than reported as certainty.
+  or AC2 (weighted) with item-bootstrap intervals over a fixed label
+  universe, explicit missingness and an explicit `status` for degenerate
+  data. Point estimates come from irrCAC; the bootstrap scores each
+  resample natively, with identical draws, in bounded memory.
+- Each coefficient also carries `conf_low_exact`, a resampling-free
+  finite-sample lower bound on its observed agreement mapped onto the
+  coefficient’s scale. A boundary-degenerate bootstrap (a zero-width
+  interval at perfect agreement) is flagged unreliable rather than read
+  as certainty.
+  [`vignette("exact-bound")`](https://jsizzler.github.io/yourhonor/articles/exact-bound.md)
+  derives the bound.
 - [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md)
   and
   [`confusion_metrics()`](https://jsizzler.github.io/yourhonor/reference/confusion_metrics.md)
-  give the confusion matrix in declared label order plus per-class
-  support, precision, and recall with exact intervals;
+  give the confusion matrix in the declared label order with per-class
+  support, precision and recall and exact intervals;
   [`plot_confusion()`](https://jsizzler.github.io/yourhonor/reference/plot_confusion.md)
-  draws the matrix with ggplot2.
+  draws it with ggplot2.
+
+### Bias probes
+
 - [`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md)
-  runs pointwise verbosity, self-preference, and bandwagon probes in one
+  runs pointwise verbosity, self-preference and bandwagon probes in one
   blind, randomised batch.
   [`probe_position()`](https://jsizzler.github.io/yourhonor/reference/probe_position.md)
-  swaps structured candidate columns into neutral display slots and maps
-  choices back to stable candidate identity.
-  [`combine_bias()`](https://jsizzler.github.io/yourhonor/reference/combine_bias.md)
-  merges probe evidence under one multiple-comparison family. All three
-  report raw missingness and conservative directional intervals.
+  swaps candidate columns through neutral display slots and maps each
+  choice back to the stable candidate identity.
+- Every probe reports its flip rate, a net directional rate with a
+  conservative interval, a sign-test p-value adjusted across the
+  multiple-comparison family, raw missingness and a verdict. A large but
+  balanced flip rate is reported but never flagged as bias.
+- [`combine_bias()`](https://jsizzler.github.io/yourhonor/reference/combine_bias.md)
+  merges probe runs under one multiple-comparison family.
+
+### Stability
+
 - [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md)
-  re-grades items and reports mean pairwise disagreement with a hybrid
-  bootstrap/Wilson interval, chance-corrected stability, and an any-flip
-  rate that is explicitly tied to the number of runs.
+  re-grades items and reports mean pairwise disagreement between runs
+  with a conservative interval, a chance-corrected stability
+  coefficient, and an any-flip rate tied explicitly to the number of
+  runs.
+- It also reports a worst-case pairwise disagreement in which every pair
+  involving a missing re-run judgment disagrees, so abstaining where the
+  judge is unstable cannot hide instability.
+
+### Acceptance policies and reports
+
 - [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)
-  makes thresholds explicit, including sample-size, class-support,
-  missingness, probe, and stability requirements.
+  makes every threshold a declared parameter: sample size, class
+  support, agreement, per-class recall and precision, missingness and
+  abstention, probe and stability requirements. A threshold supplied
+  without the gate that reads it is an error.
+- [`report()`](https://jsizzler.github.io/yourhonor/reference/report.md)
+  turns the evidence into `PASS`, `FAIL`, `NOT_ASSESSED` or
+  `INDETERMINATE`, check by check, with numeric `value`, `op` and
+  `threshold` columns. Missing evidence is never reported as a pass, and
+  unscored probe items and missing re-run judgments count against the
+  judge in the bounds a policy assesses. Without a policy the report is
+  descriptive. It prints to the console or renders as Markdown, and its
+  agreement and stability headlines show the bound the policy assesses
+  beside the observed interval.
+- Every piece of evidence can carry an `audit_id`, and
   [`report()`](https://jsizzler.github.io/yourhonor/reference/report.md)
-  turns the evidence into `PASS`, `FAIL`, `NOT_ASSESSED`, or
-  `INDETERMINATE` and is descriptive only when no policy is supplied.
+  refuses to bind evidence tagged for a different judge.
+
+### Audit artifacts and vitals
+
+- [`write_audit()`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
+  writes a Markdown report or a versioned, language-neutral JSON summary
+  (`yourhonor.audit.v1`) that omits item rows.
+  [`?write_audit`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
+  documents every field. A field’s JSON number type never changes
+  between runs: counts are integers and every other number is written as
+  a decimal.
 - [`audit_vitals()`](https://jsizzler.github.io/yourhonor/reference/audit_vitals.md)
   and
   [`stability_vitals()`](https://jsizzler.github.io/yourhonor/reference/stability_vitals.md)
@@ -56,360 +107,27 @@ can update their calls.
   another model call;
   [`stability_vitals()`](https://jsizzler.github.io/yourhonor/reference/stability_vitals.md)
   refuses epochs whose judge-visible content changed.
-  [`write_audit()`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
-  writes a Markdown report or a versioned JSON summary
-  (`yourhonor.audit.v1`) that omits item rows.
+- [`vignette("yourhonor")`](https://jsizzler.github.io/yourhonor/articles/yourhonor.md)
+  walks through an audit end to end, with further vignettes on bias
+  probes, stability and vitals, and policies and audit artifacts; an
+  article on the package website shows how to wrap an ellmer chat as a
+  judge.
+
+### Errors and missing values
+
+- Errors carry classes by family (`yourhonor_input_error`,
+  `yourhonor_judge_error`, `yourhonor_policy_error`,
+  `yourhonor_binding_error`), each also of class `yourhonor_error`, so a
+  caller can catch a family without matching message text (see
+  `?yourhonor-errors`).
+- A missing label is `NA` everywhere: a numeric `NaN` from a judge, a
+  precomputed rating column or a vitals score is missing, never the
+  label `"NaN"`, and empty or whitespace-only labels are refused.
+
+### Data
+
 - `support_gold` is an eight-item synthetic dataset for API
   demonstration.
 - `synthetic_gold` is a 200-item synthetic dataset with three simulated
-  raters, sized so an audit can reach a verdict; it drives the README’s
-  end-to-end run and the vignette. Every label is planted and the text
-  is templated.
-
-### Review fixes
-
-User-visible changes made while addressing the pre-release code review.
-
-#### Calibration edge cases ([\#1](https://github.com/JsizzleR/yourhonor/issues/1))
-
-- A calibration whose human (consensus) reference uses a single category
-  now reports `status = "insufficient_reference_variation"` for every
-  coefficient instead of an estimate: Gwet’s AC1 read “almost perfect”
-  there while kappa read zero.
-- Agreement tables gain `conf_low_exact`, a resampling-free
-  finite-sample lower bound on each coefficient’s own observed agreement
-  (irrCAC’s weighted pairwise `pa`), mapped onto the coefficient’s
-  scale. It is Clopper-Pearson for two raters without weights, a
-  binomial stop-loss bound for kappa, AC1, AC2 and two-rater alpha
-  otherwise, and for alpha with three or more raters a relative-entropy
-  bound on its rating-weighted ratio. Near misses earn their weighted
-  credit, so the bound approaches the estimate as items grow for
-  weighted and multi-rater coefficients too. Policies assess the smaller
-  of it and the bootstrap `conf_low` on every sample; on a perfect
-  sample the bootstrap interval is a zero-width point at 1, so the exact
-  bound decides there, and a perfect sample is no longer `INDETERMINATE`
-  where one error could `PASS`. Small-`n` bootstrap optimism no longer
-  reaches a decision. For kappa and alpha on imbalanced labels the bound
-  is weak (it is divided by `1 - pe`) and usually decides the check
-  below a few hundred items.
-- Chance agreement now counts only the categories some rater used, so
-  declaring an unused level no longer moves Gwet’s AC1. Weights still
-  follow the full declared scale, so under weights an unused level still
-  enters the chance term (linear AC2 on levels 1-3: `pe` 0.55 with three
-  declared levels, 0.70 with a fourth). Beyond the observed levels it
-  leaves kappa’s and alpha’s estimates unchanged but lowers their
-  `conf_low_exact`. This applies to
-  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md)
-  too.
-- `ci_reliable` also requires at least 30 finite resamples, so an
-  `n_boot` below 30 can never give a reliable interval; the
-  documentation now says so.
-- [`calibrate_judge()`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md)
-  reports judge abstentions (an `NA` judge label on an item with a human
-  reference) separately from human gaps: `n_judge_abstentions`,
-  `judge_abstention_rate`, and its Clopper-Pearson interval.
-  `acceptance_policy(max_abstention_rate = )` bounds the interval’s
-  upper end. The encoding is documented under “Missing labels and
-  abstentions” in
-  [`?calibrate_judge`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md).
-- [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)’s
-  `coefficient` now defaults to `NULL`, the calibration’s Gwet
-  coefficient (AC1 nominal, AC2 ordinal); the old `"gwet_ac1"` default
-  left an ordinal calibration `NOT_ASSESSED`. When the calibration did
-  not compute that Gwet coefficient (for example
-  `coefficients = "cohen_kappa"`), the agreement check is `NOT_ASSESSED`
-  and the rest of the report is still assessed. Naming a coefficient the
-  calibration did not compute is an error at assessment.
-- The JSON artifact adds `calibration.confusion` (long-form counts),
-  `calibration.per_rater_agreement`, and the abstention fields.
-
-#### Labels and blinding
-
-- Ratings are integer-coded before they reach irrCAC, which upper-cases,
-  trims, and blanks character labels internally. Labels that differ only
-  by case or whitespace now stay distinct in every coefficient and in
-  test-retest stability, matching
-  [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md).
-  Empty or whitespace-only labels are rejected everywhere with a request
-  to use `NA` instead.
-- Inferred label universes union declared factor levels with every label
-  observed in a non-factor column, so
-  [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md)
-  no longer silently drops a pair whose label is absent from a factor’s
-  levels.
-- Blind grading strips element names and free-form attributes from every
-  judge-visible vector, list element, record field, and nested frame,
-  closing a channel through which a column built with
-  [`sapply()`](https://rdrr.io/r/base/lapply.html) over labels or IDs
-  carried them to the judge row-aligned through the shuffle. Structural
-  attributes (class, levels, tzone, units, dim, ptype) are kept; S4
-  objects, environments, and functions inside list columns pass through
-  as is.
-- Calibration results keep both key spaces: `items$.item_id` is the
-  source-row key and `items$.judge_item_id` is the key the judge saw.
-  `cal$blinding_map` maps between them and `cal$judge_output` is keyed
-  by both.
-  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md)
-  returns a parallel `judge_item_ids` matrix. Join judge-side logs on
-  the judge key, never on the row number.
-- A judge that returns a factor declares its own label universe; those
-  levels are kept when `label_levels` is `NULL`.
-  [`stability_vitals()`](https://jsizzler.github.io/yourhonor/reference/stability_vitals.md)
-  likewise uses a factor `score_col`’s levels so declared-but-unobserved
-  labels count toward chance agreement.
-
-#### Agreement and confusion
-
-- [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md)
-  and
-  [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md)
-  gain explicit column arguments (`rater_cols`; `human_col` and
-  `judge_col`). Without them, columns named `human` and `judge` are used
-  when both exist; otherwise
-  [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md)
-  treats every column as a rater and
-  [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md)
-  reads a two-column frame positionally and errors on wider frames. Any
-  inferred choice that ignored or positionally read columns is reported
-  with a message of class `yourhonor_inferred_columns`.
-  [`plot_confusion()`](https://jsizzler.github.io/yourhonor/reference/plot_confusion.md)
-  forwards `...` to
-  [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md).
-- `coefficients` now defaults to `NULL` in
-  [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md)
-  and
-  [`calibrate_judge()`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md),
-  meaning kappa, alpha, and AC1 with AC2 substituted for AC1 under
-  weights. Explicitly requesting `"gwet_ac1"` with weights is an error
-  rather than a silent substitution.
-- `agreement(<calibration>)` inherits every stored setting
-  (`coefficients`, `conf_level`, `n_boot`, `seed`, `label_levels`,
-  `weights`) for arguments left at their default, so
-  `agreement(cal, n_boot = 50)` keeps the stored seed and confidence
-  level. One set of bootstrap resamples is shared by all coefficients
-  within a call.
-- [`plot_confusion()`](https://jsizzler.github.io/yourhonor/reference/plot_confusion.md)
-  keeps the declared label order on both axes instead of sorting
-  alphabetically;
-  [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md)
-  attaches the resolved order as the `"label_levels"` attribute.
-- [`print()`](https://rdrr.io/r/base/print.html) for a calibration shows
-  each coefficient’s interval and interpretation; the interval was
-  previously dropped.
-- The modal-consensus rule for multiple raters, its exclusions
-  (`n_consensus_ties`, `n_insufficient_human_ratings`, `n_excluded`),
-  and its optimistic direction are documented in
-  [`?calibrate_judge`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md).
-
-#### Bias probes
-
-- [`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md)
-  and
-  [`probe_position()`](https://jsizzler.github.io/yourhonor/reference/probe_position.md)
-  return one shared schema (32 columns) built by a single constructor,
-  so pointwise and position rows can always be combined. `n_missing` and
-  `pair_missing_rate` are renamed `n_unscored` and `unscored_rate`;
-  `n_items_missing` (items with at least one `NA` judgment) and
-  `n_directional_items` are reported for every probe. The `evidence` and
-  `item_evidence` attributes are lists named by probe on every object;
-  [`combine_bias()`](https://jsizzler.github.io/yourhonor/reference/combine_bias.md)
-  concatenates them without nesting.
-- [`probe_position()`](https://jsizzler.github.io/yourhonor/reference/probe_position.md)
-  counts an item toward the directional sign test only when it was
-  decided in both display orders and its canonical choice moved with the
-  order, so abstaining on one order no longer reads as a position
-  preference. A tie counts as a decided judgement that commits to
-  neither slot. The directional rate and interval use scored items as
-  the denominator, as the pointwise probes do.
-- A probe with no label movement now enters the multiple-comparison
-  family with `p_value = 1` instead of `NA`; `p_value` is `NA` only when
-  `status == "insufficient_data"`, and
-  [`combine_bias()`](https://jsizzler.github.io/yourhonor/reference/combine_bias.md)
-  recomputes verdicts.
-- `flip_threshold` is now a practical-significance floor on the net
-  `directional_rate`, not on the any-direction `flip_rate`: a large but
-  balanced flip rate is reported but never flagged `"BIAS"`.
-- The directional interval’s upper bound is capped at the flip-rate
-  upper bound over the same denominator, since the net rate can never
-  exceed the any-direction rate.
-- [`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md)
-  aborts when `input` is not a character column or contains `NA`; a
-  pasted `NA` would otherwise be graded as a real answer and hide
-  abstention from the missingness gate.
-
-#### Stability
-
-- The pairwise-disagreement interval is documented as a hybrid: the
-  percentile item bootstrap widened to a Wilson score interval for the
-  mean per-item disagreement. It can only widen. The chance-corrected
-  estimate and its `stability_status` are derived from the same filtered
-  matrix, and the label universe for the coefficient comes from every
-  run.
-
-#### Policy and report
-
-- [`report()`](https://jsizzler.github.io/yourhonor/reference/report.md)
-  always returns a visible `yourhonor_report` list with `decision`,
-  `checks`, and the supplied evidence; `output` only sets the default
-  print rendering. Use `x$decision` instead of `attr(x, "decision")`,
-  and `format(x, output = "md")` or `as.character(x)` for the Markdown
-  lines.
-- `checks` gains numeric `value` and `threshold` columns and an `op`
-  column (`">="`, `"<="`, `"lower >="`, `"upper <="`, `"="`); the old
-  prose `threshold` string is gone. Each required probe yields up to
-  four checks (`bias_<probe>`, `_direction`, `_missing_rate`, `_n`), and
-  printed check lines show `value (op threshold)`.
-- [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)
-  rejects a stability or probe threshold supplied without its gate
-  (`max_pairwise_disagreement` or `required_probes`), so a policy can
-  never carry a threshold the assessment does not read. Those errors and
-  probe-name errors carry class `yourhonor_policy_error`. Every required
-  argument is checked with
-  [`rlang::check_required()`](https://rlang.r-lib.org/reference/check_required.html).
-- Validation errors name the caller’s argument (for example `n_boot`,
-  `ordered_levels`, `choice_levels`) and the calling function rather
-  than an internal helper.
-- The report’s bias summary distinguishes required probes from probes
-  supplied outside the policy, and mentions descriptive signals in the
-  latter.
-
-#### vitals adapters and artifacts
-
-- [`audit_vitals()`](https://jsizzler.github.io/yourhonor/reference/audit_vitals.md)
-  uses `score_col` directly as the judge-label column, so
-  `cal$judge_col`, `cal$items`, and the JSON provenance no longer
-  contain an internal sentinel name. It aborts when the samples already
-  contain a `human_col` column instead of overwriting it, and validates
-  `provenance`.
-- [`write_audit()`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
-  gains `overwrite = FALSE`; an existing file is an error unless
-  `overwrite = TRUE`. JSON is written at full precision (`digits = NA`),
-  every absent value is `null` (never
-  [`{}`](https://rdrr.io/r/base/Paren.html)), vector-by-contract fields
-  (`label_levels`, `coefficients`, `required_probes`, adapter
-  `input_cols` and `human_cols`) are always arrays, class-specific
-  `min_recall` and `min_precision` are objects keyed by class,
-  `created_at` is RFC 3339 UTC (`2026-01-31T12:00:00Z`), and `checks`
-  carries `value`, `op`, and `threshold`. The schema is documented in
-  [`?write_audit`](https://jsizzler.github.io/yourhonor/reference/write_audit.md).
-
-#### Second review pass
-
-- Validation messages that name unknown labels
-  ([`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md),
-  [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md),
-  [`calibrate_judge()`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md),
-  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md),
-  [`stability_vitals()`](https://jsizzler.github.io/yourhonor/reference/stability_vitals.md))
-  render again instead of failing inside cli; absent explicit columns
-  are pluralised, and the label-universe minimum names the actual count
-  (one for agreement and confusion, two for calibration).
-- Printed check lines raise their precision until the value and
-  threshold differ, so a `FAIL` at `0.1005` against `0.1` no longer
-  reads `= 0.1 (<= 0.1)`. `checks$value` is always the quantity `op`
-  compares and is `NA` when the interval is untrusted; the reason then
-  names the cause (a boundary-degenerate bootstrap, too few finite
-  resamples, an unavailable or reversed interval) rather than echoing
-  `status = "ok"`.
-- A required probe smaller than `min_probe_n` is again `INDETERMINATE`
-  under `bias_<probe>` with its interval unassessed, rather than a
-  possible `FAIL`. A probe or calibration at another confidence level
-  withholds only its interval checks (`bias_<probe>_missing_rate` and
-  `_n`, `usable_items`, `calibration_missing_rate`, and `class_support`
-  are still assessed). A duplicated coefficient row or an empty
-  class-metrics table is reported as `INDETERMINATE` or `NOT_ASSESSED`
-  instead of being read silently.
-- [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)
-  rejects an orphan threshold with a readable sentence, and every
-  validation error it raises carries class `yourhonor_policy_error`.
-- The console report prints every class line and the `n of N`
-  judge-evidence line that the Markdown report already had (and, like
-  the Markdown report, tolerates a calibration without class metrics),
-  and a non-required probe whose verdict is `INCONCLUSIVE` is mentioned
-  in the bias summary whether or not the policy names required probes. A
-  check value and threshold that only part beyond 15 significant digits
-  are printed exactly.
-- `agreement(<calibration>, weights = ...)` re-resolves the inherited
-  coefficients under the new weights instead of treating the stored Gwet
-  variant as an explicit, conflicting request.
-  [`confusion()`](https://jsizzler.github.io/yourhonor/reference/confusion.md)
-  and
-  [`confusion_metrics()`](https://jsizzler.github.io/yourhonor/reference/confusion_metrics.md)
-  reject `human_col`/`judge_col` on a calibration object as
-  [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md)
-  rejects `rater_cols`;
-  [`confusion_metrics()`](https://jsizzler.github.io/yourhonor/reference/confusion_metrics.md)
-  applies `label_levels` to a calibration’s or confusion tibble’s stored
-  metrics; frames with duplicated column names are refused; the
-  positional-inference hint names both selectors; and errors from
-  [`confusion_metrics()`](https://jsizzler.github.io/yourhonor/reference/confusion_metrics.md)
-  name it and say whether a calibration object or a confusion tibble was
-  passed. A count above the integer range (for example `n_boot = 1e10`)
-  is rejected with a message naming that bound.
-- The bootstrap draws one resample per iteration, shared by every
-  requested coefficient, instead of materialising an `n x n_boot` index
-  matrix, and draws nothing when no coefficient is estimable.
-- [`combine_bias()`](https://jsizzler.github.io/yourhonor/reference/combine_bias.md)
-  carries over only evidence for probes present in each constituent’s
-  rows, so stale evidence left by row-subsetting cannot shadow a newer
-  run, refuses an unnamed evidence list instead of emptying it, and
-  names given to `...` no longer prefix the evidence names.
-  [`probe_position()`](https://jsizzler.github.io/yourhonor/reference/probe_position.md)
-  reserves `.judge_item_id`, `display_choice`, and `canonical_choice`;
-  [`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md)
-  validates `id_col` on the full data before sampling.
-- Structured judge output returning a `.judge_item_id` column is
-  rejected, and `judge_output$label` is always character.
-  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md)
-  unions a judge’s factor levels with every label observed across runs,
-  and an unused blank factor level is dropped from inferred levels
-  ([`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md),
-  [`stability_vitals()`](https://jsizzler.github.io/yourhonor/reference/stability_vitals.md)).
-  [`stability_vitals()`](https://jsizzler.github.io/yourhonor/reference/stability_vitals.md)
-  documents that level inference applies to unweighted runs only.
-- [`write_audit()`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
-  writes doubles with 17 significant digits so they round-trip exactly,
-  refuses a directory as `path`, and the calibration provenance uses the
-  same RFC 3339 `created_at` as the top level with `NULL` adapter fields
-  (`id_col`, `audit_id`) present as `null`. `provenance` must have
-  unique, non-blank names. Any task whose `$get_samples` is callable is
-  accepted by the vitals adapters.
-
-#### Third review pass
-
-- [`calibrate_judge()`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md)
-  without `label_levels` infers the label set from the human and judge
-  labels together (with factor levels), so a label only the judge used
-  no longer aborts; supplied `label_levels` are still enforced.
-- A structured judge may return `.item_id` as the exact string form of
-  the issued key; any other key gets the package’s own error instead of
-  a vctrs one.
-- [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md)
-  and
-  [`calibrate_judge()`](https://jsizzler.github.io/yourhonor/reference/calibrate_judge.md)
-  reject a repeated coefficient.
-- `interpret_agreement()` bands now match Landis and Koch exactly: 0 is
-  `"slight"`, not `"poor"`.
-- [`agreement()`](https://jsizzler.github.io/yourhonor/reference/agreement.md)
-  on all-missing ratings now says there are no non-missing ratings
-  instead of blaming `label_levels`.
-- The acceptance policy’s bias flip-rate and directional checks now
-  count every unscored probe item (a missing judgment, or a position
-  item lost to a within-condition tie across `repeats`) as a worst-case
-  flip in their upper bounds. A weakly position-biased judge could
-  previously pass at the default `repeats = 2` because its bias landed
-  in ties; it now reads `INDETERMINATE`. Unscored items never cause a
-  `FAIL`, and fully scored probes are assessed exactly as before.
-- [`probe_position()`](https://jsizzler.github.io/yourhonor/reference/probe_position.md)
-  documents that even `repeats` can tie, and that taking the mode
-  attenuates a per-call bias.
-- `conf_low_exact` is now capped at the bound of the perfect samples a
-  sample can be corrected into, so a judge is never assessed above a
-  judge that matches the human reference on the same items. The cap
-  costs most at small `n` with rare categories; coverage is unchanged.
-  Inversions between two imperfect samples remain possible, since
-  correcting an error can lower the estimate itself.
-- The
-  [`write_audit()`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
-  documentation says that “full precision” refers to the stored doubles:
-  irrCAC rounds each coefficient to five decimals.
+  raters, sized so an audit can reach a verdict. Every label is planted
+  and the text is templated; it is not a benchmark.
