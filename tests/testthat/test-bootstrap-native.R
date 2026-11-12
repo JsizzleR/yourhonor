@@ -109,30 +109,47 @@ test_that("native resample values equal irrCAC on random data", {
 
 test_that("a value on a rounding boundary is scored by irrCAC", {
   # Krippendorff's alpha is 7/64 = 0.109375 here, halfway between two
-  # five-decimal values: the native sums round it down to 0.10937 and
-  # irrCAC's own sums round it up to 0.10938, so irrCAC must score it.
+  # five-decimal values. Which side of it a sum of doubles lands on, and so
+  # which way it rounds, depends on the platform's arithmetic (irrCAC's own
+  # sums round it up to 0.10938 on macOS arm64 and Windows, and down to
+  # 0.10937 on Linux x86-64), so the native kernel cannot vouch for its
+  # rounding and irrCAC must score it, whichever way irrCAC rounds.
   ratings <- data.frame(
     r1 = c("a", "a", "a", "c", "b", "c", "a", "a", "a", "c"),
     r2 = c("b", "c", "a", "a", "b", "c", "c", "b", "c", "c")
   )
   levels <- c("a", "b", "c")
-  expected <- safe_coeff_point(
+  oracle_calls <- 0L
+  oracle <- safe_coeff_point
+  local_mocked_bindings(safe_coeff_point = function(...) {
+    oracle_calls <<- oracle_calls + 1L
+    oracle(...)
+  })
+  expected <- oracle(
     ratings, "krippendorff_alpha", "unweighted", levels, levels
   )
-  expect_identical(expected, 0.10938)
+  expect_identical(expected, round(expected, 5))
+  expect_true(round(expected * 1e5) %in% c(10937, 10938))
   kernel <- agreement_kernel(ratings, "unweighted", levels, levels)
   raw <- agreement_kernel_draws(
     kernel, matrix(1, 10, 1), "krippendorff_alpha"
   )$krippendorff_alpha
   expect_true(raw$oracle)
-  expect_false(identical(raw$value, expected))
-  expect_identical(
+  expect_true(round(raw$value * 1e5) %in% c(10937, 10938))
+  resample <- function() {
     native_resample_values(
       kernel, ratings, matrix(seq_len(10), ncol = 1), "krippendorff_alpha",
       "unweighted", levels, levels
-    )$krippendorff_alpha,
-    expected
-  )
+    )$krippendorff_alpha
+  }
+  expect_identical(resample(), expected)
+  expect_identical(oracle_calls, 1L)
+  # Whichever way irrCAC rounds, its value is the one returned, including
+  # the side the native sums did not round to.
+  for (side in c(0.10937, 0.10938)) {
+    local_mocked_bindings(safe_coeff_point = function(...) side)
+    expect_identical(resample(), side)
+  }
   expect_true(near_rounding_boundary(0.109375, 1e-9))
   expect_false(near_rounding_boundary(0.10937, 1e-9))
   expect_false(near_rounding_boundary(NA_real_, 1e-9))
@@ -325,7 +342,8 @@ test_that("native stability resample values equal chance_corrected_stability()",
   # Resamples with fewer than two usable items and with a single category,
   # and runs with declared levels nobody used, were compared, and irrCAC
   # scored only the rare value the native arithmetic could not vouch for
-  # (the boundary test below makes it score one).
+  # (how many depends on the platform's arithmetic; the boundary test below
+  # makes it score one on every platform).
   expect_gt(few_items, 0)
   expect_gt(single_category, 0)
   expect_gt(unused_level_cases, 0)
@@ -336,26 +354,44 @@ test_that("native stability resample values equal chance_corrected_stability()",
 
 test_that("a stability resample on a rounding boundary is scored by irrCAC", {
   # Linear AC2 is 1/64 = 0.015625 here, halfway between two five-decimal
-  # values: the native sums round it down to 0.01562 and irrCAC's own sums
-  # round it up to 0.01563, so irrCAC must score it.
+  # values. As for alpha above, which way a sum of doubles rounds it depends
+  # on the platform (irrCAC's own sums round it up to 0.01563 on macOS arm64
+  # and down to 0.01562 on Linux and Windows x86-64), so irrCAC must score
+  # it, whichever way it rounds.
   runs <- matrix(
     c("b", "a", "b", "b", "c", "b", "b", "c", "b", "c",
       "c", "c", "b", "a", "a"),
     nrow = 5
   )
   levels <- c("a", "b", "c")
-  expected <- chance_corrected_stability(runs, "linear", levels, levels)
-  expect_identical(expected$estimate, 0.01563)
+  oracle_calls <- 0L
+  oracle <- chance_corrected_stability
+  local_mocked_bindings(chance_corrected_stability = function(...) {
+    oracle_calls <<- oracle_calls + 1L
+    oracle(...)
+  })
+  expected <- oracle(runs, "linear", levels, levels)
+  expect_identical(expected$estimate, round(expected$estimate, 5))
+  expect_true(round(expected$estimate * 1e5) %in% c(1562, 1563))
   kernel <- stability_kernel(runs, "linear", levels, levels)
   raw <- agreement_kernel_draws(kernel, matrix(1, 5, 1), "gwet_ac1")$gwet_ac1
   expect_true(raw$oracle)
-  expect_false(identical(raw$value, expected$estimate))
-  expect_identical(
+  expect_true(round(raw$value * 1e5) %in% c(1562, 1563))
+  resample <- function() {
     stability_resample_values(
       kernel, runs, matrix(seq_len(5), ncol = 1), "linear", levels, levels
-    ),
-    expected$estimate
-  )
+    )
+  }
+  expect_identical(resample(), expected$estimate)
+  expect_identical(oracle_calls, 1L)
+  # Whichever way irrCAC rounds, its value is the one returned, including
+  # the side the native sums did not round to.
+  for (side in c(0.01562, 0.01563)) {
+    local_mocked_bindings(
+      chance_corrected_stability = function(...) list(estimate = side)
+    )
+    expect_identical(resample(), side)
+  }
 })
 
 test_that("the native stability bootstrap draws what the irrCAC loop drew", {

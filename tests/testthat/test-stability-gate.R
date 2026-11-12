@@ -568,9 +568,10 @@ test_that("a NaN judgment is missing, not a perfectly stable label", {
   listed <- rows
   listed$score <- as.list(ifelse(is.nan(listed$score), 1, listed$score))
   unstable <- which(match(listed$id, ids) <= 20)
-  listed$score[unstable[c(TRUE, FALSE, FALSE)]] <- list(NA)
-  listed$score[unstable[c(FALSE, TRUE, FALSE)]] <- list(NULL)
-  listed$score[unstable[c(FALSE, FALSE, TRUE)]] <- list(NaN)
+  third <- seq_along(unstable) %% 3L
+  listed$score[unstable[third == 1L]] <- list(NA)
+  listed$score[unstable[third == 2L]] <- list(NULL)
+  listed$score[unstable[third == 0L]] <- list(NaN)
   from_list <- stability_vitals(
     listed, content_cols = "input", n_boot = 20, seed = 1
   )
