@@ -67,25 +67,28 @@ acceptance_policy(
 - max_pairwise_disagreement:
 
   Maximum upper confidence bound for mean pairwise stability
-  disagreement. The upper bound assessed is the stability's
+  disagreement. The interval assessed reads missing judgments both ways,
+  over all `n_items` items (see
+  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md)):
+  its upper bound is the stability's
   `pairwise_disagreement_worst_case_high`, which counts every pair
-  involving a missing judgment as a disagreement over all `n_items`
-  items (see
-  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md));
-  the lower bound is the observed `pairwise_disagreement_conf_low`.
-  Counting missing judgments this way can therefore turn this check's
-  `PASS` into `INDETERMINATE` but never into `FAIL`: a `FAIL` rests on
-  the observed judgments' interval alone, as without the worst case.
-  (Abstaining on runs that agree can still raise that observed interval,
-  since it is the judge's own evidence.) Set `NULL` explicitly when
-  stability is outside this policy.
+  involving a missing judgment as a disagreement, and its lower bound is
+  `pairwise_disagreement_best_case_low`, which gives each missing
+  judgment the label that least disagrees with its item's other runs.
+  Missing judgments can therefore turn this check's `PASS` or `FAIL`
+  into `INDETERMINATE` but never cause either: a `FAIL` holds under the
+  most favourable labels for them, so abstaining on runs that agree
+  cannot fail a judge whose complete evidence would not. With nothing
+  missing both bounds are the observed interval's. (The separate
+  `max_stability_missing_rate` check can still `FAIL` on missingness
+  itself.) Set `NULL` explicitly when stability is outside this policy.
 
 - min_stability_n:
 
   Minimum independent items with at least two stability judgments
-  (`n_items_scored`; items counted only by the worst case do not count).
-  Required when `max_pairwise_disagreement` is not `NULL` and rejected
-  otherwise.
+  (`n_items_scored`; items counted only by the worst or best case do not
+  count). Required when `max_pairwise_disagreement` is not `NULL` and
+  rejected otherwise.
 
 - min_stability_runs:
 
@@ -98,9 +101,11 @@ acceptance_policy(
   Below this rate missing judgments still count against the disagreement
   check: its upper bound treats each one as disagreeing with its item's
   other runs (see `max_pairwise_disagreement`), so a judge cannot pass
-  by abstaining on the items where it is unstable. Only cells of the run
-  matrix are counted: an item or run absent from the evidence entirely
-  is not missing. Required when stability is in the policy and rejected
+  by abstaining on the items where it is unstable, and its lower bound
+  gives each the label that least disagrees with its item's other runs,
+  so abstaining cannot fail a judge either. Only cells of the run matrix
+  are counted: an item or run absent from the evidence entirely is not
+  missing. Required when stability is in the policy and rejected
   otherwise.
 
 - required_probes:
@@ -124,18 +129,33 @@ acceptance_policy(
   upper bound assessed counts every unscored item (one without a usable
   judgment in both conditions; for the position probe this includes
   items lost to a within-condition tie) as a flip over all `n_input`
-  items, so it can exceed the probe's own `conf_high`; the lower bound
-  is the scored items' `conf_low`. Counting them can turn this check's
-  `PASS` into `INDETERMINATE` but never into `FAIL`. Required when
-  `required_probes` is non-empty and rejected otherwise.
+  items, so it can exceed the probe's own `conf_high`. The lower bound
+  leaves out the `n_unscored_tied` items lost to a within-condition tie
+  no answer could break, which are decided evidence rather than missing
+  and stay out of it as they do of the scored items' `conf_low`, and
+  counts every other unscored item (each has a missing judgment) as
+  unflipped, over the remaining items (it is never above that
+  `conf_low`). Missing judgments can therefore turn this check's `PASS`
+  or `FAIL` into `INDETERMINATE`: a `FAIL` holds however the unscored
+  items they leave would have been resolved. For the position probe this
+  covers unscored items only: with `repeats >= 2` a scored item can also
+  have missing repeats, and both bounds take its modal choice as
+  observed, so missing repeats there can still cause a `FAIL` or, within
+  the missing-rate tolerance, turn a deserved `FAIL` into a `PASS`. (The
+  separate `max_probe_missing_rate` check can still `FAIL` on
+  missingness itself.) Required when `required_probes` is non-empty and
+  rejected otherwise.
 
 - max_probe_directional_rate:
 
   Maximum practically tolerable net directional effect, assessed against
   a conservative confidence interval whose upper bound counts every
-  unscored item towards the worse direction, as for
-  `max_probe_flip_rate`. Required when `required_probes` is non-empty
-  and rejected otherwise.
+  unscored item towards the worse direction, and whose lower bound
+  resolves the unscored items that `max_probe_flip_rate`'s lower bound
+  completes (every one not in `n_unscored_tied`) in the way that most
+  cancels the observed direction (as flips the other way, or unflipped),
+  over the same `n_input - n_unscored_tied` items. Required when
+  `required_probes` is non-empty and rejected otherwise.
 
 - max_probe_missing_rate:
 
@@ -189,6 +209,10 @@ Stability and bias thresholds are grouped behind a parent gate:
 must be supplied together with their gate and are rejected without it,
 so a policy can never carry a threshold that the assessment does not
 read.
+
+A count or rate a check needs that is not a finite number (an `NA`
+missing rate, say) makes that check `INDETERMINATE`: unavailable
+evidence neither passes nor fails.
 
 ## Examples
 

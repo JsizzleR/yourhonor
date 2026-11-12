@@ -109,7 +109,24 @@ and never below `pairwise_disagreement_conf_high`. With no missing
 judgment it equals `pairwise_disagreement_conf_high`, and it is `NA`
 when that is (no item has two judgments). This is the upper bound
 [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)
-assesses. A numeric `NaN` judgment is missing, not a label.
+assesses.
+
+Missing judgments can also raise the observed disagreement, when the
+runs a judge left out are ones that agreed. The best-case fields bound
+that side: `pairwise_disagreement_best_case` is the mean over all
+`n_items` items of the smallest per-item disagreement any labels for the
+missing judgments could give, which each missing judgment's taking its
+item's most common observed label achieves (an item with fewer than two
+judgments counts as 0; `per_item$pairwise_disagreement_best_case` holds
+the per-item values), and `pairwise_disagreement_best_case_low` is its
+lower bound, computed like the observed one on the same bootstrap draws
+(widened to the Wilson interval over `n_items`) and never above
+`pairwise_disagreement_conf_low`. With no missing judgment it equals
+`pairwise_disagreement_conf_low`, and it is `NA` when that is. This is
+the lower bound
+[`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)
+assesses, so a `FAIL` holds under the most favourable labels for the
+missing judgments. A numeric `NaN` judgment is missing, not a label.
 
 `any_flip_rate_at_n_runs` is over the `n_items_complete` items with
 every run observed (`NA` when there are none), since an incomplete item

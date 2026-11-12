@@ -92,6 +92,12 @@ probes.
   `n_input`. Includes position items lost to within-condition ties, so
   it can exceed `n_items_missing`.
 
+- `n_unscored_tied`: position items lost to a within-condition tie that
+  no answer could break: a display order judged in every repeat whose
+  modal choice is tied, whatever the other order's missing judgments.
+  Always 0 for pointwise probes, where an item is unscored only through
+  a missing judgment.
+
 - `n_items_missing`: items with at least one `NA` judgment.
 
 - `n_judgments`, `n_judgments_missing`, `missing_rate`: individual judge
@@ -99,9 +105,13 @@ probes.
   directly by
   [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)'s
   `max_probe_missing_rate`; unscored items also enter the policy's
-  flip-rate and directional upper bounds as worst-case flips, so the
-  bounds a policy assesses can exceed this row's `conf_high` and
-  `directional_conf_high`, which describe the scored items.
+  flip-rate and directional bounds over `n_input`, against the judge in
+  the upper bounds and in its favour in the lower bounds (which leave
+  out the `n_unscored_tied` items, so their denominator is
+  `n_input - n_unscored_tied`), so the intervals a policy assesses can
+  be wider than this row's `conf_low`-`conf_high` and
+  `directional_conf_low`-`directional_conf_high`, which describe the
+  scored items.
 
 - `n_comparisons`: condition pairs judged (`n_input` pointwise;
   `n_input * repeats` position).

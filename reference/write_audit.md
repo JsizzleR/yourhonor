@@ -110,12 +110,17 @@ exponent (`0.0`, `1.0`), even when it is whole. Top-level members:
   assessed, which for a bias probe's flip-rate and directional checks
   counts every unscored item against the probe over `n_input`: as a flip
   for the flip rate, towards the worse direction for the directional
-  rate, and for the stability disagreement check counts every pair
-  involving a missing judgment as a disagreement over all `n_items`, so
-  it can exceed `stability.pairwise_disagreement_conf_high`), `op` (the
-  comparison the check encodes: `">="`, `"<="`, `"lower >="`,
-  `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without
-  a policy the single placeholder check has `null` `op` and `threshold`.
+  rate, and for the stability disagreement check is
+  `stability.pairwise_disagreement_worst_case_high`, which counts every
+  pair involving a missing judgment as a disagreement over all
+  `n_items`, so it can exceed
+  `stability.pairwise_disagreement_conf_high`; only when that worst-case
+  bound is unavailable (not a number from 0 to 1, or below the observed
+  upper unless the evidence shows nothing missing) does a stability
+  `FAIL` report the observed upper), `op` (the comparison the check
+  encodes: `">="`, `"<="`, `"lower >="`, `"upper <="`, or `"="`), a
+  numeric `threshold`, and `reason`. Without a policy the single
+  placeholder check has `null` `op` and `threshold`.
 
 - `calibration`: `n_input`, `n_items`, `n_excluded`, `n_consensus_ties`,
   `n_insufficient_human_ratings`, `n_judge_abstentions`,
@@ -131,7 +136,10 @@ exponent (`0.0`, `1.0`), even when it is whole. Top-level members:
   `prop`, so a reader can rebuild the matrix in `label_levels` order.
 
 - `bias`: `null`, or `audit_id` plus `results`, an array of row objects
-  with the columns of the bias tibble.
+  with the columns of the bias tibble (see
+  [`probe_bias()`](https://jsizzler.github.io/yourhonor/reference/probe_bias.md)),
+  among them `n_unscored_tied`, an additive column of
+  `yourhonor.audit.v1`.
 
 - `stability`: `null`, or the summary fields of a `yourhonor_stability`
   object (see
@@ -143,8 +151,16 @@ exponent (`0.0`, `1.0`), even when it is whole. Top-level members:
   with its observed `pairwise_disagreement_conf_low` and
   `pairwise_disagreement_conf_high`, `percent_agreement`
   (`1 - pairwise_disagreement`, a proportion despite its name),
-  `any_flip_rate_at_n_runs`, the chance-corrected agreement as
-  `gwet_agreement`, `gwet_coefficient`, `gwet_conf_low`,
+  `any_flip_rate_at_n_runs`, the bounds for missing judgments (the
+  policy assesses `pairwise_disagreement_worst_case_high` and
+  `pairwise_disagreement_best_case_low`; `n_items_complete`, the items
+  with every run observed; `pairwise_disagreement_worst_case` and its
+  upper bound `pairwise_disagreement_worst_case_high`;
+  `any_flip_rate_worst_case`; `pairwise_disagreement_best_case` and its
+  lower bound `pairwise_disagreement_best_case_low`; see
+  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md);
+  additive members of `yourhonor.audit.v1`), the chance-corrected
+  agreement as `gwet_agreement`, `gwet_coefficient`, `gwet_conf_low`,
   `gwet_conf_high`, `gwet_status` and `gwet_boundary_degenerate` (the
   object's `stability`, `stability_coefficient`, `stability_conf_low`,
   `stability_conf_high`, `stability_status` and

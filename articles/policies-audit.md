@@ -164,8 +164,9 @@ verdict
 [`report()`](https://jsizzler.github.io/yourhonor/reference/report.md)
 returns a `yourhonor_report` whichever `output` you choose; `output`
 only sets the default rendering. `verdict$decision` is the overall
-outcome, `verdict$checks` holds one row per check with the observed
-`value`, the comparison `op`, and the numeric `threshold`, and
+outcome, `verdict$checks` holds one row per check with the `value`
+compared with the threshold (for an interval check, the bound assessed),
+the comparison `op`, and the numeric `threshold`, and
 `format(verdict, output = "md")` gives the Markdown lines.
 
 ``` r

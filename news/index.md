@@ -69,7 +69,10 @@
   runs.
 - It also reports a worst-case pairwise disagreement in which every pair
   involving a missing re-run judgment disagrees, so abstaining where the
-  judge is unstable cannot hide instability.
+  judge is unstable cannot hide instability, and a best-case
+  disagreement in which each missing judgment takes its item’s most
+  common label, so abstaining on runs that agree cannot fail a stable
+  judge.
 
 ### Acceptance policies and reports
 
@@ -81,11 +84,17 @@
 - [`report()`](https://jsizzler.github.io/yourhonor/reference/report.md)
   turns the evidence into `PASS`, `FAIL`, `NOT_ASSESSED` or
   `INDETERMINATE`, check by check, with numeric `value`, `op` and
-  `threshold` columns. Missing evidence is never reported as a pass, and
-  unscored probe items and missing re-run judgments count against the
-  judge in the bounds a policy assesses. Without a policy the report is
+  `threshold` columns. Unscored probe items and missing re-run judgments
+  count against the judge in the upper bounds a policy assesses and in
+  its favour in the lower bounds (position ties no answer could break
+  stay out of them), so missing evidence can keep a check from passing
+  or failing but not cause either; the missing-rate checks gate
+  missingness itself. The position probe’s bounds cover its unscored
+  items, not missing repeats of an item it still scores. A count or
+  missing rate that is not a finite number makes its check
+  `INDETERMINATE`, not `FAIL`. Without a policy the report is
   descriptive. It prints to the console or renders as Markdown, and its
-  agreement and stability headlines show the bound the policy assesses
+  agreement and stability headlines show the bounds the policy assesses
   beside the observed interval.
 - Every piece of evidence can carry an `audit_id`, and
   [`report()`](https://jsizzler.github.io/yourhonor/reference/report.md)
@@ -95,7 +104,8 @@
 
 - [`write_audit()`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
   writes a Markdown report or a versioned, language-neutral JSON summary
-  (`yourhonor.audit.v1`) that omits item rows.
+  (`yourhonor.audit.v1`) that omits item rows. It carries the stability
+  worst- and best-case bounds and each bias probe’s `n_unscored_tied`.
   [`?write_audit`](https://jsizzler.github.io/yourhonor/reference/write_audit.md)
   documents every field. A field’s JSON number type never changes
   between runs: counts are integers and every other number is written as

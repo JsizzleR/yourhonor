@@ -92,7 +92,19 @@ for the position probe also includes within-condition ties. A policy’s
 upper bounds count every unscored item against the judge, over all
 supplied items: as a flip in the flip-rate bound, and as a flip in
 whichever single direction gives the larger bound in the directional
-one.
+one. Its lower bounds, which a `FAIL` must clear, resolve in the judge’s
+favour the unscored items that a completion of their missing judgments
+could score: as unflipped in the flip-rate bound, and in the way that
+most cancels the observed direction in the directional one. Items lost
+to a within-condition tie no answer could break (`n_unscored_tied`: a
+display order judged in every repeat whose choices tie) are decided
+evidence, not missing, so they stay out of the lower bounds. Abstention
+can therefore keep a probe from passing, but cannot fail it through the
+items it leaves unscored. (With `repeats >= 2` a position item can stay
+scored with some repeats missing; its modal choice is taken as observed
+in both bounds, so those missing repeats can still cause a `FAIL` or,
+within the missing-rate tolerance, turn a deserved `FAIL` into a
+`PASS`.)
 
 ``` r
 

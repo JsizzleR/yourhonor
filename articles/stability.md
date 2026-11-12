@@ -42,8 +42,12 @@ runs; the interval can only widen, never narrow. A missing judgment is
 left out of that interval, so a policy does not gate it alone: it
 assesses a worst-case upper bound in which every missing judgment
 disagrees with its item’s other runs, so a judge cannot pass by
-abstaining where it is unstable. The any-flip rate is also shown but is
-explicitly tied to the chosen number of runs.
+abstaining where it is unstable, and a best-case lower bound in which
+each missing judgment takes the label that least disagrees with its
+item’s other runs, so abstaining on runs that agree cannot fail a judge
+either. With nothing missing both are the interval’s own bounds. The
+any-flip rate is also shown but is explicitly tied to the chosen number
+of runs.
 
 The labels are ordered, so the chance-corrected stability coefficient is
 weighted like the calibration: with `weights = "ordinal"` it is Gwet’s
