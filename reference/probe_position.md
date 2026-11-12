@@ -67,7 +67,9 @@ probe_position(
   vote ties and leaves the item unscored. An odd number avoids two-way
   ties when the judge returns no tie label and no `NA`; an acceptance
   policy counts unscored items against the probe in its upper bounds, so
-  they can keep it from passing (see
+  they can keep it from passing, and so do scored items whose missing
+  repeats could change their outcome, which it reads from the `evidence`
+  attribute (see
   [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)'s
   `max_probe_flip_rate`). Taking the mode also attenuates a bias that
   appears on a minority of calls: a judge that, independently on each
@@ -97,9 +99,11 @@ probe_position(
 A one-row `yourhonor_bias` tibble (see *Result columns*) with the
 attributes `audit_id`, `evidence`, and `item_evidence`. Both evidence
 attributes are lists with one `"position"` element: `evidence` holds one
-row per judgment (condition, repeat, display and canonical choice);
-`item_evidence` holds one row per item (modal choice per condition,
-`flipped`, `display_first_rate`, `position_direction`).
+row per judgment (condition, repeat, display and canonical choice), and
+records `tie_label` as its attribute of that name (`NA` when none), so
+an acceptance policy knows which answers a missing judgment could have
+been; `item_evidence` holds one row per item (modal choice per
+condition, `flipped`, `display_first_rate`, `position_direction`).
 
 ## Result columns
 
@@ -178,7 +182,10 @@ only to the position probe are `NA` for pointwise probes.
   `n_input - n_unscored_tied`), so the intervals a policy assesses can
   be wider than this row's `conf_low`-`conf_high` and
   `directional_conf_low`-`directional_conf_high`, which describe the
-  scored items.
+  scored items. So do scored position items whose missing repeats could
+  change their outcome (see
+  [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)'s
+  `max_probe_flip_rate`).
 
 - `n_comparisons`: condition pairs judged (`n_input` pointwise;
   `n_input * repeats` position).

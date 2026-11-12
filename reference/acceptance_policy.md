@@ -137,25 +137,38 @@ acceptance_policy(
   unflipped, over the remaining items (it is never above that
   `conf_low`). Missing judgments can therefore turn this check's `PASS`
   or `FAIL` into `INDETERMINATE`: a `FAIL` holds however the unscored
-  items they leave would have been resolved. For the position probe this
-  covers unscored items only: with `repeats >= 2` a scored item can also
-  have missing repeats, and both bounds take its modal choice as
-  observed, so missing repeats there can still cause a `FAIL` or, within
-  the missing-rate tolerance, turn a deserved `FAIL` into a `PASS`. (The
-  separate `max_probe_missing_rate` check can still `FAIL` on
-  missingness itself.) Required when `required_probes` is non-empty and
-  rejected otherwise.
+  items they leave would have been resolved. With `repeats >= 2` a
+  position item can stay scored with some repeats missing; when some
+  answers for them could change its outcome (whether it is scored,
+  whether it flips, or its direction), both bounds treat it like an
+  unscored item with a missing judgment, except that it moves only in a
+  direction those answers could reach. When some of them would leave it
+  unscored, the upper bound moves it either way, while the lower bound
+  counts it as unflipped unless they can flip it. The tie label counts
+  as a possible answer when the probe used one, or when the probe's
+  evidence does not record whether it did. Those items are found from
+  the probe's per-judgment evidence (the `evidence` attribute of
+  [`probe_position()`](https://jsizzler.github.io/yourhonor/reference/probe_position.md)'s
+  result); when a scored item may have a missing repeat and that
+  evidence is absent or does not reproduce the probe's counts, neither
+  interval is assessed (`INDETERMINATE`). (The separate
+  `max_probe_missing_rate` check can still `FAIL` on missingness
+  itself.) Required when `required_probes` is non-empty and rejected
+  otherwise.
 
 - max_probe_directional_rate:
 
   Maximum practically tolerable net directional effect, assessed against
   a conservative confidence interval whose upper bound counts every
-  unscored item towards the worse direction, and whose lower bound
-  resolves the unscored items that `max_probe_flip_rate`'s lower bound
-  completes (every one not in `n_unscored_tied`) in the way that most
-  cancels the observed direction (as flips the other way, or unflipped),
-  over the same `n_input - n_unscored_tied` items. Required when
-  `required_probes` is non-empty and rejected otherwise.
+  unscored item, and every scored position item that
+  `max_probe_flip_rate` resolves, towards the worse direction it can
+  reach, and whose lower bound resolves the unscored items that
+  `max_probe_flip_rate`'s lower bound completes (every one not in
+  `n_unscored_tied`, and those scored position items) in the way that
+  most cancels the observed direction (as flips the other way where
+  their repeats can reach it, or unflipped), over the same
+  `n_input - n_unscored_tied` items. Required when `required_probes` is
+  non-empty and rejected otherwise.
 
 - max_probe_missing_rate:
 

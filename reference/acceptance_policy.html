@@ -175,11 +175,20 @@ rather than missing and stay out of it as they do of the scored items'
 judgment) as unflipped, over the remaining items (it is never above
 that <code>conf_low</code>). Missing judgments can therefore turn this
 check's <code>PASS</code> or <code>FAIL</code> into <code>INDETERMINATE</code>: a <code>FAIL</code> holds however the
-unscored items they leave would have been resolved. For the position
-probe this covers unscored items only: with <code>repeats &gt;= 2</code> a scored item
-can also have missing repeats, and both bounds take its modal choice as
-observed, so missing repeats there can still cause a <code>FAIL</code> or, within
-the missing-rate tolerance, turn a deserved <code>FAIL</code> into a <code>PASS</code>. (The
+unscored items they leave would have been resolved. With <code>repeats &gt;= 2</code>
+a position item can stay scored with some repeats missing; when some
+answers for them could change its outcome (whether it is scored,
+whether it flips, or its direction), both bounds treat it like an
+unscored item with a missing judgment, except that it moves only in a
+direction those answers could reach. When some of them would leave it
+unscored, the upper bound moves it either way, while the lower bound
+counts it as unflipped unless they can flip it. The tie label counts
+as a possible answer when the probe used one, or when the probe's
+evidence does not record whether it did. Those items are found from the probe's per-judgment
+evidence (the <code>evidence</code> attribute of <code><a href="probe_position.html">probe_position()</a></code>'s result);
+when a scored item may have a missing repeat and that evidence is
+absent or does not reproduce the probe's counts, neither interval is
+assessed (<code>INDETERMINATE</code>). (The
 separate <code>max_probe_missing_rate</code> check can still <code>FAIL</code> on missingness
 itself.) Required when <code>required_probes</code> is non-empty and rejected
 otherwise.</p></dd>
@@ -188,11 +197,14 @@ otherwise.</p></dd>
 <dt id="arg-max-probe-directional-rate">max_probe_directional_rate<a class="anchor" aria-label="anchor" href="#arg-max-probe-directional-rate"></a></dt>
 <dd><p>Maximum practically tolerable net
 directional effect, assessed against a conservative confidence interval
-whose upper bound counts every unscored item towards the worse direction,
-and whose lower bound resolves the unscored items that
+whose upper bound counts every unscored item, and every scored position
+item that <code>max_probe_flip_rate</code> resolves, towards the worse direction
+it can reach, and whose lower bound resolves the unscored items that
 <code>max_probe_flip_rate</code>'s lower bound completes (every one not in
-<code>n_unscored_tied</code>) in the way that most cancels the observed direction
-(as flips the other way, or unflipped), over the same
+<code>n_unscored_tied</code>, and those scored position items) in the
+way that most cancels the observed direction
+(as flips the other way where their repeats can reach it, or
+unflipped), over the same
 <code>n_input - n_unscored_tied</code> items. Required when <code>required_probes</code> is
 non-empty and rejected otherwise.</p></dd>
 

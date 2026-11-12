@@ -100,11 +100,19 @@ to a within-condition tie no answer could break (`n_unscored_tied`: a
 display order judged in every repeat whose choices tie) are decided
 evidence, not missing, so they stay out of the lower bounds. Abstention
 can therefore keep a probe from passing, but cannot fail it through the
-items it leaves unscored. (With `repeats >= 2` a position item can stay
-scored with some repeats missing; its modal choice is taken as observed
-in both bounds, so those missing repeats can still cause a `FAIL` or,
-within the missing-rate tolerance, turn a deserved `FAIL` into a
-`PASS`.)
+items it leaves unscored. With `repeats >= 2` a position item can also
+stay scored with some repeats missing. When answers for them could
+change its outcome, both bounds treat it like an unscored item, moving
+it only in a direction those answers could reach (in the upper bound
+either way when some of them would leave it unscored; in the lower bound
+it then counts as unflipped unless they can flip it), so abstaining on
+chosen repeats can neither fail the probe nor pass a judge that would
+have failed. The policy reads those items from the probe’s per-judgment
+evidence, so keep the
+[`probe_position()`](https://jsizzler.github.io/yourhonor/reference/probe_position.md)
+result whole: when a scored item may have a missing repeat and that
+evidence is missing or does not match the probe’s counts, the two
+interval checks are `INDETERMINATE`.
 
 ``` r
 

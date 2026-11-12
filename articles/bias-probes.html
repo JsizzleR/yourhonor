@@ -149,12 +149,19 @@ within-condition tie no answer could break
 (<code>n_unscored_tied</code>: a display order judged in every repeat
 whose choices tie) are decided evidence, not missing, so they stay out
 of the lower bounds. Abstention can therefore keep a probe from passing,
-but cannot fail it through the items it leaves unscored. (With
-<code>repeats &gt;= 2</code> a position item can stay scored with some
-repeats missing; its modal choice is taken as observed in both bounds,
-so those missing repeats can still cause a <code>FAIL</code> or, within
-the missing-rate tolerance, turn a deserved <code>FAIL</code> into a
-<code>PASS</code>.)</p>
+but cannot fail it through the items it leaves unscored. With
+<code>repeats &gt;= 2</code> a position item can also stay scored with
+some repeats missing. When answers for them could change its outcome,
+both bounds treat it like an unscored item, moving it only in a
+direction those answers could reach (in the upper bound either way when
+some of them would leave it unscored; in the lower bound it then counts
+as unflipped unless they can flip it), so abstaining on chosen repeats
+can neither fail the probe nor pass a judge that would have failed. The
+policy reads those items from the probe’s per-judgment evidence, so keep
+the <code><a href="../reference/probe_position.html">probe_position()</a></code> result whole: when a scored item may
+have a missing repeat and that evidence is missing or does not match the
+probe’s counts, the two interval checks are
+<code>INDETERMINATE</code>.</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">bias</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"probe"</span>, <span class="st">"n_scored"</span>, <span class="st">"n_unscored"</span>, <span class="st">"unscored_rate"</span>, <span class="st">"missing_rate"</span><span class="op">)</span><span class="op">]</span></span>
 <span><span class="co">#&gt; ── yourhonor bias probes ──</span></span>

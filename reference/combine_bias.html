@@ -129,7 +129,9 @@ the lower bounds (which leave out the <code>n_unscored_tied</code> items, so the
 denominator is <code>n_input - n_unscored_tied</code>), so the intervals a policy
 assesses can be wider than this row's <code>conf_low</code>-<code>conf_high</code> and
 <code>directional_conf_low</code>-<code>directional_conf_high</code>, which describe the
-scored items.</p></li>
+scored items. So do scored position items whose missing repeats could
+change their outcome (see <code><a href="acceptance_policy.html">acceptance_policy()</a></code>'s
+<code>max_probe_flip_rate</code>).</p></li>
 <li><p><code>n_comparisons</code>: condition pairs judged (<code>n_input</code> pointwise;
 <code>n_input * repeats</code> position).</p></li>
 <li><p><code>p_value</code>: exact sign-test p-value over <code>n_directional_items</code>; <code>1</code> when

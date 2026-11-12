@@ -178,7 +178,10 @@ only to the position probe are `NA` for pointwise probes.
   `n_input - n_unscored_tied`), so the intervals a policy assesses can
   be wider than this row's `conf_low`-`conf_high` and
   `directional_conf_low`-`directional_conf_high`, which describe the
-  scored items.
+  scored items. So do scored position items whose missing repeats could
+  change their outcome (see
+  [`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)'s
+  `max_probe_flip_rate`).
 
 - `n_comparisons`: condition pairs judged (`n_input` pointwise;
   `n_input * repeats` position).

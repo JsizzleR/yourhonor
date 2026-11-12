@@ -108,7 +108,9 @@ condition's judgment is the mode across repeats, so with an even number
 a split vote ties and leaves the item unscored. An odd number avoids
 two-way ties when the judge returns no tie label and no <code>NA</code>; an
 acceptance policy counts unscored items against the probe in its upper
-bounds, so they can keep it from passing (see <code><a href="acceptance_policy.html">acceptance_policy()</a></code>'s
+bounds, so they can keep it from passing, and so do scored items whose
+missing repeats could change their outcome, which it reads from the
+<code>evidence</code> attribute (see <code><a href="acceptance_policy.html">acceptance_policy()</a></code>'s
 <code>max_probe_flip_rate</code>). Taking the mode also
 attenuates a bias that appears on a minority of calls: a judge that,
 independently on each call, takes the first slot with probability
@@ -138,7 +140,10 @@ the related calibration and stability run.</p></dd>
     <p>A one-row <code>yourhonor_bias</code> tibble (see <em>Result columns</em>) with the
 attributes <code>audit_id</code>, <code>evidence</code>, and <code>item_evidence</code>. Both evidence
 attributes are lists with one <code>"position"</code> element: <code>evidence</code> holds one
-row per judgment (condition, repeat, display and canonical choice);
+row per judgment (condition, repeat, display and canonical choice), and
+records <code>tie_label</code> as its attribute of that name (<code>NA</code> when none), so
+an acceptance policy knows which answers a missing judgment could have
+been;
 <code>item_evidence</code> holds one row per item (modal choice per condition,
 <code>flipped</code>, <code>display_first_rate</code>, <code>position_direction</code>).</p>
     </div>
@@ -199,7 +204,9 @@ the lower bounds (which leave out the <code>n_unscored_tied</code> items, so the
 denominator is <code>n_input - n_unscored_tied</code>), so the intervals a policy
 assesses can be wider than this row's <code>conf_low</code>-<code>conf_high</code> and
 <code>directional_conf_low</code>-<code>directional_conf_high</code>, which describe the
-scored items.</p></li>
+scored items. So do scored position items whose missing repeats could
+change their outcome (see <code><a href="acceptance_policy.html">acceptance_policy()</a></code>'s
+<code>max_probe_flip_rate</code>).</p></li>
 <li><p><code>n_comparisons</code>: condition pairs judged (<code>n_input</code> pointwise;
 <code>n_input * repeats</code> position).</p></li>
 <li><p><code>p_value</code>: exact sign-test p-value over <code>n_directional_items</code>; <code>1</code> when
