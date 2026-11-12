@@ -100,6 +100,20 @@ had fewer chances to flip; under selective abstention it describes
 complete items only. \code{any_flip_rate_worst_case} counts every item with
 an observed flip or a missing judgment as flipped, over all \code{n_items}.
 
+\code{bootstrap_seed} is the random-number state (\code{.Random.seed}) the item
+bootstrap started from, or \code{NULL} for a user-supplied generator.
+\code{\link[=acceptance_policy]{acceptance_policy()}} does not trust the stored bounds: it replays the
+bootstrap from \code{runs}, \code{n_boot}, \code{conf_level} and this state, rebuilds
+the four pairwise-disagreement bounds,
+\code{pairwise_ci_reliable}, \code{n_items}, \code{n_runs}, \code{n_items_scored} and
+\code{missing_rate}, and assesses the rebuilt values. Evidence whose stored
+values do not match the rebuild, or that cannot be rebuilt (for
+example no run matrix, or no state with \code{n_boot} above 0, as from a
+user-supplied generator, whose evidence therefore always reads
+\code{INDETERMINATE}), makes every stability check \code{INDETERMINATE}, so an
+edited bound can neither pass nor fail a judge.
+Replaying draws nothing from the caller's random-number stream.
+
 \code{runs} holds labels in source-row order. Because every run is graded
 under a fresh shuffled key, \code{judge_item_ids} is an integer matrix parallel
 to \code{runs} whose entry \verb{[i, r]} is the \code{.item_id} the judge saw for source

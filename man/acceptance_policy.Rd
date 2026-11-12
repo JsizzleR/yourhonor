@@ -62,7 +62,11 @@ favourable labels for them, so abstaining on runs that agree cannot
 fail a judge whose complete evidence would not. With nothing missing
 both bounds are the observed interval's. (The separate
 \code{max_stability_missing_rate} check can still \code{FAIL} on missingness
-itself.) Set \code{NULL} explicitly when stability is outside this policy.}
+itself.) Every bound and count the stability checks read is rebuilt
+from the evidence's \code{runs} and \code{bootstrap_seed} (see \code{\link[=test_retest]{test_retest()}});
+evidence that cannot be rebuilt, or whose stored values do not match
+the rebuild, makes every stability check \code{INDETERMINATE}. Set \code{NULL}
+explicitly when stability is outside this policy.}
 
 \item{min_stability_n}{Minimum independent items with at least two stability
 judgments (\code{n_items_scored}; items counted only by the worst or best

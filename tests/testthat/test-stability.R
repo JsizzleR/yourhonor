@@ -467,3 +467,365 @@ test_that("the pre-release flip_rate alias is gone", {
   expect_false("flip_rate" %in% names(st))
   expect_true("any_flip_rate_at_n_runs" %in% names(st))
 })
+
+# A stability object's bounds and counts rebuilt from its own runs and
+# bootstrap state (verify_stability_evidence()), and what refuses a rebuild.
+random_stability_runs <- function(i) {
+  withr::with_seed(i, {
+    n <- sample(c(1:6, 40, 150), 1)
+    r <- sample(2:5, 1)
+    runs <- matrix(
+      sample(c("A", "B", "C"), n * r, TRUE, prob = c(0.7, 0.2, 0.1)), n, r
+    )
+    holes <- sample(c(0, 0.05, 0.3), 1)
+    runs[stats::runif(n * r) < holes] <- NA
+    if (all(is.na(runs))) runs[1, 1] <- "A"
+    runs
+  })
+}
+
+test_that("stored stability bounds rebuild bit for bit from runs and state", {
+  for (i in 1:40) {
+    runs <- random_stability_runs(i)
+    n_boot <- c(0, 1, 37, 200)[[i %% 4 + 1]]
+    weights <- if (i %% 3 == 0) "ordinal" else "unweighted"
+    levels <- if (weights == "ordinal") c("A", "B", "C") else NULL
+    st <- withr::with_seed(i, summarize_stability_runs(
+      runs, n_boot = n_boot, weights = weights, label_levels = levels,
+      conf_level = c(0.9, 0.95)[[i %% 2 + 1]]
+    ))
+    verified <- verify_stability_evidence(st)
+    expect_null(verified$reason, label = paste("case", i))
+    expect_identical(verified$stability, st, label = paste("case", i))
+    # A saved and reloaded object is the same evidence.
+    path <- withr::local_tempfile(fileext = ".rds")
+    saveRDS(st, path)
+    expect_identical(
+      verify_stability_evidence(readRDS(path))$stability, st,
+      label = paste("case", i)
+    )
+  }
+  # Evidence whose bootstrap ran in several chunks replays too.
+  big <- matrix("A", 3000, 2)
+  big[1:150, 2] <- "B"
+  big[151:200, 2] <- NA
+  expect_gt(400, bootstrap_chunk_cells %/% nrow(big))
+  st <- withr::with_seed(3, summarize_stability_runs(big, n_boot = 400))
+  expect_identical(verify_stability_evidence(st)$stability, st)
+  # Chunking moves no draw in the replay either.
+  st <- withr::with_seed(5, summarize_stability_runs(
+    random_stability_runs(7), n_boot = 61
+  ))
+  replay <- function(chunk_cells) {
+    runs <- st$runs
+    d <- item_pairwise_disagreement(runs)
+    with_rng_state(st$bootstrap_seed, pairwise_bootstrap(
+      d, item_worst_case_disagreement(runs, d),
+      item_best_case_disagreement(runs), 61L, st$conf_level,
+      chunk_cells = chunk_cells
+    ))
+  }
+  expect_identical(replay(7L * nrow(st$runs)), replay(bootstrap_chunk_cells))
+  expect_identical(
+    replay(1L)$pairwise$conf_high, st$pairwise_disagreement_conf_high
+  )
+})
+
+test_that("evidence from test_retest() and stability_vitals() rebuilds", {
+  judge <- function(d) sample(c("C", "P", NA), nrow(d), replace = TRUE)
+  st <- test_retest(
+    tibble::tibble(input = paste("answer", 1:30)), judge,
+    input_cols = "input", n_runs = 4, n_boot = 80, seed = 3, audit_id = "r"
+  )
+  expect_identical(verify_stability_evidence(st)$stability, st)
+  rows <- expand.grid(id = sprintf("i%02d", 1:25), epoch = 1:3,
+                      stringsAsFactors = FALSE)
+  rows$input <- paste("q", rows$id)
+  rows$score <- withr::with_seed(2, sample(c("C", "P", NA), nrow(rows), TRUE))
+  vt <- stability_vitals(rows, content_cols = "input", n_boot = 80, seed = 4)
+  expect_identical(verify_stability_evidence(vt)$stability, vt)
+  # Without a seed there is still a state, and it replays.
+  free <- stability_vitals(rows, content_cols = "input", n_boot = 80)
+  expect_identical(verify_stability_evidence(free)$stability, free)
+})
+
+test_that("bootstrap_seed is the state the item bootstrap starts from", {
+  runs <- random_stability_runs(3)
+  st <- withr::with_seed(9, summarize_stability_runs(runs, n_boot = 20))
+  expect_identical(st$bootstrap_seed, withr::with_seed(9, .Random.seed))
+  # It follows the schema, so an object without it still has every field.
+  expect_identical(names(st)[seq_along(stability_fields)], stability_fields)
+  expect_identical(names(st)[[length(stability_fields) + 1L]], "bootstrap_seed")
+  # No draws, no state, and nothing about the caller's state is touched.
+  withr::with_seed(9, {
+    before <- .Random.seed
+    none <- summarize_stability_runs(runs, n_boot = 0)
+    expect_identical(.Random.seed, before)
+  })
+  expect_true("bootstrap_seed" %in% names(none))
+  expect_null(none$bootstrap_seed)
+  withr::with_preserve_seed({
+    if (exists(".Random.seed", envir = globalenv())) {
+      rm(".Random.seed", envir = globalenv())
+    }
+    summarize_stability_runs(runs, n_boot = 0)
+    expect_false(exists(".Random.seed", envir = globalenv()))
+  })
+  # Keeping the state draws nothing: the caller's stream after the call is
+  # the stream of the same draws made directly.
+  after <- withr::with_seed(9, {
+    summarize_stability_runs(runs, n_boot = 20)
+    stats::runif(3)
+  })
+  direct <- withr::with_seed(9, {
+    for (i in 1:20) sample.int(nrow(runs), nrow(runs), replace = TRUE)
+    stats::runif(3)
+  })
+  expect_identical(after, direct)
+  # A generator kind other than the default is kept with its state.
+  lec <- withr::with_seed(
+    9, summarize_stability_runs(runs, n_boot = 20),
+    .rng_kind = "L'Ecuyer-CMRG"
+  )
+  expect_identical(verify_stability_evidence(lec)$stability, lec)
+})
+
+test_that("verifying stability evidence leaves the caller's random state alone", {
+  runs <- random_stability_runs(11)
+  lec <- withr::with_seed(
+    2, summarize_stability_runs(runs, n_boot = 30),
+    .rng_kind = "L'Ecuyer-CMRG"
+  )
+  withr::with_seed(5, {
+    before <- .Random.seed
+    expect_null(verify_stability_evidence(lec)$reason)
+    expect_identical(.Random.seed, before)
+    expect_identical(RNGkind()[[1]], "Mersenne-Twister")
+  })
+  # With no state before, none after, and the generator kinds unchanged.
+  withr::with_preserve_seed({
+    kinds <- RNGkind()
+    if (exists(".Random.seed", envir = globalenv())) {
+      rm(".Random.seed", envir = globalenv())
+    }
+    expect_null(verify_stability_evidence(lec)$reason)
+    expect_false(exists(".Random.seed", envir = globalenv()))
+    expect_identical(RNGkind(), kinds)
+  })
+})
+
+# Two runs, with holes: the bootstrap, not the Wilson interval, sets the
+# observed lower bound and both case bounds, so the draws matter.
+bootstrap_bound_runs <- function() {
+  runs <- cbind(rep("A", 60), c(rep("B", 12), rep("A", 48)))
+  runs[13:18, 2] <- NA
+  runs
+}
+
+test_that("a state with a payload word that reads as NA still replays", {
+  # A 32-bit word of the generator state equal to -2^31 is NA_integer_ in R;
+  # only the first element, the kind code, can never be NA.
+  state <- withr::with_seed(4, .Random.seed)
+  state[[100]] <- NA_integer_
+  runs <- bootstrap_bound_runs()
+  st <- withr::with_preserve_seed({
+    assign(".Random.seed", state, envir = globalenv())
+    summarize_stability_runs(runs, n_boot = 50)
+  })
+  expect_identical(st$bootstrap_seed, state)
+  verified <- verify_stability_evidence(st)
+  expect_null(verified$reason)
+  expect_identical(verified$stability, st)
+})
+
+test_that("a warning raised during a genuine rebuild is not a refusal", {
+  # The byte compiler, for one, can warn while the replay runs; that says
+  # nothing about the evidence, so it reaches the caller and the evidence
+  # still verifies.
+  runs <- bootstrap_bound_runs()
+  st <- withr::with_seed(1, summarize_stability_runs(runs, n_boot = 100))
+  replay <- pairwise_bootstrap
+  local_mocked_bindings(pairwise_bootstrap = function(...) {
+    warning("a note from the compiler")
+    replay(...)
+  })
+  expect_warning(verified <- verify_stability_evidence(st), "compiler")
+  expect_null(verified$reason)
+  expect_identical(verified$stability, st)
+})
+
+test_that("only an object of class yourhonor_stability alone is rebuilt", {
+  st <- withr::with_seed(1, summarize_stability_runs(
+    bootstrap_bound_runs(), n_boot = 100
+  ))
+  for (cls in list(c("yourhonor_stability", "data.frame"),
+                   c("other", "yourhonor_stability"))) {
+    bad <- st
+    class(bad) <- cls
+    expect_no_error(reason <- verify_stability_evidence(bad)$reason)
+    expect_identical(
+      reason, "Stability evidence cannot be rebuilt from its runs."
+    )
+  }
+})
+
+test_that("a state R refuses leaves a session without a state as it was", {
+  runs <- bootstrap_bound_runs()
+  st <- withr::with_seed(1, summarize_stability_runs(runs, n_boot = 100))
+  for (state in list(c(10403L, 1:5), st$bootstrap_seed[1:2])) {
+    bad <- st
+    bad$bootstrap_seed <- state
+    withr::with_preserve_seed({
+      kinds <- RNGkind()
+      if (exists(".Random.seed", envir = globalenv())) {
+        rm(".Random.seed", envir = globalenv())
+      }
+      expect_identical(
+        verify_stability_evidence(bad)$reason,
+        "Stability evidence cannot be rebuilt from its runs."
+      )
+      expect_false(exists(".Random.seed", envir = globalenv()))
+      expect_identical(RNGkind(), kinds)
+      expect_no_error(stats::runif(1))
+    })
+  }
+})
+
+test_that("an edited stability field does not match its rebuild", {
+  runs <- bootstrap_bound_runs()
+  st <- withr::with_seed(1, summarize_stability_runs(runs, n_boot = 100))
+  other <- withr::with_seed(2, summarize_stability_runs(runs, n_boot = 100))
+  for (field in c("pairwise_disagreement_conf_low",
+                  "pairwise_disagreement_worst_case_high",
+                  "pairwise_disagreement_best_case_low")) {
+    expect_false(identical(st[[field]], other[[field]]), label = field)
+  }
+  expect_null(verify_stability_evidence(st)$reason)
+  mismatch <- "Stored stability bounds or counts do not match their rebuild from its runs."
+  edits <- list(
+    pairwise_disagreement_conf_low = st$pairwise_disagreement_conf_low + 1e-6,
+    pairwise_disagreement_conf_high = st$pairwise_disagreement_conf_high - 1e-6,
+    pairwise_disagreement_worst_case_high = st$pairwise_disagreement_conf_high,
+    pairwise_disagreement_best_case_low = st$pairwise_disagreement_conf_low,
+    pairwise_ci_reliable = !st$pairwise_ci_reliable,
+    n_items = st$n_items + 1L,
+    n_runs = st$n_runs + 1L,
+    n_items_scored = st$n_items_scored + 1L,
+    missing_rate = 0
+  )
+  for (field in names(edits)) {
+    bad <- st
+    bad[[field]] <- edits[[field]]
+    expect_identical(
+      verify_stability_evidence(bad)$reason, mismatch, label = field
+    )
+    for (value in list(NULL, NA_real_, NaN, "0.1", c(0.1, 0.2))) {
+      bad <- st
+      bad[field] <- list(value)
+      expect_identical(
+        verify_stability_evidence(bad)$reason, mismatch, label = field
+      )
+    }
+  }
+  # An input edited alone changes the rebuild, so the stored bounds no
+  # longer match.
+  for (field in c("n_boot", "conf_level")) {
+    bad <- st
+    bad[[field]] <- if (field == "n_boot") 99 else 0.9
+    expect_identical(verify_stability_evidence(bad)$reason, mismatch)
+  }
+  for (state in list(other$bootstrap_seed, 1:3)) {
+    bad <- st
+    bad$bootstrap_seed <- state
+    expect_identical(verify_stability_evidence(bad)$reason, mismatch)
+  }
+  bad <- st
+  bad$runs[1, 1] <- if (identical(st$runs[1, 1], "B")) "A" else "B"
+  expect_identical(verify_stability_evidence(bad)$reason, mismatch)
+  # A difference inside the platform tolerance matches; the rebuilt value
+  # is the one returned.
+  near <- st
+  near$pairwise_disagreement_conf_high <- st$pairwise_disagreement_conf_high +
+    1e-12
+  verified <- verify_stability_evidence(near)
+  expect_null(verified$reason)
+  expect_identical(
+    verified$stability$pairwise_disagreement_conf_high,
+    st$pairwise_disagreement_conf_high
+  )
+})
+
+test_that("evidence that cannot be rebuilt says so", {
+  runs <- bootstrap_bound_runs()
+  st <- withr::with_seed(1, summarize_stability_runs(runs, n_boot = 100))
+  cannot <- "Stability evidence cannot be rebuilt from its runs."
+  inputs <- list(
+    runs = list(NULL, unclass(as.data.frame(runs)), matrix(1, 3, 2),
+                matrix("A", 3, 1), matrix(NA_character_, 3, 2)),
+    n_boot = list(NULL, NA_real_, -1, 1.5, "100"),
+    conf_level = list(NULL, 0, 1, NA_real_),
+    # A state that is not a whole integer vector is refused here, and R
+    # refuses one of the wrong length for its generator kind; one R accepts
+    # is a state, and replays (or fails to match) like any other.
+    bootstrap_seed = list(NULL, integer(0), c(st$bootstrap_seed[1:3], NA),
+                          as.numeric(st$bootstrap_seed), c(10403L, 1:5))
+  )
+  for (field in names(inputs)) {
+    for (value in inputs[[field]]) {
+      bad <- st
+      bad[field] <- list(value)
+      expect_identical(
+        verify_stability_evidence(bad)$reason, cannot, label = field
+      )
+    }
+  }
+  # An n_boot past the integer range cannot be rebuilt, and says so without
+  # a coercion warning (an error under options(warn = 2)).
+  for (value in c(1e12, .Machine$integer.max + 1)) {
+    bad <- st
+    bad$n_boot <- value
+    expect_no_warning(reason <- verify_stability_evidence(bad)$reason)
+    expect_identical(reason, cannot)
+  }
+  # A classed input, whose methods would dispatch, is refused, never an
+  # error out of the policy; so is a state too short for any generator R
+  # replays (R would reseed it from the clock).
+  classed <- list(
+    n_boot = structure(100, class = "numeric_version"),
+    n_boot = stats::ts(100),
+    conf_level = data.frame(x = 0.95),
+    conf_level = structure(0.95, class = "numeric_version"),
+    runs = structure(st$runs, class = "dist"),
+    bootstrap_seed = st$bootstrap_seed[1]
+  )
+  for (i in seq_along(classed)) {
+    bad <- st
+    bad[names(classed)[[i]]] <- list(classed[[i]])
+    expect_no_error(reason <- verify_stability_evidence(bad)$reason)
+    expect_identical(reason, cannot, label = names(classed)[[i]])
+  }
+  # Nor does a classed stored field, or a run matrix the rebuild cannot
+  # score, make the check raise an error.
+  for (field in c("pairwise_disagreement_conf_low", "n_items", "missing_rate")) {
+    bad <- st
+    bad[[field]] <- structure(bad[[field]], class = "POSIXlt")
+    expect_no_error(reason <- verify_stability_evidence(bad)$reason)
+    expect_false(is.null(reason))
+  }
+  wide <- st
+  wide$runs <- matrix("C", 1, 70000)
+  expect_no_condition(reason <- verify_stability_evidence(wide)$reason)
+  expect_identical(reason, cannot)
+  # An object from before the state was kept has no bootstrap_seed field.
+  old <- st
+  old$bootstrap_seed <- NULL
+  expect_false("bootstrap_seed" %in% names(old))
+  expect_identical(verify_stability_evidence(old)$reason, cannot)
+  # With no draws there is nothing to replay, so no state is needed.
+  none <- withr::with_seed(1, summarize_stability_runs(runs, n_boot = 0))
+  none$bootstrap_seed <- NULL
+  expect_identical(
+    verify_stability_evidence(none)$stability[stability_fields],
+    unclass(none)[stability_fields]
+  )
+})

@@ -44,7 +44,11 @@
 #'   fail a judge whose complete evidence would not. With nothing missing
 #'   both bounds are the observed interval's. (The separate
 #'   `max_stability_missing_rate` check can still `FAIL` on missingness
-#'   itself.) Set `NULL` explicitly when stability is outside this policy.
+#'   itself.) Every bound and count the stability checks read is rebuilt
+#'   from the evidence's `runs` and `bootstrap_seed` (see [test_retest()]);
+#'   evidence that cannot be rebuilt, or whose stored values do not match
+#'   the rebuild, makes every stability check `INDETERMINATE`. Set `NULL`
+#'   explicitly when stability is outside this policy.
 #' @param min_stability_n Minimum independent items with at least two stability
 #'   judgments (`n_items_scored`; items counted only by the worst or best
 #'   case do not count). Required when `max_pairwise_disagreement` is not `NULL` and
@@ -948,6 +952,27 @@ stability_checks <- function(x, stability, policy) {
       )
     )))
   }
+  # Every bound and count the checks read is rebuilt from the evidence's own
+  # runs and bootstrap state. Evidence that cannot be rebuilt, or whose
+  # stored values do not match, is not evidence: every check is
+  # INDETERMINATE, so an edited value can neither PASS nor FAIL.
+  verified <- verify_stability_evidence(stability)
+  if (!is.null(verified$reason)) {
+    unverified <- function(check, op, threshold) {
+      assessment_row(
+        check, "INDETERMINATE", NA_real_, op, threshold, verified$reason
+      )
+    }
+    return(list(
+      unverified(check, "upper <=", threshold),
+      unverified("stability_items", ">=", policy$min_stability_n),
+      unverified("stability_runs", ">=", policy$min_stability_runs),
+      unverified(
+        "stability_missing_rate", "<=", policy$max_stability_missing_rate
+      )
+    ))
+  }
+  stability <- verified$stability
   disagreement_row <- if (
     !same_confidence_level(stability$conf_level, policy$conf_level)
   ) {
@@ -991,11 +1016,14 @@ stability_checks <- function(x, stability, policy) {
 # A bound that is not a probability is unavailable, and so, unless the
 # evidence shows nothing missing, is one on the wrong side of the observed
 # bound (a genuine best case is never above it, nor a genuine worst case
-# below). A stored bound is otherwise trusted, not recomputed from `runs`.
-# Without the worst case (an object from before it existed) nothing can
-# PASS, and an assessed FAIL reports the observed upper. Without the best
-# case a FAIL needs evidence with nothing missing, where the observed lower
-# bound is the best case.
+# below). stability_checks() passes only evidence whose bounds match their
+# rebuild from `runs` (verify_stability_evidence()) and whose observed
+# interval is finite, so from there these are the rebuilt bounds, never NA
+# and never on the wrong side; the guards below are reached only by a direct
+# call, and keep this function safe on its own. Without the worst case
+# nothing can PASS, and an assessed FAIL reports the observed upper. Without
+# the best case a FAIL needs evidence with nothing missing, where the
+# observed lower bound is the best case.
 stability_interval_check <- function(check, stability, threshold) {
   low <- stability$pairwise_disagreement_conf_low
   high <- stability$pairwise_disagreement_conf_high

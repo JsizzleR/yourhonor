@@ -97,11 +97,11 @@ repeats can reach, or either way when they could leave it unscored),
 and for the stability disagreement check is
 \code{stability.pairwise_disagreement_worst_case_high}, which counts every
 pair involving a missing judgment as a disagreement over all \code{n_items},
-so it can exceed \code{stability.pairwise_disagreement_conf_high}; only when
-that worst-case bound is unavailable (not a number from 0 to 1, or
-below the observed upper unless the evidence shows nothing missing)
-does a
-stability \code{FAIL} report the observed upper), \code{op} (the
+so it can exceed \code{stability.pairwise_disagreement_conf_high}; when the
+stored stability fields do not match their rebuild from the run matrix
+and bootstrap state, neither of which is written here, or cannot be
+rebuilt, every stability check is \code{INDETERMINATE} with a \code{null} value),
+\code{op} (the
 comparison the check encodes: \code{">="}, \code{"<="}, \code{"lower >="},
 \code{"upper <="}, or \code{"="}), a numeric \code{threshold}, and \code{reason}. Without a
 policy the single placeholder check has \code{null} \code{op} and \code{threshold}.

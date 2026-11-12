@@ -75,6 +75,20 @@
 #'   complete items only. `any_flip_rate_worst_case` counts every item with
 #'   an observed flip or a missing judgment as flipped, over all `n_items`.
 #'
+#'   `bootstrap_seed` is the random-number state (`.Random.seed`) the item
+#'   bootstrap started from, or `NULL` for a user-supplied generator.
+#'   [acceptance_policy()] does not trust the stored bounds: it replays the
+#'   bootstrap from `runs`, `n_boot`, `conf_level` and this state, rebuilds
+#'   the four pairwise-disagreement bounds,
+#'   `pairwise_ci_reliable`, `n_items`, `n_runs`, `n_items_scored` and
+#'   `missing_rate`, and assesses the rebuilt values. Evidence whose stored
+#'   values do not match the rebuild, or that cannot be rebuilt (for
+#'   example no run matrix, or no state with `n_boot` above 0, as from a
+#'   user-supplied generator, whose evidence therefore always reads
+#'   `INDETERMINATE`), makes every stability check `INDETERMINATE`, so an
+#'   edited bound can neither pass nor fail a judge.
+#'   Replaying draws nothing from the caller's random-number stream.
+#'
 #'   `runs` holds labels in source-row order. Because every run is graded
 #'   under a fresh shuffled key, `judge_item_ids` is an integer matrix parallel
 #'   to `runs` whose entry `[i, r]` is the `.item_id` the judge saw for source
@@ -206,6 +220,7 @@ summarize_stability_runs <- function(runs,
   chance <- chance_corrected_stability(
     runs, weights, label_levels, chance_levels
   )
+  bootstrap_seed <- bootstrap_rng_state(n_boot)
   boot <- bootstrap_stability(
     runs, item_disagreement, n_boot, conf_level, weights, label_levels,
     chance_levels, worst_case = worst_case, best_case = best_case
@@ -217,16 +232,9 @@ summarize_stability_runs <- function(runs,
     boot$stability$conf_high <- NA_real_
     boot$stability$ci_reliable <- FALSE
   }
-  worst_case_high <- if (is.finite(boot$pairwise$conf_high)) {
-    max(boot$pairwise$conf_high, boot$worst_case$conf_high, na.rm = TRUE)
-  } else {
-    NA_real_
-  }
-  best_case_low <- if (is.finite(boot$pairwise$conf_low)) {
-    min(boot$pairwise$conf_low, boot$best_case$conf_low, na.rm = TRUE)
-  } else {
-    NA_real_
-  }
+  case_bounds <- assessed_case_bounds(boot)
+  worst_case_high <- case_bounds$worst_case_high
+  best_case_low <- case_bounds$best_case_low
   # An item's any-flip status at `n_runs` is known only when every run was
   # observed (a flip already seen is permanent, but an unflipped incomplete
   # item could still flip), so the rate is over complete items and the
@@ -243,7 +251,7 @@ summarize_stability_runs <- function(runs,
     boot$stability, n_boot, stability_boundary_degenerate
   )
 
-  new_yourhonor_stability(list(
+  out <- new_yourhonor_stability(list(
     per_item = per_item,
     runs = runs,
     any_flip_rate_at_n_runs = any_flip,
@@ -279,6 +287,255 @@ summarize_stability_runs <- function(runs,
     ci_reliable = pairwise_ci_reliable && stability_ci_reliable,
     audit_id = audit_id
   ))
+  # Appended after the schema, like `judge_item_ids`, so an object from
+  # before it existed still reaches the policy, which can rebuild it only
+  # when `n_boot` is 0 (verify_stability_evidence()).
+  out["bootstrap_seed"] <- list(bootstrap_seed)
+  out
+}
+
+# The random-number state the item bootstrap starts from, so the policy can
+# redraw the same items (verify_stability_evidence()). Reading it draws
+# nothing. With no state yet, R would seed itself from the clock at the first
+# draw; set.seed(NULL) does the same one step earlier, so the state is the one
+# the draws use. NULL when there are no draws, and for a user-supplied
+# generator, whose state need not live in `.Random.seed`.
+bootstrap_rng_state <- function(n_boot) {
+  if (n_boot < 1L) return(NULL)
+  if (!exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+    set.seed(NULL)
+  }
+  if (identical(RNGkind()[[1]], "user-supplied")) return(NULL)
+  get(".Random.seed", envir = globalenv(), inherits = FALSE)
+}
+
+# The two case bounds the policy assesses, from bootstrap_stability()'s
+# intervals: each is combined with the observed bound so it can only widen
+# it, and is NA when the observed bound is.
+assessed_case_bounds <- function(boot) {
+  list(
+    worst_case_high = if (is.finite(boot$pairwise$conf_high)) {
+      max(boot$pairwise$conf_high, boot$worst_case$conf_high, na.rm = TRUE)
+    } else {
+      NA_real_
+    },
+    best_case_low = if (is.finite(boot$pairwise$conf_low)) {
+      min(boot$pairwise$conf_low, boot$best_case$conf_low, na.rm = TRUE)
+    } else {
+      NA_real_
+    }
+  )
+}
+
+# Every field of a stability object that the policy reads and its runs
+# determine. verify_stability_evidence() rebuilds each one.
+stability_rebuilt_fields <- c(
+  "pairwise_disagreement_conf_low", "pairwise_disagreement_conf_high",
+  "pairwise_disagreement_worst_case_high",
+  "pairwise_disagreement_best_case_low", "pairwise_ci_reliable",
+  "n_items", "n_runs", "n_items_scored", "missing_rate"
+)
+
+# Doubles rebuilt on another platform can differ in their last bits (mean()
+# accumulates in long double where there is one). The policy assesses the
+# rebuilt values, so this allowance gives an edit no room.
+stability_rebuild_tolerance <- 1e-9
+
+# A stability object's bounds and counts rebuilt from its own `runs`,
+# `n_boot`, `conf_level` and `bootstrap_seed`, with the draws
+# summarize_stability_runs() made: each bootstrap iteration is one
+# sample.int(n, n, replace = TRUE), and nothing else draws, so restoring the
+# state replays them. Every stored field in stability_rebuilt_fields must
+# match its rebuild; the object is returned with the rebuilt values in their
+# place (bit for bit the stored ones on the platform that made it). Evidence
+# that cannot be rebuilt, or whose stored fields do not match, gives
+# `reason` instead, so a hand-edited bound can neither PASS nor FAIL.
+verify_stability_evidence <- function(stability) {
+  # Only an edited object can make the rebuild raise an error (a label R
+  # cannot translate, a state R refuses); it then cannot be rebuilt, never an
+  # error out of the policy. A warning is not caught: one raised while a
+  # genuine rebuild runs (the byte compiler's, say) says nothing about the
+  # evidence. An object of any other class is refused, since writing the
+  # rebuilt fields back would dispatch on it.
+  rebuilt <- if (identical(class(stability), "yourhonor_stability")) {
+    tryCatch(rebuild_stability_fields(stability), error = function(e) NULL)
+  }
+  if (is.null(rebuilt)) {
+    return(list(
+      stability = NULL,
+      reason = "Stability evidence cannot be rebuilt from its runs."
+    ))
+  }
+  matches <- vapply(stability_rebuilt_fields, function(field) {
+    stored_matches(stability[[field]], rebuilt[[field]])
+  }, logical(1))
+  if (!all(matches)) {
+    return(list(
+      stability = NULL,
+      reason = paste(
+        "Stored stability bounds or counts do not match their rebuild from",
+        "its runs."
+      )
+    ))
+  }
+  for (field in stability_rebuilt_fields) {
+    stability[[field]] <- rebuilt[[field]]
+  }
+  list(stability = stability, reason = NULL)
+}
+
+# A stored field matches its rebuild when both are unavailable, or both are
+# one number within the tolerance (one logical for the reliability flag).
+stored_matches <- function(stored, rebuilt) {
+  # A genuine field is never classed, and a class's methods would dispatch.
+  if (is.object(stored)) return(FALSE)
+  if (is.logical(rebuilt)) return(identical(stored, rebuilt))
+  if (!is.numeric(stored) || length(stored) != 1L) return(FALSE)
+  if (is.na(rebuilt) || is.na(stored)) {
+    return(is.na(rebuilt) && is.na(stored) && !is.nan(stored))
+  }
+  is.finite(stored) &&
+    abs(as.numeric(stored) - rebuilt) <= stability_rebuild_tolerance
+}
+
+# NULL when the inputs are not what summarize_stability_runs() writes: a
+# character matrix of at least one item and two runs with a judgment, a
+# whole n_boot in the integer range, a conf_level in (0, 1), and a state for
+# a positive n_boot: an unclassed integer vector of a kind code (its first
+# element, never NA) and at least one word, as every generator R replays
+# keeps (a lone kind code R would reseed from the clock). A later word may
+# read as NA, since -2^31 is NA_integer_ in R.
+rebuild_stability_fields <- function(stability) {
+  runs <- stability[["runs"]]
+  n_boot <- stability[["n_boot"]]
+  conf_level <- stability[["conf_level"]]
+  state <- stability[["bootstrap_seed"]]
+  # A classed input is refused before anything reads it, since its methods
+  # (dim(), ==, as.integer()) would dispatch.
+  if (any(vapply(list(runs, n_boot, conf_level, state), is.object,
+                 logical(1)))) {
+    return(NULL)
+  }
+  # More runs than give an integer count of pairs cannot be scored (nor
+  # summarized in the first place).
+  usable <- is.matrix(runs) && is.character(runs) && nrow(runs) >= 1L &&
+    ncol(runs) >= 2L && choose(ncol(runs), 2) <= .Machine$integer.max &&
+    !all(is.na(runs)) &&
+    is_finite_number(n_boot) && n_boot >= 0 && n_boot == round(n_boot) &&
+    n_boot <= .Machine$integer.max &&
+    is_finite_number(conf_level) && conf_level > 0 && conf_level < 1
+  if (!usable) return(NULL)
+  n_boot <- as.integer(n_boot)
+  if (n_boot >= 1L &&
+      !(is.integer(state) && length(state) >= 2L && !is.na(state[[1L]]))) {
+    return(NULL)
+  }
+  item_disagreement <- item_pairwise_disagreement(runs)
+  worst_case <- item_worst_case_disagreement(runs, item_disagreement)
+  best_case <- item_best_case_disagreement(runs)
+  # A state R refuses (a wrong length, an unknown kind) errors, and
+  # verify_stability_evidence() reads that as evidence it cannot rebuild.
+  boot <- with_rng_state(state, pairwise_bootstrap(
+    item_disagreement, worst_case, best_case, n_boot, conf_level
+  ))
+  case_bounds <- assessed_case_bounds(boot)
+  list(
+    pairwise_disagreement_conf_low = boot$pairwise$conf_low,
+    pairwise_disagreement_conf_high = boot$pairwise$conf_high,
+    pairwise_disagreement_worst_case_high = case_bounds$worst_case_high,
+    pairwise_disagreement_best_case_low = case_bounds$best_case_low,
+    pairwise_ci_reliable = ci_is_reliable(boot$pairwise, n_boot),
+    n_items = nrow(runs),
+    n_runs = ncol(runs),
+    n_items_scored = sum(is.finite(item_disagreement)),
+    missing_rate = mean(is.na(runs))
+  )
+}
+
+# Runs `code` from the random-number state `state` (none when NULL) and puts
+# the caller's state back afterwards, its generator kinds included, so an
+# assessment leaves the caller's stream where it was. With no state before,
+# RNGkind() resets the kinds (it writes a state, which is then removed).
+with_rng_state <- function(state, code) {
+  if (is.null(state)) return(code)
+  kinds <- RNGkind()
+  had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  old <- if (had) get(".Random.seed", envir = globalenv(), inherits = FALSE)
+  on.exit({
+    if (had) {
+      assign(".Random.seed", old, envir = globalenv())
+    } else {
+      # The replayed state goes first: RNGkind() reads the state, and one R
+      # refuses would make it error and stay behind.
+      rm_rng_state()
+      suppressWarnings(RNGkind(kinds[[1]], kinds[[2]], kinds[[3]]))
+      rm_rng_state()
+    }
+  }, add = TRUE)
+  assign(".Random.seed", state, envir = globalenv())
+  code
+}
+
+rm_rng_state <- function() {
+  if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+    rm(".Random.seed", envir = globalenv())
+  }
+}
+
+# The three pairwise intervals of bootstrap_stability() without the
+# chance-corrected coefficient, from the same draws: the item indices are
+# drawn in the same order, one sample.int(n, n, replace = TRUE) per
+# iteration, a chunk at a time.
+pairwise_bootstrap <- function(item_disagreement,
+                               worst_case,
+                               best_case,
+                               n_boot,
+                               conf_level,
+                               chunk_cells = bootstrap_chunk_cells) {
+  n <- length(item_disagreement)
+  pairwise <- numeric(n_boot)
+  worst <- numeric(n_boot)
+  best <- numeric(n_boot)
+  if (n_boot >= 1L) {
+    chunk <- max(1L, min(n_boot, chunk_cells %/% n))
+    for (first in seq(1L, n_boot, by = chunk)) {
+      iters <- first:min(n_boot, first + chunk - 1L)
+      idx <- draw_item_indices(n, length(iters))
+      pairwise[iters] <- resample_means(item_disagreement, idx)
+      worst[iters] <- resample_means(worst_case, idx)
+      best[iters] <- resample_means(best_case, idx)
+    }
+  }
+  pairwise_intervals(
+    pairwise, worst, best, item_disagreement, worst_case, best_case,
+    conf_level
+  )
+}
+
+# One column of item indices per bootstrap iteration.
+draw_item_indices <- function(n, n_iter) {
+  idx <- matrix(0L, n, n_iter)
+  for (j in seq_len(n_iter)) idx[, j] <- sample.int(n, n, replace = TRUE)
+  idx
+}
+
+resample_means <- function(x, idx) {
+  vapply(seq_len(ncol(idx)), function(j) mean_or_na(x[idx[, j]]), numeric(1))
+}
+
+pairwise_intervals <- function(pairwise, worst, best, item_disagreement,
+                               worst_case, best_case, conf_level) {
+  list(
+    pairwise = widen_to_wilson(
+      bootstrap_quantiles(pairwise, conf_level), item_disagreement, conf_level
+    ),
+    worst_case = widen_to_wilson(
+      bootstrap_quantiles(worst, conf_level), worst_case, conf_level
+    ),
+    best_case = widen_to_wilson(
+      bootstrap_quantiles(best, conf_level), best_case, conf_level
+    )
+  )
 }
 
 # Every field of a yourhonor_stability, in order. new_yourhonor_stability()
@@ -504,33 +761,25 @@ bootstrap_stability <- function(runs,
   if (n_boot >= 1L) {
     kernel <- stability_kernel(runs, weights, label_levels, chance_levels)
     chunk <- max(1L, min(n_boot, chunk_cells %/% n))
-    resample_mean <- function(x, idx) {
-      vapply(seq_len(ncol(idx)), function(j) mean_or_na(x[idx[, j]]),
-             numeric(1))
-    }
+    # pairwise_bootstrap() replays these draws for the policy, so the two
+    # share the draw, the resample mean and the intervals.
     for (first in seq(1L, n_boot, by = chunk)) {
       iters <- first:min(n_boot, first + chunk - 1L)
-      idx <- matrix(0L, n, length(iters))
-      for (j in seq_along(iters)) idx[, j] <- sample.int(n, n, replace = TRUE)
-      pairwise[iters] <- resample_mean(item_disagreement, idx)
-      worst[iters] <- resample_mean(worst_case, idx)
-      best[iters] <- resample_mean(best_case, idx)
+      idx <- draw_item_indices(n, length(iters))
+      pairwise[iters] <- resample_means(item_disagreement, idx)
+      worst[iters] <- resample_means(worst_case, idx)
+      best[iters] <- resample_means(best_case, idx)
       stability[iters] <- stability_resample_values(
         kernel, runs, idx, weights, label_levels, chance_levels
       )
     }
   }
-  list(
-    pairwise = widen_to_wilson(
-      bootstrap_quantiles(pairwise, conf_level), item_disagreement, conf_level
+  c(
+    pairwise_intervals(
+      pairwise, worst, best, item_disagreement, worst_case, best_case,
+      conf_level
     ),
-    worst_case = widen_to_wilson(
-      bootstrap_quantiles(worst, conf_level), worst_case, conf_level
-    ),
-    best_case = widen_to_wilson(
-      bootstrap_quantiles(best, conf_level), best_case, conf_level
-    ),
-    stability = bootstrap_quantiles(stability, conf_level)
+    list(stability = bootstrap_quantiles(stability, conf_level))
   )
 }
 

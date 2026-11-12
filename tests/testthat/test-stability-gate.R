@@ -21,6 +21,25 @@ gate_rows <- function(stability, policy) {
   stats::setNames(rows, vapply(rows, `[[`, "", "check"))
 }
 
+# The rows the stored values would get if the policy trusted them, so the
+# interval's own guards stay tested. The policy does not trust them: an
+# object whose stored values do not match their rebuild reads INDETERMINATE
+# on every check, which this asserts first.
+stored_rows <- function(stability, policy) {
+  if (!is.null(verify_stability_evidence(stability)$reason)) {
+    rows <- gate_rows(stability, policy)
+    testthat::expect_identical(
+      unname(vapply(rows, `[[`, "", "status")), rep("INDETERMINATE", 4L)
+    )
+  }
+  local_mocked_bindings(
+    verify_stability_evidence = function(stability) {
+      list(stability = stability, reason = NULL)
+    }
+  )
+  gate_rows(stability, policy)
+}
+
 # On items 1-25 the judge deviates in run 5 only: a different label, or NA.
 deviating_judge <- function(abstain) {
   calls <- 0
@@ -211,18 +230,18 @@ test_that("a missing or malformed worst-case bound is INDETERMINATE, never an er
     audit_id = "gate"
   ))
   expect_identical(
-    gate_rows(clean, pol)$stability_pairwise_disagreement$status, "PASS"
+    stored_rows(clean, pol)$stability_pairwise_disagreement$status, "PASS"
   )
   for (value in list(NULL, NA_real_, NaN, Inf, numeric(0), c(0.01, 0.02), "0")) {
     bad_clean <- clean
     bad_clean["pairwise_disagreement_worst_case_high"] <- list(value)
     expect_identical(
-      gate_rows(bad_clean, pol)$stability_pairwise_disagreement$status,
+      stored_rows(bad_clean, pol)$stability_pairwise_disagreement$status,
       "INDETERMINATE"
     )
     bad <- st
     bad["pairwise_disagreement_worst_case_high"] <- list(value)
-    row <- gate_rows(bad, pol)$stability_pairwise_disagreement
+    row <- stored_rows(bad, pol)$stability_pairwise_disagreement
     expect_identical(row$status, "INDETERMINATE")
   }
   # A bound below the observed upper, but inside the observed interval and
@@ -231,23 +250,23 @@ test_that("a missing or malformed worst-case bound is INDETERMINATE, never an er
   low$pairwise_disagreement_worst_case_high <- 0.08
   expect_lt(st$pairwise_disagreement_conf_low, 0.08)
   expect_gt(st$pairwise_disagreement_conf_high, 0.1)
-  row <- gate_rows(low, pol)$stability_pairwise_disagreement
+  row <- stored_rows(low, pol)$stability_pairwise_disagreement
   expect_identical(row$status, "INDETERMINATE")
   expect_equal(row$value, st$pairwise_disagreement_conf_high)
 })
 
-test_that("without a worst-case bound an observed FAIL stays FAIL", {
+test_that("the interval check alone keeps an observed FAIL without a worst-case bound", {
   runs <- cbind(rep("A", 100), c(rep("A", 60), rep("B", 40)))
   st <- withr::with_seed(1, yourhonor:::summarize_stability_runs(
     runs, n_boot = 200, audit_id = "gate"
   ))
   pol <- gate_policy(min_n = 50, min_runs = 2)
   expect_identical(
-    gate_rows(st, pol)$stability_pairwise_disagreement$status, "FAIL"
+    stored_rows(st, pol)$stability_pairwise_disagreement$status, "FAIL"
   )
   st$pairwise_disagreement_worst_case_high <- NULL
   expect_identical(
-    gate_rows(st, pol)$stability_pairwise_disagreement$status, "FAIL"
+    stored_rows(st, pol)$stability_pairwise_disagreement$status, "FAIL"
   )
 })
 
@@ -427,20 +446,20 @@ test_that("the best case is below every completion's interval on the same draws"
   }
 })
 
-test_that("a missing or malformed best-case bound blocks a FAIL only when judgments are missing", {
+test_that("the interval check alone: a malformed best-case bound blocks a FAIL only when judgments are missing", {
   pol <- gate_policy(max_missing = 0.5, min_n = 50, min_runs = 2)
   holed <- cbind(rep("A", 100), c(rep("A", 60), rep("B", 38), NA, NA))
   complete <- cbind(rep("A", 100), c(rep("A", 60), rep("B", 40)))
   st_holed <- summarize_gate(holed, 200)
   st_complete <- summarize_gate(complete, 200)
-  status <- function(st) gate_rows(st, pol)$stability_pairwise_disagreement$status
+  status <- function(st) stored_rows(st, pol)$stability_pairwise_disagreement$status
   expect_identical(status(st_holed), "FAIL")
   expect_identical(status(st_complete), "FAIL")
   for (value in list(NULL, NA_real_, NaN, Inf, -0.1, 2, numeric(0),
                      c(0.3, 0.4), "0.3", TRUE)) {
     bad <- st_holed
     bad["pairwise_disagreement_best_case_low"] <- list(value)
-    row <- gate_rows(bad, pol)$stability_pairwise_disagreement
+    row <- stored_rows(bad, pol)$stability_pairwise_disagreement
     expect_identical(row$status, "INDETERMINATE")
     expect_match(row$reason, "best-case stability bound", fixed = TRUE)
     # With nothing missing the observed lower bound is the best case.
@@ -463,13 +482,13 @@ test_that("a missing or malformed best-case bound blocks a FAIL only when judgme
   expect_identical(status(clean), "PASS")
 })
 
-test_that("with nothing missing a stored best case cannot move the lower bound", {
+test_that("the interval check alone: with nothing missing a stored best case cannot move the lower bound", {
   pol <- gate_policy(max_missing = 0.5, min_n = 50, min_runs = 2)
   st <- summarize_gate(cbind(rep("A", 100), c(rep("A", 60), rep("B", 40))), 200)
   for (value in list(0, 0.05)) {
     bad <- st
     bad$pairwise_disagreement_best_case_low <- value
-    row <- gate_rows(bad, pol)$stability_pairwise_disagreement
+    row <- stored_rows(bad, pol)$stability_pairwise_disagreement
     expect_identical(row$status, "FAIL")
   }
 })
@@ -484,7 +503,7 @@ test_that("an observed interval outside [0, 1] is unavailable, not assessed", {
     bad$pairwise_disagreement_conf_high <- bounds[[2]]
     bad$pairwise_disagreement_best_case_low <- 0
     bad$pairwise_disagreement_worst_case_high <- 0.1
-    row <- gate_rows(bad, pol)$stability_pairwise_disagreement
+    row <- stored_rows(bad, pol)$stability_pairwise_disagreement
     expect_identical(row$status, "INDETERMINATE")
     expect_identical(row$reason, "Interval is unavailable.")
   }
@@ -494,14 +513,14 @@ test_that("a worst-case bound that is not a probability cannot PASS", {
   pol <- gate_policy(max_missing = 0.5, min_n = 50, min_runs = 2)
   st <- summarize_gate(cbind(rep("A", 100), c(rep("A", 95), NA, NA, NA, NA, NA)), 200)
   expect_identical(
-    gate_rows(st, pol)$stability_pairwise_disagreement$status, "INDETERMINATE"
+    stored_rows(st, pol)$stability_pairwise_disagreement$status, "INDETERMINATE"
   )
   expect_lt(st$pairwise_disagreement_conf_high, 0.1)
   for (value in list(-1, 1.5)) {
     bad <- st
     bad$pairwise_disagreement_worst_case_high <- value
     expect_identical(
-      gate_rows(bad, pol)$stability_pairwise_disagreement$status,
+      stored_rows(bad, pol)$stability_pairwise_disagreement$status,
       "INDETERMINATE"
     )
   }
@@ -513,12 +532,12 @@ test_that("an unavailable count or missing rate is INDETERMINATE, never FAIL or 
   for (value in list(NA_integer_, NA_real_, NaN, NULL, c(1, 2), "100")) {
     bad <- st
     bad["n_items_scored"] <- list(value)
-    row <- gate_rows(bad, pol)$stability_items
+    row <- stored_rows(bad, pol)$stability_items
     expect_identical(row$status, "INDETERMINATE")
     expect_identical(row$reason, "Sample size is unavailable.")
     bad <- st
     bad["missing_rate"] <- list(value)
-    row <- gate_rows(bad, pol)$stability_missing_rate
+    row <- stored_rows(bad, pol)$stability_missing_rate
     expect_identical(row$status, "INDETERMINATE")
     expect_identical(row$reason, "Missing rate is unavailable.")
     expect_true(is.na(row$value))
@@ -625,7 +644,7 @@ test_that("a malformed observed interval is INDETERMINATE, never an error", {
     for (value in list(NULL, c(0.01, 0.02), "0.01")) {
       bad <- st
       bad[field] <- list(value)
-      row <- gate_rows(bad, pol)$stability_pairwise_disagreement
+      row <- stored_rows(bad, pol)$stability_pairwise_disagreement
       expect_identical(row$status, "INDETERMINATE")
     }
   }
@@ -638,14 +657,14 @@ test_that("a reversed observed interval is not repaired by the worst-case bound"
   reversed$pairwise_disagreement_conf_low <- 0.20
   reversed$pairwise_disagreement_conf_high <- 0.15
   reversed$pairwise_disagreement_worst_case_high <- 0.30
-  row <- gate_rows(reversed, pol)$stability_pairwise_disagreement
+  row <- stored_rows(reversed, pol)$stability_pairwise_disagreement
   expect_identical(row$status, "INDETERMINATE")
   expect_match(row$reason, "reversed")
   narrow <- st
   narrow$pairwise_disagreement_conf_low <- 0.05
   narrow$pairwise_disagreement_conf_high <- 0.04
   narrow$pairwise_disagreement_worst_case_high <- 0.08
-  row <- gate_rows(narrow, pol)$stability_pairwise_disagreement
+  row <- stored_rows(narrow, pol)$stability_pairwise_disagreement
   expect_identical(row$status, "INDETERMINATE")
 })
 
@@ -675,12 +694,12 @@ test_that("a stored worst case below the observed upper cannot PASS a holed inte
   st <- summarize_gate(runs, 200)
   expect_gte(st$pairwise_disagreement_worst_case_high,
              st$pairwise_disagreement_conf_high)
-  status <- function(x) gate_rows(x, pol)$stability_pairwise_disagreement$status
+  status <- function(x) stored_rows(x, pol)$stability_pairwise_disagreement$status
   expect_identical(status(st), "INDETERMINATE")
   for (value in list(0, st$pairwise_disagreement_conf_high / 2)) {
     bad <- st
     bad$pairwise_disagreement_worst_case_high <- value
-    row <- gate_rows(bad, pol)$stability_pairwise_disagreement
+    row <- stored_rows(bad, pol)$stability_pairwise_disagreement
     expect_identical(row$status, "INDETERMINATE")
     expect_match(row$reason, "worst-case stability bound", fixed = TRUE)
   }
@@ -700,13 +719,181 @@ test_that("a stored best case above the observed lower bound cannot hold a holed
   expect_lte(st$pairwise_disagreement_best_case_low,
              st$pairwise_disagreement_conf_low)
   expect_gt(st$pairwise_disagreement_conf_low, 0.75)
-  status <- function(x) gate_rows(x, pol)$stability_pairwise_disagreement$status
+  status <- function(x) stored_rows(x, pol)$stability_pairwise_disagreement$status
   expect_identical(status(st), "INDETERMINATE")
   for (value in list(1, (st$pairwise_disagreement_conf_low + 1) / 2)) {
     bad <- st
     bad$pairwise_disagreement_best_case_low <- value
-    row <- gate_rows(bad, pol)$stability_pairwise_disagreement
+    row <- stored_rows(bad, pol)$stability_pairwise_disagreement
     expect_identical(row$status, "INDETERMINATE")
     expect_match(row$reason, "best-case stability bound", fixed = TRUE)
   }
+})
+
+# Hand-edited stability evidence: the policy rebuilds every bound and count
+# it reads from the object's runs and bootstrap state, so an edit can
+# neither PASS nor FAIL a judge.
+statuses <- function(rows) vapply(rows, `[[`, "", "status")
+mismatch_reason <- "Stored stability bounds or counts do not match their rebuild from its runs."
+
+# 300 items over three runs: 10 disagree once and 25 miss a judgment. The
+# observed upper clears 0.1; the worst case does not.
+holed_retest <- function() {
+  runs <- matrix("A", 300, 3)
+  runs[1:10, 3] <- "B"
+  runs[11:35, 3] <- NA
+  summarize_gate(runs, 200)
+}
+
+test_that("an edited worst case cannot PASS holed evidence", {
+  pol <- gate_policy(max_missing = 0.05, min_n = 50, min_runs = 2)
+  st <- holed_retest()
+  expect_lt(st$pairwise_disagreement_conf_high, 0.1)
+  expect_gt(st$pairwise_disagreement_worst_case_high, 0.1)
+  expect_identical(
+    gate_rows(st, pol)$stability_pairwise_disagreement$status, "INDETERMINATE"
+  )
+  # The worst case set to the observed upper, which a genuine bound may
+  # equal: before, the policy trusted it and passed.
+  bad <- st
+  bad$pairwise_disagreement_worst_case_high <- st$pairwise_disagreement_conf_high
+  rows <- gate_rows(bad, pol)
+  expect_identical(unname(statuses(rows)), rep("INDETERMINATE", 4))
+  expect_identical(
+    unname(vapply(rows, `[[`, "", "reason")), rep(mismatch_reason, 4)
+  )
+  expect_true(all(is.na(vapply(rows, `[[`, 0, "value"))))
+  expect_identical(
+    names(rows),
+    c("stability_pairwise_disagreement", "stability_items", "stability_runs",
+      "stability_missing_rate")
+  )
+  expect_identical(
+    vapply(rows, `[[`, 0, "threshold"),
+    vapply(gate_rows(st, pol), `[[`, 0, "threshold")
+  )
+})
+
+test_that("edited observed bounds cannot PASS complete evidence", {
+  pol <- gate_policy(max_missing = 0, min_n = 50, min_runs = 2)
+  runs <- matrix("A", 100, 3)
+  runs[1:40, 3] <- "B"
+  st <- summarize_gate(runs, 200)
+  expect_identical(
+    gate_rows(st, pol)$stability_pairwise_disagreement$status, "FAIL"
+  )
+  bad <- st
+  bad$pairwise_disagreement_conf_low <- 0.01
+  bad$pairwise_disagreement_conf_high <- 0.05
+  bad$pairwise_disagreement_worst_case_high <- 0.05
+  bad$pairwise_disagreement_best_case_low <- 0.01
+  expect_identical(unname(statuses(gate_rows(bad, pol))), rep("INDETERMINATE", 4))
+})
+
+test_that("an edited bound or count cannot FAIL a judge that passes", {
+  pol <- gate_policy(max_missing = 0, min_n = 50, min_runs = 2)
+  st <- summarize_gate(matrix("A", 100, 3), 200)
+  expect_identical(unname(statuses(gate_rows(st, pol))), rep("PASS", 4))
+  bad <- st
+  bad$pairwise_disagreement_conf_low <- 0.5
+  bad$pairwise_disagreement_conf_high <- 0.6
+  bad$pairwise_disagreement_worst_case_high <- 0.6
+  bad$pairwise_disagreement_best_case_low <- 0.5
+  expect_identical(unname(statuses(gate_rows(bad, pol))), rep("INDETERMINATE", 4))
+  bad <- st
+  bad$missing_rate <- 0.5
+  expect_identical(unname(statuses(gate_rows(bad, pol))), rep("INDETERMINATE", 4))
+})
+
+test_that("an edited missing rate or count cannot clear its check", {
+  pol <- gate_policy(max_missing = 0.01, min_n = 50, min_runs = 2)
+  st <- holed_retest()
+  rows <- gate_rows(st, pol)
+  expect_identical(rows$stability_missing_rate$status, "FAIL")
+  bad <- st
+  bad$missing_rate <- 0
+  expect_identical(unname(statuses(gate_rows(bad, pol))), rep("INDETERMINATE", 4))
+  small <- summarize_gate(matrix(c(rep("A", 40), rep("A", 40)), 40, 2), 200)
+  expect_identical(
+    gate_rows(small, pol)$stability_items$status, "INDETERMINATE"
+  )
+  bad <- small
+  bad$n_items_scored <- 60L
+  rows <- gate_rows(bad, pol)
+  expect_identical(rows$stability_items$reason, mismatch_reason)
+})
+
+test_that("stability evidence that cannot be rebuilt is INDETERMINATE", {
+  pol <- gate_policy(max_missing = 0, min_n = 50, min_runs = 2)
+  st <- summarize_gate(matrix("A", 100, 3), 200)
+  for (field in c("bootstrap_seed", "runs")) {
+    old <- st
+    old[[field]] <- NULL
+    rows <- gate_rows(old, pol)
+    expect_identical(unname(statuses(rows)), rep("INDETERMINATE", 4))
+    expect_identical(
+      rows$stability_runs$reason,
+      "Stability evidence cannot be rebuilt from its runs."
+    )
+  }
+})
+
+test_that("genuine stability evidence gets the checks it got before", {
+  # The rows with the rebuild are the rows the stored values give: the
+  # rebuild is bit for bit the stored evidence.
+  cal <- gate_calibration("gate")
+  cases <- list(
+    holed_retest(), summarize_gate(matrix("A", 100, 3), 200),
+    summarize_gate(aab_runs(), 300), deviating_retest(TRUE),
+    deviating_retest(FALSE), hidden_vitals(TRUE), hidden_vitals(FALSE)
+  )
+  for (threshold in c(0.05, 0.1, 0.4, 0.85)) {
+    pol <- gate_policy(max_missing = 0.2, min_n = 50, min_runs = 2,
+                       max_disagreement = threshold)
+    with_rebuild <- lapply(cases, function(st) stability_checks(cal, st, pol))
+    stored <- local({
+      local_mocked_bindings(
+        verify_stability_evidence = function(stability) {
+          list(stability = stability, reason = NULL)
+        }
+      )
+      lapply(cases, function(st) stability_checks(cal, st, pol))
+    })
+    expect_identical(with_rebuild, stored)
+  }
+  # A genuine bad judge with complete evidence still FAILs.
+  pol <- gate_policy(max_missing = 0.2, min_n = 50, min_runs = 2,
+                     max_disagreement = 0.05)
+  expect_identical(
+    gate_rows(deviating_retest(FALSE), pol)$stability_pairwise_disagreement$status,
+    "FAIL"
+  )
+})
+
+test_that("report() and write_audit() do not pass edited stability evidence", {
+  cal <- make_cal()
+  pol <- make_policy(max_pairwise_disagreement = 0.1)
+  st <- make_stability()
+  expect_identical(report(cal, stability = st, policy = pol)$decision, "PASS")
+  bad <- st
+  bad$pairwise_disagreement_conf_low <- 0.5
+  bad$pairwise_disagreement_conf_high <- 0.6
+  bad$pairwise_disagreement_worst_case_high <- 0.6
+  bad$pairwise_disagreement_best_case_low <- 0.5
+  rep <- report(cal, stability = bad, policy = pol)
+  expect_identical(rep$decision, "INDETERMINATE")
+  stab <- rep$checks[startsWith(rep$checks$check, "stability"), ]
+  expect_identical(stab$status, rep("INDETERMINATE", 4))
+  expect_identical(unique(stab$reason), mismatch_reason)
+  path <- withr::local_tempfile(fileext = ".json")
+  write_audit(cal, path, stability = bad, policy = pol)
+  json <- jsonlite::read_json(path)
+  checks <- Filter(function(row) startsWith(row$check, "stability"), json$checks)
+  expect_length(checks, 4)
+  for (row in checks) {
+    expect_identical(row$status, "INDETERMINATE")
+    expect_null(row$value)
+  }
+  # The JSON writes neither the run matrix nor the state.
+  expect_false(any(c("runs", "bootstrap_seed") %in% names(json$stability)))
 })
