@@ -81,7 +81,12 @@ acceptance_policy(
   cannot fail a judge whose complete evidence would not. With nothing
   missing both bounds are the observed interval's. (The separate
   `max_stability_missing_rate` check can still `FAIL` on missingness
-  itself.) Set `NULL` explicitly when stability is outside this policy.
+  itself.) Every bound and count the stability checks read is rebuilt
+  from the evidence's `runs` and `bootstrap_seed` (see
+  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md));
+  evidence that cannot be rebuilt, or whose stored values do not match
+  the rebuild, makes every stability check `INDETERMINATE`. Set `NULL`
+  explicitly when stability is outside this policy.
 
 - min_stability_n:
 

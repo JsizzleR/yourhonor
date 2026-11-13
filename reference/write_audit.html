@@ -154,11 +154,11 @@ repeats can reach, or either way when they could leave it unscored),
 and for the stability disagreement check is
 <code>stability.pairwise_disagreement_worst_case_high</code>, which counts every
 pair involving a missing judgment as a disagreement over all <code>n_items</code>,
-so it can exceed <code>stability.pairwise_disagreement_conf_high</code>; only when
-that worst-case bound is unavailable (not a number from 0 to 1, or
-below the observed upper unless the evidence shows nothing missing)
-does a
-stability <code>FAIL</code> report the observed upper), <code>op</code> (the
+so it can exceed <code>stability.pairwise_disagreement_conf_high</code>; when the
+stored stability fields do not match their rebuild from the run matrix
+and bootstrap state, neither of which is written here, or cannot be
+rebuilt, every stability check is <code>INDETERMINATE</code> with a <code>null</code> value),
+<code>op</code> (the
 comparison the check encodes: <code>"&gt;="</code>, <code>"&lt;="</code>, <code>"lower &gt;="</code>,
 <code>"upper &lt;="</code>, or <code>"="</code>), a numeric <code>threshold</code>, and <code>reason</code>. Without a
 policy the single placeholder check has <code>null</code> <code>op</code> and <code>threshold</code>.</p></li>

@@ -167,6 +167,19 @@ every run observed (<code>NA</code> when there are none), since an incomplete it
 had fewer chances to flip; under selective abstention it describes
 complete items only. <code>any_flip_rate_worst_case</code> counts every item with
 an observed flip or a missing judgment as flipped, over all <code>n_items</code>.</p>
+<p><code>bootstrap_seed</code> is the random-number state (<code>.Random.seed</code>) the item
+bootstrap started from, or <code>NULL</code> for a user-supplied generator.
+<code><a href="acceptance_policy.html">acceptance_policy()</a></code> does not trust the stored bounds: it replays the
+bootstrap from <code>runs</code>, <code>n_boot</code>, <code>conf_level</code> and this state, rebuilds
+the four pairwise-disagreement bounds,
+<code>pairwise_ci_reliable</code>, <code>n_items</code>, <code>n_runs</code>, <code>n_items_scored</code> and
+<code>missing_rate</code>, and assesses the rebuilt values. Evidence whose stored
+values do not match the rebuild, or that cannot be rebuilt (for
+example no run matrix, or no state with <code>n_boot</code> above 0, as from a
+user-supplied generator, whose evidence therefore always reads
+<code>INDETERMINATE</code>), makes every stability check <code>INDETERMINATE</code>, so an
+edited bound can neither pass nor fail a judge.
+Replaying draws nothing from the caller's random-number stream.</p>
 <p><code>runs</code> holds labels in source-row order. Because every run is graded
 under a fresh shuffled key, <code>judge_item_ids</code> is an integer matrix parallel
 to <code>runs</code> whose entry <code>[i, r]</code> is the <code>.item_id</code> the judge saw for source

@@ -106,7 +106,21 @@
   `FAIL`. Without a policy the report is descriptive. It prints to the
   console or renders as Markdown, and its agreement and stability
   headlines show the bounds the policy assesses beside the observed
-  interval.
+  interval (for stability, the stored bounds, which the policy assesses
+  only when they match their rebuild).
+- The policy rebuilds every stability bound and count it reads (the four
+  pairwise-disagreement bounds, `pairwise_ci_reliable`, `n_items`,
+  `n_runs`, `n_items_scored`, `missing_rate`) from the evidence’s
+  `runs`, `n_boot`, `conf_level` and the random-number state its
+  bootstrap started from, which
+  [`test_retest()`](https://jsizzler.github.io/yourhonor/reference/test_retest.md)
+  and
+  [`stability_vitals()`](https://jsizzler.github.io/yourhonor/reference/stability_vitals.md)
+  keep as `bootstrap_seed` (not written to the audit JSON). Evidence
+  whose stored values do not match the rebuild, or that cannot be
+  rebuilt, reads `INDETERMINATE` on every stability check, so a
+  hand-edited bound can neither pass nor fail a judge. Complete,
+  unedited evidence gets exactly the result it got before.
 - Every piece of evidence can carry an `audit_id`, and
   [`report()`](https://jsizzler.github.io/yourhonor/reference/report.md)
   refuses to bind evidence tagged for a different judge.

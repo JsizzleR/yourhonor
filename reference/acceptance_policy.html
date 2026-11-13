@@ -119,7 +119,11 @@ favourable labels for them, so abstaining on runs that agree cannot
 fail a judge whose complete evidence would not. With nothing missing
 both bounds are the observed interval's. (The separate
 <code>max_stability_missing_rate</code> check can still <code>FAIL</code> on missingness
-itself.) Set <code>NULL</code> explicitly when stability is outside this policy.</p></dd>
+itself.) Every bound and count the stability checks read is rebuilt
+from the evidence's <code>runs</code> and <code>bootstrap_seed</code> (see <code><a href="test_retest.html">test_retest()</a></code>);
+evidence that cannot be rebuilt, or whose stored values do not match
+the rebuild, makes every stability check <code>INDETERMINATE</code>. Set <code>NULL</code>
+explicitly when stability is outside this policy.</p></dd>
 
 
 <dt id="arg-min-stability-n">min_stability_n<a class="anchor" aria-label="anchor" href="#arg-min-stability-n"></a></dt>

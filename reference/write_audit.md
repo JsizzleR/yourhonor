@@ -120,13 +120,13 @@ exponent (`0.0`, `1.0`), even when it is whole. Top-level members:
   `stability.pairwise_disagreement_worst_case_high`, which counts every
   pair involving a missing judgment as a disagreement over all
   `n_items`, so it can exceed
-  `stability.pairwise_disagreement_conf_high`; only when that worst-case
-  bound is unavailable (not a number from 0 to 1, or below the observed
-  upper unless the evidence shows nothing missing) does a stability
-  `FAIL` report the observed upper), `op` (the comparison the check
-  encodes: `">="`, `"<="`, `"lower >="`, `"upper <="`, or `"="`), a
-  numeric `threshold`, and `reason`. Without a policy the single
-  placeholder check has `null` `op` and `threshold`.
+  `stability.pairwise_disagreement_conf_high`; when the stored stability
+  fields do not match their rebuild from the run matrix and bootstrap
+  state, neither of which is written here, or cannot be rebuilt, every
+  stability check is `INDETERMINATE` with a `null` value), `op` (the
+  comparison the check encodes: `">="`, `"<="`, `"lower >="`,
+  `"upper <="`, or `"="`), a numeric `threshold`, and `reason`. Without
+  a policy the single placeholder check has `null` `op` and `threshold`.
 
 - `calibration`: `n_input`, `n_items`, `n_excluded`, `n_consensus_ties`,
   `n_insufficient_human_ratings`, `n_judge_abstentions`,

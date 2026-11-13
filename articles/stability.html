@@ -132,7 +132,12 @@ deterministic: run-to-run variation in a real judge is exactly what this
 measures. A policy gates it with <code>max_pairwise_disagreement</code>,
 <code>min_stability_n</code>, <code>min_stability_runs</code> and
 <code>max_stability_missing_rate</code>;
-<code><a href="../articles/policies-audit.html">vignette("policies-audit")</a></code> applies them.</p>
+<code><a href="../articles/policies-audit.html">vignette("policies-audit")</a></code> applies them. The policy does
+not take the stored bounds on trust: it replays the bootstrap from the
+object’s <code>runs</code> and the random-number state the bootstrap
+started from (<code>bootstrap_seed</code>), and evidence whose stored
+bounds or counts do not match that rebuild, or that cannot be rebuilt,
+reads <code>INDETERMINATE</code> on every stability check.</p>
 </div>
 <div class="section level2">
 <h2 id="reuse-vitals-scores">Reuse vitals scores<a class="anchor" aria-label="anchor" href="#reuse-vitals-scores"></a>

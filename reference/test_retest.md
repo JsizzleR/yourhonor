@@ -134,6 +134,20 @@ had fewer chances to flip; under selective abstention it describes
 complete items only. `any_flip_rate_worst_case` counts every item with
 an observed flip or a missing judgment as flipped, over all `n_items`.
 
+`bootstrap_seed` is the random-number state (`.Random.seed`) the item
+bootstrap started from, or `NULL` for a user-supplied generator.
+[`acceptance_policy()`](https://jsizzler.github.io/yourhonor/reference/acceptance_policy.md)
+does not trust the stored bounds: it replays the bootstrap from `runs`,
+`n_boot`, `conf_level` and this state, rebuilds the four
+pairwise-disagreement bounds, `pairwise_ci_reliable`, `n_items`,
+`n_runs`, `n_items_scored` and `missing_rate`, and assesses the rebuilt
+values. Evidence whose stored values do not match the rebuild, or that
+cannot be rebuilt (for example no run matrix, or no state with `n_boot`
+above 0, as from a user-supplied generator, whose evidence therefore
+always reads `INDETERMINATE`), makes every stability check
+`INDETERMINATE`, so an edited bound can neither pass nor fail a judge.
+Replaying draws nothing from the caller's random-number stream.
+
 `runs` holds labels in source-row order. Because every run is graded
 under a fresh shuffled key, `judge_item_ids` is an integer matrix
 parallel to `runs` whose entry `[i, r]` is the `.item_id` the judge saw

@@ -85,7 +85,11 @@ run-to-run variation in a real judge is exactly what this measures. A
 policy gates it with `max_pairwise_disagreement`, `min_stability_n`,
 `min_stability_runs` and `max_stability_missing_rate`;
 [`vignette("policies-audit")`](https://jsizzler.github.io/yourhonor/articles/policies-audit.md)
-applies them.
+applies them. The policy does not take the stored bounds on trust: it
+replays the bootstrap from the object’s `runs` and the random-number
+state the bootstrap started from (`bootstrap_seed`), and evidence whose
+stored bounds or counts do not match that rebuild, or that cannot be
+rebuilt, reads `INDETERMINATE` on every stability check.
 
 ## Reuse vitals scores
 
